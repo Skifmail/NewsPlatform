@@ -1,0 +1,247 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  [data-theme='dark'] {
+    --panel-bg-rgb: 26 28 44;
+    --panel-surface-rgb: 33 36 53;
+    --panel-elevated-rgb: 40 43 61;
+    --panel-hover-rgb: 46 50 72;
+    --panel-border-rgb: 50 54 82;
+    --panel-muted-rgb: 92 99 120;
+    --accent-rgb: 15 180 147;
+    --accent-dark-rgb: 0 137 123;
+    --accent-muted: rgba(15, 180, 147, 0.14);
+    --danger-rgb: 239 83 80;
+    --info-rgb: 66 165 245;
+    --purple-rgb: 142 36 170;
+    --text-primary: #e8eaef;
+    --text-secondary: #8b92a8;
+    --text-tertiary: #6b7289;
+    --purple-text: #ce93d8;
+    --overlay-bg: rgba(0, 0, 0, 0.75);
+    --shadow-panel: 0 4px 24px rgba(0, 0, 0, 0.35);
+    --shadow-glow: 0 0 0 1px rgba(15, 180, 147, 0.25);
+    --selection-bg: rgba(15, 180, 147, 0.35);
+    --selection-color: #fff;
+    --body-gradient:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(15, 180, 147, 0.08), transparent),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(33, 36, 53, 0.6), transparent);
+  }
+
+  [data-theme='light'] {
+    --panel-bg-rgb: 238 241 246;
+    --panel-surface-rgb: 255 255 255;
+    --panel-elevated-rgb: 248 249 252;
+    --panel-hover-rgb: 232 236 243;
+    --panel-border-rgb: 213 219 230;
+    --panel-muted-rgb: 139 148 168;
+    --accent-rgb: 10 158 130;
+    --accent-dark-rgb: 0 137 123;
+    --accent-muted: rgba(10, 158, 130, 0.12);
+    --danger-rgb: 211 47 47;
+    --info-rgb: 25 118 210;
+    --purple-rgb: 123 31 162;
+    --text-primary: #1a1f2e;
+    --text-secondary: #5c6578;
+    --text-tertiary: #8b94a8;
+    --purple-text: #7b1fa2;
+    --overlay-bg: rgba(26, 31, 46, 0.45);
+    --shadow-panel: 0 4px 20px rgba(26, 31, 46, 0.1);
+    --shadow-glow: 0 0 0 1px rgba(10, 158, 130, 0.2);
+    --selection-bg: rgba(10, 158, 130, 0.25);
+    --selection-color: #1a1f2e;
+    --body-gradient:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(10, 158, 130, 0.07), transparent),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(213, 219, 230, 0.7), transparent);
+  }
+
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-panel-bg text-[var(--text-primary)] font-sans;
+    background-image: var(--body-gradient);
+    min-height: 100dvh;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  ::selection {
+    background: var(--selection-bg);
+    color: var(--selection-color);
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgb(var(--panel-bg-rgb));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--panel-border-rgb));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--accent-dark-rgb));
+  }
+}
+
+@layer components {
+  .panel-card {
+    @apply bg-panel-surface border border-panel-border rounded-panel;
+  }
+
+  .panel-card-elevated {
+    @apply panel-card bg-panel-elevated;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-pill
+      transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-dark active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply btn bg-panel-hover text-[var(--text-primary)] border border-panel-border
+      hover:border-accent/40 hover:text-accent;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-[var(--text-secondary)] hover:bg-panel-hover hover:text-[var(--text-primary)];
+  }
+
+  .btn-danger {
+    @apply btn bg-danger/15 text-danger border border-danger/30 hover:bg-danger/25;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .input {
+    @apply w-full bg-panel-bg border border-panel-border rounded-lg px-3 py-2.5 text-sm
+      text-[var(--text-primary)] placeholder:text-panel-muted
+      focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors;
+  }
+
+  .select {
+    @apply input appearance-none cursor-pointer;
+  }
+
+  .input-panel {
+    @apply input;
+  }
+
+  select.input-panel {
+    @apply cursor-pointer;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-pill;
+  }
+
+  .badge-accent {
+    @apply badge bg-accent-muted text-accent;
+  }
+
+  .badge-muted {
+    @apply badge bg-panel-hover text-[var(--text-secondary)];
+  }
+
+  .badge-info {
+    @apply badge bg-info/15 text-info;
+  }
+
+  .badge-purple {
+    @apply badge bg-tag-purple/15 text-[var(--purple-text)];
+  }
+
+  .badge-danger {
+    @apply badge bg-danger/15 text-danger;
+  }
+
+  .table-panel {
+    @apply w-full text-sm text-left;
+  }
+
+  .table-panel thead {
+    @apply text-[var(--text-secondary)] text-xs uppercase tracking-wider border-b border-panel-border;
+  }
+
+  .table-panel th {
+    @apply px-4 py-3 font-medium;
+  }
+
+  .table-panel td {
+    @apply px-4 py-3 border-b border-panel-border/60;
+  }
+
+  .table-panel tbody tr {
+    @apply transition-colors hover:bg-panel-hover/50;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-pill text-sm font-medium
+      text-[var(--text-secondary)] transition-all duration-200;
+  }
+
+  .nav-item:hover {
+    @apply text-[var(--text-primary)] bg-panel-hover/60;
+  }
+
+  .nav-item-active {
+    @apply nav-item bg-accent text-white shadow-glow;
+  }
+
+  .nav-item-active:hover {
+    @apply bg-accent-dark text-white;
+  }
+
+  .stat-card {
+    @apply panel-card p-4 flex flex-col gap-1 min-w-0;
+  }
+
+  .stat-label {
+    @apply text-xs text-[var(--text-secondary)] uppercase tracking-wide;
+  }
+
+  .stat-value {
+    @apply text-2xl font-semibold text-[var(--text-primary)] tabular-nums;
+  }
+
+  .stat-sub {
+    @apply text-xs text-accent tabular-nums;
+  }
+
+  .empty-state {
+    @apply panel-card p-12 text-center text-[var(--text-secondary)];
+  }
+
+  .toggle {
+    @apply relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-pill
+      bg-panel-hover border border-panel-border transition-colors;
+  }
+
+  .toggle-on {
+    @apply bg-accent border-accent;
+  }
+
+  .toggle-thumb {
+    @apply pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+      transition translate-x-0.5 mt-0.5;
+  }
+
+  .toggle-on .toggle-thumb {
+    @apply translate-x-5;
+  }
+}

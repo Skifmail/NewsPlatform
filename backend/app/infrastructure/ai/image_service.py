@@ -1,0 +1,421 @@
+"""Выбор и генерация изображений для постов."""
+
+from io import BytesIO
+
+import httpx
+from loguru import logger
+from openai import AsyncOpenAI
+from PIL import Image
+
+from app.core.config import get_settings
+from app.domain.enums import ImageSource
+from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
+from app.infrastructure.ai.image_prompt_builder import (
+    ImagePromptBuilder,
+    QWEN_LOGO_EDIT_NEGATIVE,
+    QWEN_NEWS_NEGATIVE,
+    QWEN_NO_TEXT_NEGATIVE,
+)
+from app.infrastructure.ai.qwen_image_chain import (
+    resolve_edit_models,
+    resolve_generate_models,
+)
+from app.infrastructure.ai.qwen_image_client import QwenImageClient
+from app.infrastructure.models.channel import Channel
+from app.infrastructure.models.raw_post import RawPost
+from app.infrastructure.parsers.github_repo_logo import GitHubRepoLogoFetcher
+from app.infrastructure.parsers.image_extract import (
+    extract_image_from_html,
+    is_social_preview_image,
+)
+
+_USER_AGENT = "Mozilla/5.0 (compatible; NewsPlatform/1.0)"
+_PAGE_FETCH_TIMEOUT = 20.0
+
+
+class ImageService:
+    """Определяет изображение для публикации."""
+
+    def __init__(
+        self,
+        *,
+        generate_models: list[str] | None = None,
+        edit_models: list[str] | None = None,
+    ) -> None:
+        self._qwen = QwenImageClient()
+        self._github_logos = GitHubRepoLogoFetcher()
+        self._generate_models = generate_models
+        self._edit_models = edit_models
+
+    @classmethod
+    def from_settings_dict(cls, merged: dict[str, str] | None = None) -> "ImageService":
+        """Создаёт сервис с цепочками моделей из настроек платформы."""
+        generate_raw = merged.get("qwen_image_models") if merged else None
+        edit_raw = merged.get("qwen_image_edit_models") if merged else None
+        return cls(
+            generate_models=resolve_generate_models(generate_raw),
+            edit_models=resolve_edit_models(edit_raw),
+        )
+
+    @staticmethod
+    def ai_generation_available() -> bool:
+        """Проверяет, настроена ли хотя бы одна модель генерации изображений.
+
+        Returns:
+            bool: True если задан Qwen или OpenAI ключ.
+        """
+        settings = get_settings()
+        return bool(
+            settings.qwen_image_api_key.strip() or settings.openai_api_key.strip()
+        )
+
+    async def resolve_image(
+        self,
+        raw_post: RawPost,
+        channel: Channel,
+        generate_if_missing: bool = False,
+    ) -> tuple[str | None, str]:
+        """Возвращает URL изображения и источник.
+
+        Args:
+            raw_post: сырой пост.
+            generate_if_missing: генерировать AI-обложку если нет оригинала.
+
+        Returns:
+            tuple[str | None, str]: URL и image_source.
+        """
+        stored = raw_post.image_url
+        if stored and not stored.startswith("telegram://"):
+            if not is_social_preview_image(stored):
+                return stored, ImageSource.ORIGINAL.value
+            if raw_post.url:
+                page_image = await self._fetch_page_image(raw_post.url)
+                if page_image and not is_social_preview_image(page_image):
+                    return page_image, ImageSource.ORIGINAL.value
+            return stored, ImageSource.ORIGINAL.value
+
+        if raw_post.url:
+            page_image = await self._fetch_page_image(raw_post.url)
+            if page_image:
+                return page_image, ImageSource.ORIGINAL.value
+
+        if generate_if_missing:
+            generated = await self._generate_for_post(raw_post, channel)
+            if generated:
+                return generated, ImageSource.GENERATED.value
+
+        return None, ImageSource.NONE.value
+
+    async def _fetch_page_image(self, page_url: str) -> str | None:
+        """Подтягивает og:image / первую картинку со страницы статьи.
+
+        Args:
+            page_url: URL оригинальной новости.
+
+        Returns:
+            str | None: URL изображения.
+        """
+        try:
+            async with httpx.AsyncClient(
+                timeout=_PAGE_FETCH_TIMEOUT,
+                follow_redirects=True,
+                headers={"User-Agent": _USER_AGENT},
+            ) as client:
+                resp = await client.get(page_url)
+                resp.raise_for_status()
+            return extract_image_from_html(resp.text, page_url)
+        except Exception as exc:
+            logger.debug(
+                "Page image fetch skipped",
+                url=page_url,
+                error=str(exc),
+            )
+            return None
+
+    async def generate_from_prompt(self, prompt: str) -> str | None:
+        """Генерирует изображение по произвольному промпту.
+
+        Args:
+            prompt: описание сцены.
+
+        Returns:
+            str | None: URL изображения.
+        """
+        text = prompt.strip()
+        if not text:
+            return None
+        return await self._generate_ai_image(text)
+
+    async def resolve_article_image(
+        self,
+        *,
+        channel: Channel,
+        article_title: str,
+        topic: str,
+        image_prompt: str,
+        fallback_url: str | None = None,
+        repo_url: str | None = None,
+    ) -> tuple[str | None, str]:
+        """Подбирает обложку для статьи.
+
+        Args:
+            channel: канал публикации.
+            article_title: заголовок статьи.
+            topic: тема статьи.
+            image_prompt: черновик сцены от ArticleWriter.
+            fallback_url: URL из первого источника (не PDF и не документ).
+            repo_url: ссылка на GitHub-репозиторий (для логотипа).
+
+        Returns:
+            tuple[str | None, str]: URL и image_source.
+        """
+        tool_name = ImagePromptBuilder.extract_tool_name(article_title, topic)
+        if (
+            repo_url
+            and is_devtools_article_channel(channel.topic, channel.name)
+        ):
+            logo_url = await self._github_logos.fetch_logo_url(repo_url)
+            if logo_url:
+                edit_prompt = ImagePromptBuilder.build_for_channel(
+                    channel,
+                    scene=image_prompt or tool_name,
+                    title=article_title,
+                    topic=topic,
+                    tool_name=tool_name,
+                )
+                if edit_prompt:
+                    logger.debug(
+                        "Article logo edit prompt built",
+                        preview=edit_prompt[:200],
+                        logo_url=logo_url,
+                    )
+                    edited = await self._edit_logo_cover(edit_prompt, logo_url)
+                else:
+                    edited = None
+                if edited:
+                    return edited, ImageSource.GENERATED.value
+                logger.warning(
+                    "Logo-based cover failed, fallback to text-to-image",
+                    repo_url=repo_url,
+                )
+
+        final_prompt = ImagePromptBuilder.build_for_qwen(
+            channel,
+            article_title=article_title,
+            topic=topic,
+            draft_image_prompt=image_prompt,
+        )
+        generated = None
+        if final_prompt:
+            logger.debug("Article image prompt built", preview=final_prompt[:200])
+            generated = await self._generate_with_qwen_constraints(final_prompt)
+        else:
+            logger.warning(
+                "Article cover skipped: image_prompt_guidelines is empty",
+                channel_id=channel.id,
+            )
+        if generated:
+            return generated, ImageSource.GENERATED.value
+        if fallback_url and self._is_usable_fallback_url(fallback_url):
+            return fallback_url, ImageSource.ORIGINAL.value
+        return None, ImageSource.NONE.value
+
+    async def _edit_logo_cover(
+        self,
+        prompt: str,
+        logo_url: str,
+    ) -> str | None:
+        """Стилизует логотип репозитория в обложку поста.
+
+        Args:
+            prompt: инструкция для Qwen Image Edit.
+            logo_url: URL логотипа из README.
+
+        Returns:
+            str | None: URL сгенерированной обложки.
+        """
+        settings = get_settings()
+        if not settings.qwen_image_api_key.strip():
+            return None
+        try:
+            return await self._qwen.edit(
+                logo_url,
+                prompt,
+                prompt_extend=False,
+                negative_prompt=QWEN_LOGO_EDIT_NEGATIVE,
+                models=self._edit_models,
+            )
+        except Exception as exc:
+            logger.warning("Qwen logo edit failed", error=str(exc))
+            return None
+
+    async def _generate_for_post(
+        self,
+        raw_post: RawPost,
+        channel: Channel,
+    ) -> str | None:
+        """Генерирует иллюстрацию для новости без картинки в источнике.
+
+        Args:
+            raw_post: сырой пост.
+            channel: канал публикации.
+
+        Returns:
+            str | None: URL изображения.
+        """
+        prompt = ImagePromptBuilder.build_for_news(
+            channel,
+            raw_post.title or "",
+            raw_post.content,
+        )
+        return await self._generate_news_image(prompt)
+
+    async def _generate_news_image(self, prompt: str | None) -> str | None:
+        """Генерирует обложку новости с анти-портретными ограничениями."""
+        if not prompt:
+            return None
+        settings = get_settings()
+        if settings.qwen_image_api_key.strip():
+            try:
+                url = await self._qwen.generate(
+                    prompt,
+                    prompt_extend=False,
+                    negative_prompt=QWEN_NEWS_NEGATIVE,
+                    models=self._generate_models,
+                )
+                if url:
+                    return url
+            except Exception as exc:
+                logger.warning("Qwen Image generation failed", error=str(exc))
+        return await self._generate_dalle(prompt)
+
+    async def _generate_with_qwen_constraints(self, prompt: str | None) -> str | None:
+        """Генерирует изображение через Qwen без текста на картинке.
+
+        Args:
+            prompt: финальный промпт.
+
+        Returns:
+            str | None: URL изображения.
+        """
+        if not prompt:
+            return None
+        settings = get_settings()
+        if settings.qwen_image_api_key.strip():
+            try:
+                url = await self._qwen.generate(
+                    prompt,
+                    prompt_extend=False,
+                    negative_prompt=QWEN_NO_TEXT_NEGATIVE,
+                    models=self._generate_models,
+                )
+                if url:
+                    return url
+            except Exception as exc:
+                logger.warning("Qwen Image generation failed", error=str(exc))
+        return await self._generate_dalle(prompt)
+
+    async def _generate_ai_image(self, prompt: str) -> str | None:
+        """Генерирует изображение: Qwen-Image → fallback DALL-E.
+
+        Args:
+            prompt: текстовый промпт.
+
+        Returns:
+            str | None: URL изображения.
+        """
+        settings = get_settings()
+        if settings.qwen_image_api_key.strip():
+            try:
+                url = await self._qwen.generate(
+                    prompt,
+                    prompt_extend=False,
+                    negative_prompt=QWEN_NO_TEXT_NEGATIVE,
+                    models=self._generate_models,
+                )
+                if url:
+                    return url
+            except Exception as exc:
+                logger.warning("Qwen Image generation failed", error=str(exc))
+
+        if settings.openai_api_key.strip():
+            return await self._generate_dalle(prompt)
+
+        logger.warning("No image generation API configured (QWEN_IMAGE_API_KEY / OPENAI_API_KEY)")
+        return None
+
+    async def _generate_dalle(self, prompt: str) -> str | None:
+        """Генерирует изображение через DALL-E (запасной вариант).
+
+        Args:
+            prompt: описание сцены.
+
+        Returns:
+            str | None: URL изображения.
+        """
+        settings = get_settings()
+        if not settings.openai_api_key.strip():
+            return None
+        try:
+            client = AsyncOpenAI(api_key=settings.openai_api_key)
+            response = await client.images.generate(
+                model="dall-e-3",
+                prompt=(
+                    f"{prompt[:900]}. "
+                    "Absolutely no text, letters, words, captions or watermarks on the image."
+                ),
+                size="1024x1024",
+                n=1,
+            )
+            return response.data[0].url
+        except Exception as exc:
+            logger.error("DALL-E generation failed", error=str(exc))
+            return None
+
+    @staticmethod
+    def _is_usable_fallback_url(url: str) -> bool:
+        """Проверяет, что URL похож на изображение, а не на PDF/документ.
+
+        Args:
+            url: ссылка из источника.
+
+        Returns:
+            bool: True если URL можно использовать как картинку.
+        """
+        lowered = url.lower().split("?", 1)[0]
+        blocked = (".pdf", ".doc", ".docx", ".ppt", ".pptx", ".zip")
+        return not lowered.endswith(blocked)
+
+    async def download_and_resize(
+        self, image_url: str, max_size: tuple[int, int] = (1280, 1280)
+    ) -> bytes | None:
+        """Скачивает и ресайзит изображение.
+
+        Args:
+            image_url: URL картинки.
+            max_size: максимальный размер.
+
+        Returns:
+            bytes | None: JPEG bytes.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(image_url)
+                resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "").lower()
+            if content_type and not content_type.startswith("image/"):
+                logger.warning(
+                    "Image download skipped: not an image",
+                    url=image_url,
+                    content_type=content_type,
+                )
+                return None
+            img = Image.open(BytesIO(resp.content))
+            img = img.convert("RGB")
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            return buffer.getvalue()
+        except Exception as exc:
+            logger.warning("Image download failed", url=image_url, error=str(exc))
+            return None

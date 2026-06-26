@@ -1,0 +1,140 @@
+"""Сервис публикации постов."""
+
+from datetime import UTC, datetime
+
+from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain.enums import PostStatus, PublishStatus
+from app.domain.publish import PublishPermanentError
+from app.infrastructure.ai.image_service import ImageService
+from app.infrastructure.models.publish_log import PublishLog
+from app.infrastructure.publishers.publisher_factory import get_publisher
+from app.repositories.channel_repository import ChannelRepository
+from app.repositories.processed_post_repository import ProcessedPostRepository
+from app.repositories.publish_log_repository import PublishLogRepository
+from app.repositories.setting_repository import SettingRepository
+from app.services.job_tracker import report_job_stage
+from app.utils.hash_utils import content_hash
+from app.utils.rewrite_output import is_publishable_rewrite
+
+
+class PublishService:
+    """Публикует approved посты в каналы."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+        self._processed = ProcessedPostRepository(session)
+        self._channels = ChannelRepository(session)
+        self._settings = SettingRepository(session)
+        self._logs = PublishLogRepository(session)
+        self._images = ImageService()
+
+    async def publish_post(
+        self, post_id: int, *, celery_task_id: str | None = None
+    ) -> PublishLog:
+        """Публикует пост на платформу канала.
+
+        Args:
+            post_id: ID processed_post.
+            celery_task_id: ID Celery-задачи для поэтапных уведомлений UI.
+
+        Returns:
+            PublishLog: запись лога.
+
+        Raises:
+            ValueError: пост не найден или лимит исчерпан.
+            RuntimeError: ошибка публикации.
+        """
+        await report_job_stage(celery_task_id, "Подготовка публикации…", 25)
+        post = await self._processed.get_by_id(post_id)
+        if not post:
+            msg = f"Post {post_id} not found"
+            raise ValueError(msg)
+
+        if post.status not in (
+            PostStatus.APPROVED.value,
+            PostStatus.FAILED.value,
+        ):
+            msg = f"Post {post_id} cannot be published (status={post.status})"
+            raise ValueError(msg)
+
+        if post.status == PostStatus.FAILED.value:
+            post.status = PostStatus.APPROVED.value
+            await self._processed.update(post)
+
+        channel = await self._channels.get_by_id(post.channel_id)
+        if not channel:
+            msg = f"Channel {post.channel_id} not found"
+            raise ValueError(msg)
+
+        posts_per_day = int(await self._settings.get("posts_per_day", "10"))
+        published_today = await self._processed.count_published_today(channel.id)
+        if published_today >= posts_per_day:
+            msg = f"Daily limit reached for channel {channel.id}"
+            raise ValueError(msg)
+
+        if not post.article_body and not is_publishable_rewrite(post.rewritten_text):
+            msg = (
+                f"Post {post_id} blocked: rewrite looks like model reasoning, not HTML"
+            )
+            logger.error(msg, channel_id=channel.id, preview=post.rewritten_text[:200])
+            raise PublishPermanentError(msg)
+
+        text_hash = content_hash(
+            post.rewritten_text + (post.article_body or "") + (post.telegraph_url or "")
+        )
+        if await self._processed.exists_by_hash(channel.id, text_hash):
+            msg = "Duplicate content already published"
+            raise ValueError(msg)
+
+        image_bytes = None
+        if post.generated_image_url:
+            await report_job_stage(
+                celery_task_id, "Загрузка изображения для публикации…", 45
+            )
+            image_bytes = await self._images.download_and_resize(
+                post.generated_image_url
+            )
+
+        publisher = get_publisher(channel)
+        log = PublishLog(
+            processed_post_id=post_id,
+            channel_id=channel.id,
+            status=PublishStatus.FAILED.value,
+        )
+
+        try:
+            await report_job_stage(
+                celery_task_id,
+                f"Отправка в {channel.name}…",
+                72,
+            )
+            platform_post_id = await publisher.publish(post, channel, image_bytes)
+            log.status = PublishStatus.SUCCESS.value
+            log.platform_post_id = platform_post_id
+            post.status = PostStatus.PUBLISHED.value
+            post.published_at = datetime.now(UTC)
+            post.publish_text_hash = text_hash
+        except PublishPermanentError as exc:
+            log.error_message = str(exc)
+            post.status = PostStatus.FAILED.value
+            logger.error("Publish failed (permanent)", post_id=post_id, error=str(exc))
+            await self._processed.update(post)
+            await self._logs.create(log)
+            await self._session.commit()
+            raise
+        except Exception as exc:
+            log.error_message = str(exc)
+            post.status = PostStatus.FAILED.value
+            logger.error("Publish failed", post_id=post_id, error=str(exc))
+            await self._processed.update(post)
+            await self._logs.create(log)
+            await self._session.commit()
+            raise RuntimeError(str(exc)) from exc
+
+        await self._processed.update(post)
+        saved_log = await self._logs.create(log)
+        await self._session.commit()
+
+        return saved_log

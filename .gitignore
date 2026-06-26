@@ -1,0 +1,17 @@
+.env
+deploy/backups/*
+!deploy/backups/.gitkeep
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+logs/
+*.log
+node_modules/
+frontend/dist/
+.telethon_sessions/
+telethon_sessions/
+backend/telethon_sessions/
+.venv/
+venv/
