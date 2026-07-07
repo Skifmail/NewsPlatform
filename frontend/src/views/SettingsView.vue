@@ -104,31 +104,51 @@
             <p class="ai-usage-muted">QWEN_IMAGE_API_KEY не задан</p>
           </template>
           <template v-else>
-            <p class="ai-usage-muted">{{ aiUsage.qwen_image.note }}</p>
-            <p v-if="aiUsage.qwen_image.exhausted_count" class="ai-usage-error-inline">
-              Временно пропущено моделей: {{ aiUsage.qwen_image.exhausted_count }}
+            <p class="ai-usage-kpi-label">Статус цепочки, не баланс</p>
+            <p class="ai-usage-muted ai-usage-explainer">
+              DashScope не отдаёт «осталось N картинок». Платформа пробует модели сверху вниз;
+              если API вернёт ошибку квоты — модель пропускается ~6&nbsp;ч, берётся следующая.
+            </p>
+            <p
+              v-if="!aiUsage.qwen_image.exhausted_count"
+              class="ai-usage-muted"
+            >
+              <span class="badge-accent">Все модели доступны</span>
+            </p>
+            <p v-else class="ai-usage-error-inline">
+              Временно пропущено из‑за квоты: {{ aiUsage.qwen_image.exhausted_count }}
             </p>
             <div v-if="aiUsage.qwen_image.generate_chain?.length" class="ai-usage-chain">
-              <p class="ai-usage-chain-label">Text-to-image</p>
-              <ul>
-                <li v-for="item in aiUsage.qwen_image.generate_chain" :key="'u-gen-' + item.model">
+              <p class="ai-usage-chain-label">Новые обложки</p>
+              <p class="ai-usage-chain-hint">Text-to-image · при каждой генерации обложки поста</p>
+              <ol class="ai-usage-chain-list">
+                <li
+                  v-for="(item, index) in aiUsage.qwen_image.generate_chain"
+                  :key="'u-gen-' + item.model"
+                >
+                  <span class="ai-usage-chain-rank">{{ index + 1 }}</span>
                   <span class="font-mono">{{ item.model }}</span>
-                  <span v-if="item.status === 'next'" class="badge-accent">Следующая</span>
-                  <span v-else-if="item.status === 'available'" class="badge-muted">В очереди</span>
-                  <span v-else class="badge-danger">Квота ~{{ formatTtl(item.ttl_seconds) }}</span>
+                  <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
+                  <span v-else-if="item.status === 'available'" class="badge-muted">Запасная</span>
+                  <span v-else class="badge-danger">Квота · ~{{ formatTtl(item.ttl_seconds) }}</span>
                 </li>
-              </ul>
+              </ol>
             </div>
             <div v-if="aiUsage.qwen_image.edit_chain?.length" class="ai-usage-chain">
-              <p class="ai-usage-chain-label">Image-edit</p>
-              <ul>
-                <li v-for="item in aiUsage.qwen_image.edit_chain" :key="'u-edit-' + item.model">
+              <p class="ai-usage-chain-label">Правка картинок</p>
+              <p class="ai-usage-chain-hint">Image-edit · логотипы GitHub и доработка обложек</p>
+              <ol class="ai-usage-chain-list">
+                <li
+                  v-for="(item, index) in aiUsage.qwen_image.edit_chain"
+                  :key="'u-edit-' + item.model"
+                >
+                  <span class="ai-usage-chain-rank">{{ index + 1 }}</span>
                   <span class="font-mono">{{ item.model }}</span>
-                  <span v-if="item.status === 'next'" class="badge-accent">Следующая</span>
-                  <span v-else-if="item.status === 'available'" class="badge-muted">В очереди</span>
-                  <span v-else class="badge-danger">Квота ~{{ formatTtl(item.ttl_seconds) }}</span>
+                  <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
+                  <span v-else-if="item.status === 'available'" class="badge-muted">Запасная</span>
+                  <span v-else class="badge-danger">Квота · ~{{ formatTtl(item.ttl_seconds) }}</span>
                 </li>
-              </ul>
+              </ol>
             </div>
           </template>
         </article>
@@ -478,48 +498,10 @@
             class="input w-full mt-1 font-mono text-xs"
             placeholder="qwen-image-edit-plus,qwen-image-edit-max"
           />
-          <div class="category-meta mt-3 space-y-3">
-            <p class="field-hint !leading-relaxed">
-              DashScope не отдаёт остаток квоты в панель. Здесь видно только цепочку моделей и те,
-              что временно пропущены после ошибки квоты (кэш ~6 ч). Обновляется при загрузке страницы.
-            </p>
-            <div v-if="qwenGenerateChainStatus.length">
-              <p class="text-xs font-medium text-[var(--text-primary)] mb-1.5">Text-to-image</p>
-              <ul class="space-y-1.5">
-                <li
-                  v-for="item in qwenGenerateChainStatus"
-                  :key="'gen-' + item.model"
-                  class="flex flex-wrap items-center gap-2"
-                >
-                  <span class="font-mono text-[var(--text-primary)]">{{ item.model }}</span>
-                  <span v-if="item.status === 'next'" class="badge-accent">Следующая при генерации</span>
-                  <span v-else-if="item.status === 'available'" class="badge-muted">В очереди</span>
-                  <span v-else class="badge-danger">Квота — повтор через ~{{ formatTtl(item.ttlSeconds) }}</span>
-                </li>
-              </ul>
-            </div>
-            <div v-if="qwenEditChainStatus.length">
-              <p class="text-xs font-medium text-[var(--text-primary)] mb-1.5">Image-edit</p>
-              <ul class="space-y-1.5">
-                <li
-                  v-for="item in qwenEditChainStatus"
-                  :key="'edit-' + item.model"
-                  class="flex flex-wrap items-center gap-2"
-                >
-                  <span class="font-mono text-[var(--text-primary)]">{{ item.model }}</span>
-                  <span v-if="item.status === 'next'" class="badge-accent">Следующая при генерации</span>
-                  <span v-else-if="item.status === 'available'" class="badge-muted">В очереди</span>
-                  <span v-else class="badge-danger">Квота — повтор через ~{{ formatTtl(item.ttlSeconds) }}</span>
-                </li>
-              </ul>
-            </div>
-            <p v-if="!qwenExhaustedModels.length && (qwenGenerateChainStatus.length || qwenEditChainStatus.length)">
-              Сейчас все модели в цепочке доступны — блок «Квота» появится после отказа API.
-            </p>
-            <p v-else-if="qwenExhaustedModels.length" class="text-[var(--text-secondary)]">
-              Пропущено моделей: {{ qwenExhaustedModels.length }}.
-            </p>
-          </div>
+          <p class="field-hint mt-3">
+            Статус моделей (какая активна, какие пропущены по квоте) — в блоке
+            <strong>«AI и API»</strong> вверху страницы.
+          </p>
         </section>
 
         <section class="settings-category panel-card">
@@ -603,7 +585,6 @@ const postsPerDay = ref(10)
 const classificationPrompt = ref('')
 const qwenImageModels = ref('')
 const qwenImageEditModels = ref('')
-const qwenExhaustedModels = ref([])
 const schedulerLastFetch = ref('')
 const schedulerLastRetention = ref('')
 const saving = ref(false)
@@ -723,55 +704,6 @@ async function loadAiUsage(refresh = false) {
   }
 }
 
-function parseExhaustedModels(raw) {
-  if (!raw) return []
-  try {
-    const data = JSON.parse(raw)
-    return Array.isArray(data) ? data : []
-  } catch {
-    return []
-  }
-}
-
-function parseModelChain(raw) {
-  if (!raw || !String(raw).trim()) return []
-  const seen = new Set()
-  return String(raw)
-    .split(/[,;\n]+/)
-    .map((part) => part.trim())
-    .filter((name) => {
-      if (!name || seen.has(name)) return false
-      seen.add(name)
-      return true
-    })
-}
-
-function buildChainStatus(models, exhaustedModels) {
-  const exhaustedMap = new Map(
-    exhaustedModels.map((item) => [item.model, Number(item.ttl_seconds) || 0]),
-  )
-  let nextAssigned = false
-  return models.map((model) => {
-    const ttlSeconds = exhaustedMap.get(model)
-    if (ttlSeconds && ttlSeconds > 0) {
-      return { model, status: 'exhausted', ttlSeconds }
-    }
-    if (!nextAssigned) {
-      nextAssigned = true
-      return { model, status: 'next', ttlSeconds: 0 }
-    }
-    return { model, status: 'available', ttlSeconds: 0 }
-  })
-}
-
-const qwenGenerateChainStatus = computed(() =>
-  buildChainStatus(parseModelChain(qwenImageModels.value), qwenExhaustedModels.value),
-)
-
-const qwenEditChainStatus = computed(() =>
-  buildChainStatus(parseModelChain(qwenImageEditModels.value), qwenExhaustedModels.value),
-)
-
 async function loadSettings() {
   const { data } = await settingsApi.get()
   const s = data.settings
@@ -802,7 +734,6 @@ async function loadSettings() {
   classificationPrompt.value = s.classification_prompt || ''
   qwenImageModels.value = s.qwen_image_models || ''
   qwenImageEditModels.value = s.qwen_image_edit_models || ''
-  qwenExhaustedModels.value = parseExhaustedModels(s.qwen_image_exhausted_models)
   schedulerLastFetch.value = s.scheduler_last_fetch_at || ''
   schedulerLastRetention.value = s.scheduler_last_retention_at || ''
   markSaved()
@@ -983,12 +914,26 @@ async function save({ silent = false } = {}) {
   @apply h-full rounded-pill bg-accent transition-all duration-500;
 }
 
-.ai-usage-chain ul {
-  @apply space-y-1 mt-1;
+.ai-usage-explainer {
+  @apply leading-relaxed;
+}
+
+.ai-usage-chain ul,
+.ai-usage-chain-list {
+  @apply space-y-1.5 mt-1 list-none p-0 m-0;
 }
 
 .ai-usage-chain li {
   @apply flex flex-wrap items-center gap-2 text-xs;
+}
+
+.ai-usage-chain-hint {
+  @apply text-[10px] text-[var(--text-secondary)] -mt-1 mb-1;
+}
+
+.ai-usage-chain-rank {
+  @apply inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full
+    bg-panel-hover text-[10px] font-semibold text-[var(--text-secondary)];
 }
 
 .ai-usage-chain-label {
