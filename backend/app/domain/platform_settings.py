@@ -72,6 +72,7 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "analytics_interval_minutes": "180",
     "retention_hour_utc": "3",
     "retention_minute_utc": "30",
+    "raw_posts_retention_days": "3",
     "fetch_max_age_days": "1",
     # Модерация и AI
     "auto_approve": "false",
@@ -127,6 +128,7 @@ class PlatformSettings:
     analytics_interval_minutes: int
     retention_hour_utc: int
     retention_minute_utc: int
+    raw_posts_retention_days: int
     fetch_max_age_days: int
     posts_per_day: int
     rewrite_language: str
@@ -209,6 +211,9 @@ class PlatformSettings:
             retention_hour_utc=_parse_int(merged.get("retention_hour_utc", "3"), 3),
             retention_minute_utc=_parse_int(
                 merged.get("retention_minute_utc", "30"), 30
+            ),
+            raw_posts_retention_days=_parse_int(
+                merged.get("raw_posts_retention_days", "3"), 3
             ),
             fetch_max_age_days=_parse_int(merged.get("fetch_max_age_days", "1"), 1),
             posts_per_day=_parse_int(merged.get("posts_per_day", "10"), 10),

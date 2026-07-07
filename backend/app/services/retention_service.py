@@ -20,31 +20,52 @@ class RetentionStats:
     Args:
         publish_logs: записи publish_log.
         background_jobs: записи background_jobs.
-        raw_posts: сырые посты (processed_posts каскадом).
+        raw_posts_unprocessed: необработанные материалы старше raw_posts_retention_days.
+        raw_posts: все материалы старше retention_days (processed_posts каскадом).
     """
 
     publish_logs: int = 0
     background_jobs: int = 0
+    raw_posts_unprocessed: int = 0
     raw_posts: int = 0
 
 
 class RetentionService:
     """Удаляет данные старше заданного срока хранения."""
 
-    def __init__(self, session: AsyncSession, retention_days: int = 30) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        retention_days: int = 30,
+        raw_posts_retention_days: int = 3,
+    ) -> None:
         self._session = session
-        self._retention_days = retention_days
+        self._retention_days = max(1, retention_days)
+        self._raw_posts_retention_days = max(1, raw_posts_retention_days)
 
     async def cleanup_expired(self) -> RetentionStats:
-        """Удаляет записи старше ``retention_days`` дней.
+        """Удаляет записи по срокам хранения.
+
+        Сначала — необработанные материалы (``raw_posts_retention_days``),
+        затем общая очистка (``retention_days``).
 
         Returns:
             RetentionStats: число удалённых строк по таблицам.
         """
-        cutoff = datetime.now(UTC) - timedelta(days=self._retention_days)
+        now = datetime.now(UTC)
         stats = RetentionStats()
 
-        # Логи публикаций и задач, привязанные к старым processed_posts
+        unprocessed_cutoff = now - timedelta(days=self._raw_posts_retention_days)
+        rp_unprocessed = await self._session.execute(
+            delete(RawPost).where(
+                RawPost.is_processed.is_(False),
+                RawPost.fetched_at < unprocessed_cutoff,
+            )
+        )
+        stats.raw_posts_unprocessed = rp_unprocessed.rowcount or 0
+
+        cutoff = now - timedelta(days=self._retention_days)
         old_processed_ids = select(ProcessedPost.id).where(
             ProcessedPost.created_at < cutoff
         )
@@ -61,7 +82,6 @@ class RetentionService:
         )
         stats.background_jobs = bj_result.rowcount or 0
 
-        # Каскадно удалит processed_posts
         rp_result = await self._session.execute(
             delete(RawPost).where(RawPost.fetched_at < cutoff)
         )
@@ -71,9 +91,12 @@ class RetentionService:
         logger.info(
             "Retention cleanup completed",
             retention_days=self._retention_days,
+            raw_posts_retention_days=self._raw_posts_retention_days,
+            unprocessed_cutoff=unprocessed_cutoff.isoformat(),
             cutoff=cutoff.isoformat(),
             publish_logs=stats.publish_logs,
             background_jobs=stats.background_jobs,
+            raw_posts_unprocessed=stats.raw_posts_unprocessed,
             raw_posts=stats.raw_posts,
         )
         return stats

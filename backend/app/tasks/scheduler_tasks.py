@@ -104,6 +104,7 @@ def platform_scheduler_tick() -> dict[str, int | bool]:
                         stats = await RetentionService(
                             session,
                             retention_days=app_settings.retention_days,
+                            raw_posts_retention_days=ps.raw_posts_retention_days,
                         ).cleanup_expired()
                         await settings_svc.mark_retention_run(today)
                         result["retention_ran"] = True
@@ -111,6 +112,7 @@ def platform_scheduler_tick() -> dict[str, int | bool]:
                             "Scheduled retention finished",
                             publish_logs=stats.publish_logs,
                             background_jobs=stats.background_jobs,
+                            raw_posts_unprocessed=stats.raw_posts_unprocessed,
                             raw_posts=stats.raw_posts,
                         )
 

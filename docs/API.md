@@ -78,6 +78,7 @@
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET/PATCH | `/settings` | Автоматика, ручные действия, интервалы, промпты (см. ниже) |
+| GET | `/ai-usage` | Баланс DeepSeek, кредиты Tavily, цепочка Qwen, локальная статистика (`?refresh=true` — без кэша) |
 
 Ключи (строки `true`/`false` или числа):
 
@@ -86,7 +87,7 @@
 | `schedule_fetch_enabled` | Автопарсинг всех активных источников |
 | `schedule_ai_enabled` | AI после автопарсинга |
 | `schedule_publish_enabled` | Публикация по `scheduled_at` |
-| `schedule_retention_enabled` | Ежедневная очистка (`RETENTION_DAYS` в `.env`) |
+| `schedule_retention_enabled` | Ежедневная очистка (`RETENTION_DAYS` в `.env` + `raw_posts_retention_days` для необработанных материалов) |
 | `schedule_curated_publish_enabled` | AI выбирает лучшую новость по теме → рерайт → публикация |
 | `schedule_article_publish_enabled` | Автогенерация статей для каналов с `content_mode=article` |
 | `article_ideation_prompt` | Промпт выбора темы статьи (`{channel_name}`, `{channel_niche}`, `{recent_topics}`) |
@@ -102,6 +103,7 @@
 | `fetch_interval_minutes` | Интервал автопарсинга (5–1440) |
 | `fetch_max_age_days` | Окно свежести материалов (UTC) |
 | `retention_hour_utc` / `retention_minute_utc` | Время запуска очистки |
+| `raw_posts_retention_days` | Срок хранения необработанных материалов (по умолчанию 3 дня) |
 | `auto_approve`, `posts_per_day`, `classification_prompt` | Как раньше |
 | `scheduler_last_fetch_at`, `scheduler_last_retention_at` | Только чтение (статус планировщика) |
 

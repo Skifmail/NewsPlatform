@@ -84,6 +84,10 @@ export const settingsApi = {
   update: (data) => api.patch('/settings', data),
 }
 
+export const aiUsageApi = {
+  get: (params) => api.get('/ai-usage', { params }),
+}
+
 export const historyApi = {
   list: (params) => api.get('/history', { params }),
 }

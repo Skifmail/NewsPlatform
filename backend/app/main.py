@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import analytics, auth, channels, history, jobs, overview, posts, raw_posts, settings as settings_router
+from app.api.routers import analytics, ai_usage, auth, channels, history, jobs, overview, posts, raw_posts, settings as settings_router
 from app.api.routers import sources
 from app.api.websocket import router as ws_router, start_redis_listener
 from app.core.config import get_settings
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     application.include_router(posts.router, prefix="/api")
     application.include_router(raw_posts.router, prefix="/api")
     application.include_router(settings_router.router, prefix="/api")
+    application.include_router(ai_usage.router, prefix="/api")
     application.include_router(history.router, prefix="/api")
     application.include_router(analytics.router, prefix="/api")
     application.include_router(overview.router, prefix="/api")

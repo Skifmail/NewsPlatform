@@ -11,7 +11,7 @@ from app.tasks.celery_app import celery_app
 
 @celery_app.task(name="app.tasks.retention_tasks.cleanup_old_records")
 def cleanup_old_records() -> dict[str, int]:
-    """Удаляет записи старше RETENTION_DAYS дней.
+    """Удаляет записи старше сроков хранения (RETENTION_DAYS и raw_posts_retention_days).
 
     Returns:
         dict[str, int]: счётчики удалённых строк по таблицам.
@@ -28,15 +28,18 @@ def cleanup_old_records() -> dict[str, int]:
                 return {
                     "publish_logs": 0,
                     "background_jobs": 0,
+                    "raw_posts_unprocessed": 0,
                     "raw_posts": 0,
                 }
             stats = await RetentionService(
                 session,
                 retention_days=settings.retention_days,
+                raw_posts_retention_days=ps.raw_posts_retention_days,
             ).cleanup_expired()
         return {
             "publish_logs": stats.publish_logs,
             "background_jobs": stats.background_jobs,
+            "raw_posts_unprocessed": stats.raw_posts_unprocessed,
             "raw_posts": stats.raw_posts,
         }
 
