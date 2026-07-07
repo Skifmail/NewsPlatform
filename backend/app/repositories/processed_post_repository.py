@@ -330,6 +330,43 @@ class ProcessedPostRepository:
         )
         return [str(title).strip() for title in result.scalars().all() if title]
 
+    async def list_recent_article_titles_for_channels(
+        self,
+        channel_ids: list[int],
+        *,
+        limit: int = 50,
+        days: int = 60,
+    ) -> list[str]:
+        """Заголовки статей по нескольким каналам (общая история для «Параграф» TG+MAX).
+
+        Args:
+            channel_ids: ID каналов.
+            limit: максимум заголовков.
+            days: глубина поиска в днях.
+
+        Returns:
+            list[str]: заголовки от новых к старым.
+        """
+        if not channel_ids:
+            return []
+
+        from app.domain.enums import ContentMode
+
+        since = datetime.now(UTC) - timedelta(days=days)
+        result = await self._session.execute(
+            select(ProcessedPost.article_title)
+            .where(
+                ProcessedPost.channel_id.in_(channel_ids),
+                ProcessedPost.content_mode == ContentMode.ARTICLE.value,
+                ProcessedPost.status != PostStatus.REJECTED.value,
+                ProcessedPost.article_title.isnot(None),
+                ProcessedPost.created_at >= since,
+            )
+            .order_by(ProcessedPost.created_at.desc())
+            .limit(limit)
+        )
+        return [str(title).strip() for title in result.scalars().all() if title]
+
     async def list_recent_article_teasers(
         self,
         channel_id: int,

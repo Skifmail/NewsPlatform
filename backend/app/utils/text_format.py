@@ -3,6 +3,8 @@
 import re
 from html import unescape
 
+from app.utils.article_body_sanitize import sanitize_article_body_html
+
 MAX_REWRITE_LENGTH = 2000
 # Лимиты Telegram Bot API (официальная документация core.telegram.org/bots/api).
 TELEGRAM_BOT_CAPTION_MAX = 1024
@@ -493,6 +495,7 @@ def build_article_telegram_text(
     title = (article_title or "").strip()
     teaser = to_telethon_html((teaser_html or "").strip())
     body = to_telethon_html((body_html or "").strip())
+    body = sanitize_article_body_html(body, teaser_html=teaser_html or "")
 
     if teaser:
         parts.append(teaser)

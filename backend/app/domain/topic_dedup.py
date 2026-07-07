@@ -20,7 +20,37 @@ _CONCEPT_MARKERS: Final[list[tuple[tuple[str, ...], str]]] = [
     (("стресс", "кортизол", "stress"), "stress"),
     (("привычк", "habit", "дофамин"), "habits"),
     (("миф", "заблужден", "misconception"), "myths"),
+    (("фламинго", "flamingo", "caroten", "carotin", "астаксантин"), "flamingo"),
+    (("литопс", "lithops", "живые камни"), "lithops"),
+    (("аксолotl", "axolotl"), "axolotl"),
+    (("осьминог", "octopus"), "octopus"),
+    (("пингвин", "penguin"), "penguin"),
+    (("кит", "whale", "синий кит"), "whale"),
+    (("муравь", "ant colony", "муравейник"), "ants"),
+    (("бамбук", "bamboo"), "bamboo"),
+    (("aurora", "полярн", "северное сияние"), "aurora"),
 ]
+
+# Значимые «якорные» слова: одно совпадение = та же тема (перефраз заголовка).
+_RARE_SUBJECT_WORDS: Final[frozenset[str]] = frozenset(
+    {
+        "фламинго",
+        "flamingo",
+        "литопс",
+        "lithops",
+        "аксолotl",
+        "axolotl",
+        "осьминог",
+        "octopus",
+        "плацебо",
+        "placebo",
+        "дежавю",
+        "synesthesia",
+        "синестезия",
+        "penguin",
+        "пингвин",
+    }
+)
 
 _STOP_WORDS: Final[frozenset[str]] = frozenset(
     {
@@ -97,10 +127,27 @@ def is_topic_too_similar(candidate: str, recent: list[str]) -> bool:
         if candidate_concepts and prev_concepts and candidate_concepts & prev_concepts:
             return True
 
-        if _word_overlap_ratio(candidate, prev) >= 0.55:
+        shared_rare = _shared_rare_words(candidate, prev)
+        if shared_rare:
+            return True
+
+        overlap = _significant_words(candidate) & _significant_words(prev)
+        if len(overlap) >= 2:
+            return True
+
+        if _word_overlap_ratio(candidate, prev) >= 0.45:
             return True
 
     return False
+
+
+def _shared_rare_words(a: str, b: str) -> set[str]:
+    """Общие редкие subject-слова между двумя формулировками."""
+    words_a = _significant_words(a)
+    words_b = _significant_words(b)
+    rare_a = {w for w in words_a if w in _RARE_SUBJECT_WORDS}
+    rare_b = {w for w in words_b if w in _RARE_SUBJECT_WORDS}
+    return rare_a & rare_b
 
 
 def merge_topic_lists(*sources: list[str], limit: int = 40) -> list[str]:

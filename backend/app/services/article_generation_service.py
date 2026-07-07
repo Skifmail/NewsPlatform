@@ -10,13 +10,14 @@ from app.domain.article import (
     serialize_research_sources,
     serialize_topic_history,
 )
-from app.domain.topic_dedup import merge_topic_lists
+from app.domain.topic_dedup import is_topic_too_similar, merge_topic_lists
 from app.domain.enums import ContentMode, PostStatus
 from app.infrastructure.ai.article_writer import ArticleWriter
 from app.infrastructure.ai.devtools_teaser_formatter import (
     extract_devtools_hook,
     is_devtools_article_channel,
 )
+from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.ai.image_service import ImageService
 from app.infrastructure.ai.topic_ideation import TopicIdeationService
 from app.infrastructure.models.channel import Channel
@@ -29,6 +30,8 @@ from app.services.platform_settings_service import PlatformSettingsService
 from app.services.web_research_service import WebResearchService
 from app.utils.telegram_channels import is_telegram_long_form_channel
 from app.utils.text_format import long_form_body_limit
+
+_MAX_DRAFT_DEDUP_ATTEMPTS = 3
 
 
 class ArticleGenerationService:
@@ -93,9 +96,8 @@ class ArticleGenerationService:
             )
 
         history_key = article_topic_history_key(channel_id)
+        recent = await self._load_recent_topics(channel)
         settings_history = parse_topic_history(await self._settings.get(history_key, ""))
-        db_titles = await self._processed.list_recent_article_titles(channel_id, limit=30)
-        recent = merge_topic_lists(db_titles, settings_history, limit=40)
 
         recent_hooks: list[str] | None = None
         if is_devtools_article_channel(channel.topic, channel.name):
@@ -106,29 +108,57 @@ class ArticleGenerationService:
                 if (hook := extract_devtools_hook(teaser))
             ][:8] or None
 
-        await report_job_stage(
-            celery_task_id, "Выбор темы и угла статьи…", 25
-        )
-        plan = await self._ideation.plan_topic(channel, recent, ideation_prompt)
+        draft = None
+        plan = None
+        sources = []
+        research_context = ""
 
-        await report_job_stage(
-            celery_task_id, "Поиск материалов в интернете…", 42
-        )
-        research_context, sources = await self._research.research(plan.search_queries)
+        for draft_attempt in range(1, _MAX_DRAFT_DEDUP_ATTEMPTS + 1):
+            await report_job_stage(
+                celery_task_id, "Выбор темы и угла статьи…", 25
+            )
+            plan = await self._ideation.plan_topic(channel, recent, ideation_prompt)
 
-        await report_job_stage(
-            celery_task_id, "Написание статьи через AI…", 62
-        )
-        draft = await self._writer.write(
-            channel,
-            topic=plan.topic,
-            angle=plan.angle,
-            research_context=research_context,
-            prompt_template=writing_prompt,
-            body_max_length=body_max,
-            teaser_max_length=teaser_max,
-            recent_hooks=recent_hooks,
-        )
+            await report_job_stage(
+                celery_task_id, "Поиск материалов в интернете…", 42
+            )
+            research_context, sources = await self._research.research(plan.search_queries)
+
+            await report_job_stage(
+                celery_task_id, "Написание статьи через AI…", 62
+            )
+            draft = await self._writer.write(
+                channel,
+                topic=plan.topic,
+                angle=plan.angle,
+                research_context=research_context,
+                prompt_template=writing_prompt,
+                body_max_length=body_max,
+                teaser_max_length=teaser_max,
+                recent_hooks=recent_hooks,
+            )
+
+            if not is_topic_too_similar(draft.title, recent):
+                break
+
+            logger.warning(
+                "Article title rejected as duplicate",
+                channel_id=channel_id,
+                title=draft.title,
+                topic=plan.topic,
+                attempt=draft_attempt,
+            )
+            recent = merge_topic_lists(
+                [plan.topic, plan.angle, draft.title],
+                recent,
+                limit=50,
+            )
+            if draft_attempt >= _MAX_DRAFT_DEDUP_ATTEMPTS:
+                msg = (
+                    f"Не удалось сгенерировать уникальный заголовок "
+                    f"(последний: {draft.title})"
+                )
+                raise RuntimeError(msg)
 
         await report_job_stage(
             celery_task_id, "Генерация обложки…", 80
@@ -167,9 +197,10 @@ class ArticleGenerationService:
         updated_history = merge_topic_lists(
             [plan.topic, draft.title],
             settings_history,
-            limit=40,
+            recent,
+            limit=50,
         )
-        await self._settings.set(history_key, serialize_topic_history(updated_history))
+        await self._persist_topic_history(channel, updated_history)
         await self._session.commit()
 
         auto_approve = (
@@ -191,3 +222,59 @@ class ArticleGenerationService:
             sources=len(sources),
         )
         return saved.id
+
+    async def _load_recent_topics(self, channel: Channel) -> list[str]:
+        """Собирает историю тем с учётом связанных каналов (Параграф TG + MAX).
+
+        Args:
+            channel: канал публикации.
+
+        Returns:
+            list[str]: темы и заголовки от новых к старым.
+        """
+        channel_ids = await self._article_history_channel_ids(channel)
+        db_titles = await self._processed.list_recent_article_titles_for_channels(
+            channel_ids,
+            limit=50,
+            days=60,
+        )
+        settings_parts: list[str] = []
+        for cid in channel_ids:
+            raw = await self._settings.get(article_topic_history_key(cid), "")
+            settings_parts.extend(parse_topic_history(raw))
+        return merge_topic_lists(db_titles, settings_parts, limit=50)
+
+    async def _article_history_channel_ids(self, channel: Channel) -> list[int]:
+        """ID каналов, чья история статей учитывается при антиповторе.
+
+        Args:
+            channel: текущий канал.
+
+        Returns:
+            list[int]: один или несколько ID.
+        """
+        if is_paragraph_article_channel(channel.name):
+            article_channels = await self._channels.list_active_article_channels()
+            return [
+                ch.id
+                for ch in article_channels
+                if is_paragraph_article_channel(ch.name)
+            ] or [channel.id]
+        return [channel.id]
+
+    async def _persist_topic_history(
+        self, channel: Channel, topics: list[str]
+    ) -> None:
+        """Сохраняет историю тем; для «Параграф» — во все связанные каналы.
+
+        Args:
+            channel: канал публикации.
+            topics: темы от новых к старым.
+        """
+        serialized = serialize_topic_history(topics, limit=50)
+        keys = [
+            article_topic_history_key(cid)
+            for cid in await self._article_history_channel_ids(channel)
+        ]
+        for key in dict.fromkeys(keys):
+            await self._settings.set(key, serialized)

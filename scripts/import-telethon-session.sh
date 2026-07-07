@@ -19,15 +19,16 @@ if [[ ! -f "$ARCHIVE" ]]; then
   exit 1
 fi
 
-PROJECT="$(docker compose -f "$COMPOSE_FILE" ps -q backend 2>/dev/null | head -1)"
-if [[ -z "$PROJECT" ]]; then
+if ! docker compose -f "$COMPOSE_FILE" ps -q backend 2>/dev/null | grep -q .; then
   echo "Сначала запустите stack: docker compose -f $COMPOSE_FILE up -d" >&2
   exit 1
 fi
 
-VOLUME="$(docker compose -f "$COMPOSE_FILE" volume ls -q | grep telethon_session | head -1)"
-if [[ -z "$VOLUME" ]]; then
+VOLUME="$(docker volume ls -q | grep telethon_session | head -1)"
+if [[ -z "${VOLUME:-}" ]]; then
   echo "Volume telethon_session не найден" >&2
+  echo "Доступные volumes:" >&2
+  docker volume ls >&2
   exit 1
 fi
 

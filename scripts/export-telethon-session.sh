@@ -15,7 +15,7 @@ PROJECT="$(basename "$ROOT" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
 VOLUME="${PROJECT}_telethon_session"
 
 if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then
-  VOLUME="$(docker compose -f "$COMPOSE_FILE" volume ls -q | grep telethon_session | head -1)"
+  VOLUME="$(docker volume ls -q | grep telethon_session | head -1)"
 fi
 
 if [[ -z "${VOLUME:-}" ]]; then

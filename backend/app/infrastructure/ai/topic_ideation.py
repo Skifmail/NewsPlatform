@@ -70,7 +70,9 @@ class TopicIdeationService:
                 prompt_template=prompt_template,
             )
             last_plan = plan
-            if not is_topic_too_similar(plan.topic, recent_topics):
+            if not is_topic_too_similar(plan.topic, blocked) and not is_topic_too_similar(
+                f"{plan.topic} {plan.angle}", blocked
+            ):
                 if attempt > 1:
                     logger.info(
                         "Topic ideation succeeded after retry",
@@ -87,6 +89,8 @@ class TopicIdeationService:
                 attempt=attempt,
             )
             blocked.append(plan.topic)
+            if plan.angle.strip():
+                blocked.append(f"{plan.topic} {plan.angle}")
 
         if last_plan is not None:
             msg = (

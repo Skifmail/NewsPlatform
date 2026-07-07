@@ -4,17 +4,17 @@
 
 ## Что уже подготовлено в репозитории
 
-| Файл | Назначение |
-|------|------------|
-| `docker-compose.prod.yml` | Production stack (7 сервисов) |
-| `deploy/nginx/Dockerfile` | Nginx с вшитым `nginx.conf` (для Dokploy AutoDeploy) |
-| `backend/docker-entrypoint.sh` | Ожидание БД + `alembic upgrade head` при старте backend |
-| `.env.production.example` | Шаблон переменных для сервера |
-| `scripts/prepare-migration.sh` | Экспорт БД + Telethon + копия `.env` |
-| `scripts/backup-database.sh` | Только дамп PostgreSQL |
-| `scripts/restore-database.sh` | Восстановление дампа на сервере |
-| `scripts/export-telethon-session.sh` | Экспорт userbot-сессии |
-| `scripts/import-telethon-session.sh` | Импорт userbot-сессии на VPS |
+| Файл                               | Назначение                                                        |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `docker-compose.prod.yml`            | Production stack (7 сервисов)                                       |
+| `deploy/nginx/Dockerfile`            | Nginx с вшитым`nginx.conf` (для Dokploy AutoDeploy)             |
+| `backend/docker-entrypoint.sh`       | Ожидание БД +`alembic upgrade head` при старте backend |
+| `.env.production.example`            | Шаблон переменных для сервера                     |
+| `scripts/prepare-migration.sh`       | Экспорт БД + Telethon + копия`.env`                         |
+| `scripts/backup-database.sh`         | Только дамп PostgreSQL                                            |
+| `scripts/restore-database.sh`        | Восстановление дампа на сервере                 |
+| `scripts/export-telethon-session.sh` | Экспорт userbot-сессии                                         |
+| `scripts/import-telethon-session.sh` | Импорт userbot-сессии на VPS                                  |
 
 ---
 
@@ -124,11 +124,11 @@ openssl rand -base64 24       # DB_PASSWORD
 
 **Хосты внутри Docker:**
 
-| Переменная | Значение |
-|------------|----------|
-| `DB_HOST` | `postgres` |
-| `REDIS_URL` | `redis://redis:6379/0` |
-| `CORS_ORIGINS` | `https://panel.yourdomain.com` |
+| Переменная | Значение                 |
+| -------------------- | -------------------------------- |
+| `DB_HOST`          | `postgres`                     |
+| `REDIS_URL`        | `redis://redis:6379/0`         |
+| `CORS_ORIGINS`     | `https://panel.yourdomain.com` |
 
 Скопируйте API-ключи из локального `env.backup` (`DEEPSEEK_API_KEY`, `TELEGRAM_*`, и т.д.).
 
@@ -207,13 +207,13 @@ docker compose -f docker-compose.prod.yml exec -it celery_worker \
 
 ## Часть 4. Проверка после деплоя
 
-| Проверка | Ожидание |
-|----------|----------|
-| `https://panel.yourdomain.com` | Страница входа |
-| Логин `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Успешный вход |
-| Очередь / Каналы / История | Данные из дампа на месте |
-| **Jobs** → активные задачи | Celery worker отвечает |
-| Публикация тестового поста | Telegram/VK/MAX работают |
+| Проверка                                   | Ожидание                             |
+| -------------------------------------------------- | -------------------------------------------- |
+| `https://panel.yourdomain.com`                   | Страница входа                  |
+| Логин`ADMIN_USERNAME` / `ADMIN_PASSWORD`  | Успешный вход                    |
+| Очередь / Каналы / История     | Данные из дампа на месте |
+| **Jobs** → активные задачи    | Celery worker отвечает               |
+| Публикация тестового поста | Telegram/VK/MAX работают             |
 
 Healthcheck backend:
 

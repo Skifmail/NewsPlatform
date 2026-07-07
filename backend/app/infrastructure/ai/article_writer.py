@@ -22,6 +22,7 @@ from app.infrastructure.ai.paragraph_teaser_formatter import (
 from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.models.channel import Channel
 from app.utils.text_format import normalize_telegram_html
+from app.utils.article_body_sanitize import sanitize_article_body_html
 
 # Лимит вывода deepseek-chat ≈8192 токена; длинный JSON с HTML не влезает в 12000 символов.
 _ARTICLE_OUTPUT_CHAR_CAP = 7500
@@ -33,12 +34,11 @@ _DEFAULT_WRITING_PROMPT = """Ты — автор познавательных с
 Напиши статью на русском по теме «{topic}» ({angle}).
 Используй ТОЛЬКО факты из блока «Исследование» ниже. Не выдумывай цитаты и цифры.
 
-Структура:
-1) Цепляющий заголовок (в поле title, не в body)
-2) Лид — 2-3 предложения
-3) 3-5 разделов с подзаголовками <b>...</b>
-4) Вывод — 2-3 предложения
-5) Блок «Источники» — список ссылок <a href="...">название</a>
+Структура body_html (без служебных меток «Крючок», «Вывод», «Лид», «Источники» — только содержательные подзаголовки):
+1) Лид — 2-3 предложения (без заголовка «Лид»)
+2) 3-5 разделов с подзаголовками <b>...</b> по теме
+3) Заключительный абзац — 2-3 предложения (без заголовка «Вывод»)
+4) Ссылки на источники — список <a href="...">название</a> (без заголовка «Источники»)
 
 HTML в body_html: только теги b, i, a, blockquote. Без <p>. Абзацы — через \\n\\n внутри строки JSON.
 Объём body_html: {min_length}–{max_length} символов.
@@ -286,6 +286,7 @@ class ArticleWriter:
         elif len(teaser) > teaser_max_length:
             teaser = f"{teaser[: teaser_max_length - 1].rstrip()}…"
         teaser = normalize_telegram_html(teaser)
+        body = sanitize_article_body_html(body, teaser_html=teaser)
         if not image_prompt:
             image_prompt = f"Editorial illustration about: {title[:200]}"
         repo_url = str(data.get("repo_url") or "").strip()
