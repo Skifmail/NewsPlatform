@@ -74,17 +74,24 @@
             <p class="ai-usage-error-inline">{{ aiUsage.tavily.error }}</p>
           </template>
           <template v-else>
+            <p class="ai-usage-kpi-label">Осталось в этом месяце</p>
             <p class="ai-usage-balance">
               {{ aiUsage.tavily.remaining ?? '—' }}
-              <span class="ai-usage-currency">из {{ aiUsage.tavily.plan_limit ?? '—' }} кред.</span>
+              <span class="ai-usage-currency">кредитов</span>
             </p>
-            <p class="ai-usage-muted">План: {{ aiUsage.tavily.current_plan || '—' }}</p>
+            <p class="ai-usage-muted">
+              Лимит плана «{{ aiUsage.tavily.current_plan || '—' }}»: {{ aiUsage.tavily.plan_limit ?? '—' }} / мес.
+            </p>
             <div v-if="tavilyUsagePercent != null" class="ai-usage-progress-wrap">
               <div class="ai-usage-progress">
                 <div class="ai-usage-progress-bar" :style="{ width: `${tavilyUsagePercent}%` }" />
               </div>
               <p class="ai-usage-muted">
-                Использовано {{ aiUsage.tavily.plan_usage }} · Search: {{ aiUsage.tavily.search_usage ?? 0 }}
+                Потрачено {{ aiUsage.tavily.plan_usage }} из {{ aiUsage.tavily.plan_limit }}
+                ({{ tavilyUsagePercent }}%)
+              </p>
+              <p class="ai-usage-muted">
+                Из них Search: {{ aiUsage.tavily.search_usage ?? 0 }} — поиск при генерации статей
               </p>
             </div>
           </template>
@@ -937,6 +944,10 @@ async function save({ silent = false } = {}) {
 
 .ai-usage-balance {
   @apply text-2xl font-semibold text-[var(--text-primary)] tabular-nums;
+}
+
+.ai-usage-kpi-label {
+  @apply text-[10px] font-medium uppercase tracking-wider text-[var(--text-secondary)];
 }
 
 .ai-usage-currency {
