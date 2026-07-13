@@ -55,11 +55,16 @@ class ChannelAnalyticsResponse(BaseModel):
     channel: ChannelResponse
     subscribers: int | None
     subscribers_delta: int | None
+    subscribers_today: int | None = None
+    subscribers_week: int | None = None
     subscribers_unsubscribed_total: int | None
     posts_count: int | None
     platform_posts_count: int | None
     total_views: int | None
     avg_views: float | None
+    views_24h: int | None = None
+    views_48h: int | None = None
+    views_72h: int | None = None
     avg_reach: float | None
     engagement_rate: float | None
     publications_total: int

@@ -109,6 +109,26 @@
 
 При отключённом действии API возвращает **403** с пояснением.
 
+## Аналитика каналов
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/analytics/summary` | Сводка по всем каналам |
+| GET | `/analytics/channels` | Сводки по каналам |
+| GET | `/analytics/channels/{id}` | Детальная сводка канала |
+| GET | `/analytics/channels/{id}/growth` | График: `period=today\|week\|month\|all`, `metric=subscribers\|views` |
+| GET | `/analytics/channels/{id}/posts` | Метрики постов |
+| POST | `/analytics/channels/{id}/refresh` | Сбор статистики канала |
+| POST | `/analytics/refresh-all` | Сбор по всем каналам |
+
+Ключевые поля сводки канала:
+
+- `views_24h` / `views_48h` / `views_72h` — **новые** просмотры за скользящее окно (прирост `total_views` между снимками)
+- `engagement_rate` — ER за 24ч: `views_24h / subscribers × 100`
+- `avg_views` / `total_views` — накопленный итог по постам (не «за сутки»)
+- `subscribers_today` / `subscribers_week` — прирост подписчиков за календарный день / 7 дней
+- `avg_reach` — только если платформа отдаёт охват (VK); у MAX/Telegram обычно `null`
+
 ## WebSocket
 
 `WS /ws/updates?token=<JWT>` — события `activity` (парсинг, AI, публикация, новые посты)

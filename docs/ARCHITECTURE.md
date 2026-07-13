@@ -66,6 +66,16 @@
   `raw_posts`, `background_jobs` и `publish_log`.
 - Индексы для панели: очередь по `status`, материалы по `(source_id, is_processed, fetched_at)`.
 
+## Аналитика каналов
+
+- Сбор: `ChannelAnalyticsService` → коллекторы Telegram/VK/MAX → снимки `channel_stats_snapshots`
+  и актуальные `post_metrics`.
+- Подписчики — stock-метрика (уровень на момент замера).
+- Просмотры на графике и в окнах 24/48/72ч — flow-метрика: сумма **приростов** `total_views`
+  между соседними снимками (не повторный подсчёт абсолютных значений).
+- ER в сводке канала: `views_24h / subscribers × 100`.
+- MAX/Telegram не отдают охват через Bot API; охват доступен в основном для VK.
+
 ## Дедупликация
 
 - `UNIQUE(source_id, external_id)` для сырых постов

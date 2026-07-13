@@ -167,12 +167,21 @@ def _view_increments(
     return increments
 
 
-def _sum_increments_in_window(
+def sum_view_increments_in_window(
     snapshots: list[ChannelStatsSnapshot],
     window_start: datetime,
     window_end: datetime,
 ) -> int | None:
-    """Сумма приростов просмотров в полуинтервале [start, end)."""
+    """Сумма приростов просмотров в полуинтервале [start, end).
+
+    Args:
+        snapshots: снимки канала от старых к новым.
+        window_start: начало окна (UTC).
+        window_end: конец окна (UTC), не включая.
+
+    Returns:
+        int | None: новые просмотры за окно или None без данных.
+    """
     increments = _view_increments(snapshots)
     total = 0
     has_data = False
@@ -183,6 +192,36 @@ def _sum_increments_in_window(
             total += delta
             has_data = True
     return total if has_data else None
+
+
+def period_view_windows(
+    snapshots: list[ChannelStatsSnapshot],
+    *,
+    now: datetime | None = None,
+) -> tuple[int | None, int | None, int | None]:
+    """Просмотры за скользящие 24 / 48 / 72 часа.
+
+    Args:
+        snapshots: снимки канала от старых к новым.
+        now: опорное время UTC.
+
+    Returns:
+        tuple[int | None, int | None, int | None]: views_24h, views_48h, views_72h.
+    """
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    return (
+        sum_view_increments_in_window(
+            snapshots, current - timedelta(hours=24), current
+        ),
+        sum_view_increments_in_window(
+            snapshots, current - timedelta(hours=48), current
+        ),
+        sum_view_increments_in_window(
+            snapshots, current - timedelta(hours=72), current
+        ),
+    )
 
 
 def _aggregate_views_buckets(
@@ -255,7 +294,7 @@ def _period_total_views(
     window_end: datetime,
 ) -> int | None:
     """Итого просмотров, набранных в окне [start, end)."""
-    return _sum_increments_in_window(snapshots, window_start, window_end)
+    return sum_view_increments_in_window(snapshots, window_start, window_end)
 
 
 def _period_end_subscribers(

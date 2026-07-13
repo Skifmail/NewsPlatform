@@ -26,60 +26,65 @@
           <span class="kpi-label">Подписчики</span>
           <span class="kpi-value text-accent">{{ formatNum(overview.subscribers) }}</span>
           <span
-            v-if="overview.subscribers_delta != null"
-            :class="deltaClass(overview.subscribers_delta)"
+            v-if="overview.subscribers_today != null"
+            :class="deltaClass(overview.subscribers_today)"
             class="kpi-delta"
           >
-            {{ formatDelta(overview.subscribers_delta) }} с прошлого замера
+            {{ formatDelta(overview.subscribers_today) }} сегодня
           </span>
           <span
-            v-if="overview.subscribers_unsubscribed_total != null"
-            class="kpi-delta text-danger"
+            v-if="overview.subscribers_week != null"
+            :class="deltaClass(overview.subscribers_week)"
+            class="kpi-delta"
           >
-            −{{ formatNum(overview.subscribers_unsubscribed_total) }} отписалось всего
+            {{ formatDelta(overview.subscribers_week) }} за неделю
           </span>
         </div>
         <div class="kpi-card panel-card">
           <span class="kpi-label">Публикаций</span>
           <span class="kpi-value">{{ formatNum(overview.publications_total) }}</span>
-          <span class="kpi-delta text-[var(--text-secondary)]">всего опубликовано</span>
+          <span class="kpi-delta text-[var(--text-secondary)]">через платформу</span>
         </div>
         <div class="kpi-card panel-card">
-          <span class="kpi-label">Ср. просмотры</span>
+          <span class="kpi-label">Просмотры за 24ч</span>
+          <span class="kpi-value">{{ formatNum(overview.views_24h) }}</span>
+          <span class="kpi-delta text-[var(--text-secondary)]">
+            <template v-if="overview.views_48h != null || overview.views_72h != null">
+              48ч: {{ formatNum(overview.views_48h) }}
+              · 72ч: {{ formatNum(overview.views_72h) }}
+            </template>
+            <template v-else>новые просмотры по замерам</template>
+          </span>
+        </div>
+        <div class="kpi-card panel-card">
+          <span class="kpi-label">ER за 24ч</span>
+          <span class="kpi-value">{{ overview.engagement_rate != null ? `${overview.engagement_rate}%` : '—' }}</span>
+          <span class="kpi-delta text-[var(--text-secondary)]">просмотры 24ч / подписчики</span>
+        </div>
+        <div class="kpi-card panel-card">
+          <span class="kpi-label">Ср. на пост</span>
           <span class="kpi-value">{{ overview.avg_views ?? '—' }}</span>
-          <span class="kpi-delta text-[var(--text-secondary)]">на пост</span>
+          <span class="kpi-delta text-[var(--text-secondary)]">накопленный итог</span>
           <span
             v-if="overview.total_views != null"
             class="kpi-delta text-accent"
           >
-            {{ formatNum(overview.total_views) }} всего
+            {{ formatNum(overview.total_views) }} всего по постам
           </span>
-        </div>
-        <div class="kpi-card panel-card">
-          <span class="kpi-label">Ср. охват</span>
-          <span class="kpi-value">{{ overview.avg_reach ?? '—' }}</span>
-          <span class="kpi-delta text-[var(--text-secondary)]">
-            <template v-if="overview.avg_reach != null">на пост</template>
-            <template v-else-if="overview.channel.platform === 'telegram'">
-              Telegram не отдаёт охват
-            </template>
-            <template v-else-if="overview.channel.platform === 'max'">
-              MAX не отдаёт охват
-            </template>
-            <template v-else>на пост</template>
-          </span>
-        </div>
-        <div class="kpi-card panel-card">
-          <span class="kpi-label">Вовлечённость (ER)</span>
-          <span class="kpi-value">{{ overview.engagement_rate != null ? `${overview.engagement_rate}%` : '—' }}</span>
-          <span class="kpi-delta text-[var(--text-secondary)]">просмотры / подписчики</span>
         </div>
         <div class="kpi-card panel-card">
           <span class="kpi-label">Реклама</span>
           <span class="kpi-value">{{ overview.ad_integrations_count }}</span>
           <span class="kpi-delta text-[var(--text-secondary)]">{{ formatMoney(overview.ad_revenue_total) }}</span>
         </div>
+        <div v-if="overview.avg_reach != null" class="kpi-card panel-card">
+          <span class="kpi-label">Ср. охват</span>
+          <span class="kpi-value">{{ overview.avg_reach }}</span>
+          <span class="kpi-delta text-[var(--text-secondary)]">на пост (VK)</span>
+        </div>
       </div>
+
+      <p v-if="metricsHint" class="metrics-hint">{{ metricsHint }}</p>
 
       <section class="chart-section panel-card">
         <div class="section-head">
@@ -87,8 +92,8 @@
             <h2 class="section-title">{{ chartTitle }}</h2>
             <p v-if="growthHistory?.period_total != null" class="chart-total">
               <template v-if="chartMetric === 'views'">
-                За {{ periodLabel(growthPeriod) }}:
-                <strong>{{ formatNum(growthHistory.period_total) }}</strong> просмотров
+                Новые просмотры за {{ periodLabel(growthPeriod) }}:
+                <strong>{{ formatNum(growthHistory.period_total) }}</strong>
               </template>
               <template v-else>
                 Сейчас: <strong>{{ formatNum(growthHistory.period_total) }}</strong> подписчиков
@@ -141,8 +146,8 @@
         />
         <p v-if="!growthLoading && growthSeries.length < 2" class="hint">
           <template v-if="chartMetric === 'views'">
-            Просмотры по постам пока не собраны или платформа их не отдаёт. Нажимайте
-            «Обновить» периодически — точки появятся по мере сбора.
+            На графике — прирост просмотров между замерами, не сумма всех просмотров постов.
+            Нужно минимум 2 замера. Нажимайте «Обновить» периодически.
           </template>
           <template v-else>
             Нужно минимум 2 замера. Нажимайте «Обновить» периодически — точки появятся по мере сбора.
@@ -324,7 +329,7 @@ const channelId = computed(() => Number(route.params.channelId))
 const overview = ref(null)
 const growthHistory = ref(null)
 const growthPeriod = ref('month')
-const chartMetric = ref('subscribers')
+const chartMetric = ref('views')
 const growthLoading = ref(false)
 const posts = ref([])
 const postsSortBy = ref('published_at')
@@ -362,8 +367,20 @@ const chartMetricOptions = [
 ]
 
 const chartTitle = computed(() =>
-  chartMetric.value === 'views' ? 'Просмотры' : 'Подписчики',
+  chartMetric.value === 'views' ? 'Новые просмотры' : 'Подписчики',
 )
+
+const metricsHint = computed(() => {
+  if (!overview.value) return null
+  const platform = overview.value.channel.platform
+  if (platform === 'max') {
+    return 'Просмотры 24/48/72ч — прирост между замерами. Охват MAX не отдаёт. «Ср. на пост» — накопленный итог по опубликованным через платформу постам.'
+  }
+  if (platform === 'telegram') {
+    return 'Просмотры 24/48/72ч — прирост между замерами. Охват Telegram не отдаёт. «Ср. на пост» — накопленный итог по постам.'
+  }
+  return 'Просмотры 24/48/72ч — прирост между замерами. «Ср. на пост» — накопленный итог по постам.'
+})
 
 const chartComparisonText = computed(() => {
   const history = growthHistory.value
@@ -631,7 +648,11 @@ watch(channelId, () => {
 
 <style scoped>
 .kpi-grid {
-  @apply mb-6 grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6;
+  @apply mb-3 grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6;
+}
+
+.metrics-hint {
+  @apply mb-6 text-xs leading-relaxed text-[var(--text-secondary)];
 }
 
 .kpi-card {

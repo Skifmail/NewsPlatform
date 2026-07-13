@@ -18,7 +18,11 @@ from app.repositories.channel_repository import ChannelRepository
 from app.repositories.channel_stats_repository import ChannelStatsRepository
 from app.repositories.post_metrics_repository import PostMetricsRepository
 from app.repositories.publish_log_repository import PublishLogRepository
-from app.services.chart_history import build_chart_history, period_bounds
+from app.services.chart_history import (
+    build_chart_history,
+    period_bounds,
+    period_view_windows,
+)
 
 GROWTH_PERIODS = frozenset({"today", "week", "month", "all"})
 GROWTH_OVERVIEW_LIMIT = 90
@@ -68,6 +72,70 @@ def _sum_unsubscribes(snapshots: list[ChannelStatsSnapshot]) -> int | None:
         if current < previous:
             total += previous - current
     return total if has_value else None
+
+
+def _snapshot_captured_at(snapshot: ChannelStatsSnapshot) -> datetime:
+    """Нормализует captured_at снимка к UTC."""
+    captured_at = snapshot.captured_at
+    if captured_at.tzinfo is None:
+        return captured_at.replace(tzinfo=UTC)
+    return captured_at
+
+
+def _subscribers_delta_since(
+    snapshots: list[ChannelStatsSnapshot],
+    since: datetime,
+) -> int | None:
+    """Прирост подписчиков с момента ``since`` до последнего снимка.
+
+    Args:
+        snapshots: снимки от старых к новым.
+        since: нижняя граница окна (UTC).
+
+    Returns:
+        int | None: дельта подписчиков или None без данных.
+    """
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=UTC)
+
+    before: list[ChannelStatsSnapshot] = []
+    after: list[ChannelStatsSnapshot] = []
+    for snapshot in snapshots:
+        if snapshot.subscribers is None:
+            continue
+        if _snapshot_captured_at(snapshot) < since:
+            before.append(snapshot)
+        else:
+            after.append(snapshot)
+
+    if not after and not before:
+        return None
+    if not after:
+        return 0
+
+    start_value = before[-1].subscribers if before else after[0].subscribers
+    end_value = after[-1].subscribers
+    if start_value is None or end_value is None:
+        return None
+    return end_value - start_value
+
+
+def _engagement_rate_from_views(
+    views: int | None,
+    subscribers: int | None,
+) -> float | None:
+    """ER = просмотры за период / подписчики × 100.
+
+    Args:
+        views: просмотры за окно (обычно 24ч).
+        subscribers: текущее число подписчиков.
+
+    Returns:
+        float | None: ER в процентах или None без данных.
+    """
+    if views is None or subscribers is None or subscribers <= 0:
+        return None
+    return round((views / subscribers) * 100, 2)
 
 
 def _endpoints_delta(
@@ -137,11 +205,16 @@ class ChannelAnalyticsOverview:
     channel: Channel
     subscribers: int | None
     subscribers_delta: int | None
+    subscribers_today: int | None
+    subscribers_week: int | None
     subscribers_unsubscribed_total: int | None
     posts_count: int | None
     platform_posts_count: int | None
     total_views: int | None
     avg_views: float | None
+    views_24h: int | None
+    views_48h: int | None
+    views_72h: int | None
     avg_reach: float | None
     engagement_rate: float | None
     publications_total: int
@@ -373,13 +446,12 @@ class ChannelAnalyticsService:
         ):
             subscribers_delta = latest_sub.subscribers - previous_sub.subscribers
 
-        engagement_rate = None
-        if (
-            agg["avg_views"] is not None
-            and subscribers
-            and subscribers > 0
-        ):
-            engagement_rate = round((float(agg["avg_views"]) / subscribers) * 100, 2)
+        now = datetime.now(UTC)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = now - timedelta(days=7)
+        views_24h, views_48h, views_72h = period_view_windows(all_history, now=now)
+        # ER считаем по новым просмотрам за 24ч, а не по lifetime-среднему на пост.
+        engagement_rate = _engagement_rate_from_views(views_24h, subscribers)
 
         growth_points = [
             (point.captured_at.isoformat(), point.subscribers) for point in history
@@ -389,11 +461,16 @@ class ChannelAnalyticsService:
             channel=channel,
             subscribers=subscribers,
             subscribers_delta=subscribers_delta,
+            subscribers_today=_subscribers_delta_since(all_history, today_start),
+            subscribers_week=_subscribers_delta_since(all_history, week_start),
             subscribers_unsubscribed_total=_sum_unsubscribes(all_history),
             posts_count=publications_total,
             platform_posts_count=latest.posts_count if latest else None,
             total_views=agg["total_views"],
             avg_views=agg["avg_views"],
+            views_24h=views_24h,
+            views_48h=views_48h,
+            views_72h=views_72h,
             avg_reach=agg["avg_reach"],
             engagement_rate=engagement_rate,
             publications_total=publications_total,

@@ -70,10 +70,10 @@
         <span class="stat-value">{{ formatNum(summary.publications_total) }}</span>
       </div>
       <div class="stat-card">
-        <span class="stat-label">Ср. просмотры</span>
+        <span class="stat-label">Ср. на пост</span>
         <span class="stat-value">{{ summary.avg_views ?? '—' }}</span>
         <span v-if="summary.total_views != null" class="stat-sub">
-          {{ formatNum(summary.total_views) }} всего
+          {{ formatNum(summary.total_views) }} накоплено
         </span>
       </div>
       <div class="stat-card">
@@ -133,34 +133,37 @@
             <span class="metric-value">
               {{ formatNum(item.subscribers) }}
               <span
-                v-if="item.subscribers_delta != null"
-                :class="deltaClass(item.subscribers_delta)"
+                v-if="item.subscribers_today != null"
+                :class="deltaClass(item.subscribers_today)"
                 class="metric-delta"
               >
-                {{ formatDelta(item.subscribers_delta) }}
+                {{ formatDelta(item.subscribers_today) }}
               </span>
             </span>
             <span
-              v-if="item.subscribers_unsubscribed_total != null && item.subscribers_unsubscribed_total > 0"
-              class="metric-unsub text-danger"
+              v-if="item.subscribers_today != null"
+              class="metric-sub text-[var(--text-secondary)]"
             >
-              −{{ formatNum(item.subscribers_unsubscribed_total) }} отпис.
+              сегодня
             </span>
           </div>
           <div>
-            <span class="metric-label">Публикаций</span>
-            <span class="metric-value">{{ formatNum(item.publications_total) }}</span>
-          </div>
-          <div>
-            <span class="metric-label">Ср. просмотры</span>
-            <span class="metric-value">{{ item.avg_views ?? '—' }}</span>
-            <span v-if="item.total_views != null" class="metric-sub text-accent">
-              {{ formatNum(item.total_views) }} всего
+            <span class="metric-label">За 24ч</span>
+            <span class="metric-value">{{ formatNum(item.views_24h) }}</span>
+            <span
+              v-if="item.views_72h != null"
+              class="metric-sub text-[var(--text-secondary)]"
+            >
+              72ч: {{ formatNum(item.views_72h) }}
             </span>
           </div>
           <div>
-            <span class="metric-label">ER</span>
+            <span class="metric-label">ER 24ч</span>
             <span class="metric-value">{{ item.engagement_rate != null ? `${item.engagement_rate}%` : '—' }}</span>
+          </div>
+          <div>
+            <span class="metric-label">Ср. на пост</span>
+            <span class="metric-value">{{ item.avg_views ?? '—' }}</span>
           </div>
         </div>
 

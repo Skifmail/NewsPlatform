@@ -11,6 +11,8 @@ from app.infrastructure.stats.base import ChannelStatsDTO, PostMetricDTO
 from app.services.channel_analytics_service import (
     ChannelAnalyticsService,
     _downsample_daily,
+    _engagement_rate_from_views,
+    _subscribers_delta_since,
     _sum_unsubscribes,
 )
 
@@ -250,6 +252,88 @@ def test_sum_unsubscribes_single_snapshot() -> None:
         )
         == 0
     )
+
+
+def test_engagement_rate_from_24h_views() -> None:
+    """ER считается от суточных просмотров, не от lifetime avg."""
+    assert _engagement_rate_from_views(15, 14) == 107.14
+    assert _engagement_rate_from_views(None, 14) is None
+    assert _engagement_rate_from_views(15, 0) is None
+
+
+def test_subscribers_delta_since_today() -> None:
+    """Прирост подписчиков с начала дня относительно последнего снимка до окна."""
+    now = datetime(2026, 7, 13, 15, 0, tzinfo=UTC)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    snapshots = [
+        ChannelStatsSnapshot(
+            channel_id=1,
+            subscribers=11,
+            captured_at=today_start - timedelta(hours=2),
+        ),
+        ChannelStatsSnapshot(
+            channel_id=1,
+            subscribers=12,
+            captured_at=today_start + timedelta(hours=3),
+        ),
+        ChannelStatsSnapshot(
+            channel_id=1,
+            subscribers=14,
+            captured_at=now,
+        ),
+    ]
+    assert _subscribers_delta_since(snapshots, today_start) == 3
+
+
+@pytest.mark.asyncio
+async def test_get_channel_overview_uses_period_metrics(
+    mock_session: MagicMock, channel: Channel
+) -> None:
+    """Сводка канала отдаёт окна просмотров и ER от 24ч."""
+    now = datetime.now(UTC)
+    snapshots = [
+        ChannelStatsSnapshot(
+            channel_id=1,
+            subscribers=14,
+            total_views=100,
+            posts_count=10,
+            captured_at=now - timedelta(hours=30),
+        ),
+        ChannelStatsSnapshot(
+            channel_id=1,
+            subscribers=14,
+            total_views=115,
+            posts_count=10,
+            captured_at=now - timedelta(hours=2),
+        ),
+    ]
+    latest = snapshots[-1]
+
+    service = ChannelAnalyticsService(mock_session)
+    service._channels.get_by_id = AsyncMock(return_value=channel)
+    service._snapshots.latest_for_channel = AsyncMock(return_value=latest)
+    service._snapshots.latest_subscribers_snapshot = AsyncMock(return_value=latest)
+    service._snapshots.previous_subscribers_snapshot = AsyncMock(return_value=snapshots[0])
+    service._snapshots.list_for_channel = AsyncMock(return_value=snapshots)
+    service._post_metrics.aggregate_for_channel = AsyncMock(
+        return_value={
+            "avg_views": 66.4,
+            "total_views": 5376,
+            "posts_with_views": 80,
+            "avg_reach": None,
+            "posts_with_metrics": 80,
+        }
+    )
+    service._publish_logs.count_successful_by_channel = AsyncMock(return_value=83)
+    service._ads.count_for_channel = AsyncMock(return_value=0)
+    service._ads.sum_revenue_for_channel = AsyncMock(return_value=0.0)
+
+    overview = await service.get_channel_overview(1)
+
+    assert overview.views_24h == 15
+    assert overview.engagement_rate == 107.14
+    assert overview.avg_views == 66.4
+    assert overview.total_views == 5376
 
 
 @pytest.mark.asyncio

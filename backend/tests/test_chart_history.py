@@ -1,9 +1,13 @@
 """Тесты агрегации графиков аналитики."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.infrastructure.models.channel_stats_snapshot import ChannelStatsSnapshot
-from app.services.chart_history import build_chart_history, period_bounds
+from app.services.chart_history import (
+    build_chart_history,
+    period_bounds,
+    period_view_windows,
+)
 
 
 def _snap(
@@ -94,3 +98,19 @@ def test_period_bounds_today() -> None:
     bounds = period_bounds("today", now)
     assert bounds.granularity == "30min"
     assert bounds.start == datetime(2026, 6, 25, 0, 0, tzinfo=UTC)
+
+
+def test_period_view_windows_rolling_hours() -> None:
+    """Окна 24/48/72ч считают только приросты внутри окна."""
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=UTC)
+    snapshots = [
+        _snap(at=now - timedelta(hours=80), total_views=100),
+        _snap(at=now - timedelta(hours=60), total_views=110),  # +10 вне 48/24
+        _snap(at=now - timedelta(hours=30), total_views=125),  # +15 в 48/72
+        _snap(at=now - timedelta(hours=10), total_views=140),  # +15 в 24/48/72
+        _snap(at=now - timedelta(hours=1), total_views=150),  # +10 в 24/48/72
+    ]
+    v24, v48, v72 = period_view_windows(snapshots, now=now)
+    assert v24 == 25
+    assert v48 == 40
+    assert v72 == 50
