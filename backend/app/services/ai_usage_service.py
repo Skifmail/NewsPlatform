@@ -19,6 +19,7 @@ from app.api.schemas.ai_usage import (
     OpenAIUsage,
     QwenImageUsage,
     QwenModelChainItem,
+    TavilyKeyUsage,
     TavilyUsage,
 )
 from app.core.config import get_settings
@@ -30,6 +31,14 @@ from app.infrastructure.ai.qwen_image_chain import (
 )
 from app.infrastructure.models.background_job import BackgroundJob
 from app.infrastructure.models.processed_post import ProcessedPost
+from app.infrastructure.search.tavily_key_chain import (
+    list_exhausted_keys,
+    mark_key_exhausted,
+    mask_api_key,
+    ordered_keys_for_use,
+    parse_bool_setting,
+    resolve_keys,
+)
 from app.services.platform_settings_service import PlatformSettingsService
 
 _CACHE_KEY = "ai_usage:snapshot"
@@ -139,11 +148,24 @@ async def _fetch_deepseek() -> DeepSeekUsage:
         )
 
 
-async def _fetch_tavily() -> TavilyUsage:
-    key = get_settings().tavily_api_key.strip()
-    if not _is_configured(key):
-        return TavilyUsage(configured=False)
+async def _fetch_tavily_key_usage(
+    key: str,
+) -> tuple[
+    str | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    str | None,
+]:
+    """Запрашивает /usage для одного ключа Tavily.
 
+    Returns:
+        tuple: plan, key_usage, key_limit, plan_usage, plan_limit,
+            search_usage, remaining, error.
+    """
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(
@@ -151,16 +173,28 @@ async def _fetch_tavily() -> TavilyUsage:
                 headers={"Authorization": f"Bearer {key}"},
             )
         if response.status_code == 401:
-            return TavilyUsage(configured=True, error="Неверный API-ключ Tavily")
+            return (None, None, None, None, None, None, None, "Неверный API-ключ")
         if response.status_code == 429:
-            return TavilyUsage(
-                configured=True,
-                error="Лимит запросов /usage (10 за 10 мин) — попробуйте позже",
+            return (
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "Лимит запросов /usage (10 за 10 мин) — попробуйте позже",
             )
         if response.status_code != 200:
-            return TavilyUsage(
-                configured=True,
-                error=f"Tavily API: HTTP {response.status_code}",
+            return (
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                f"Tavily API: HTTP {response.status_code}",
             )
         data = response.json()
         account = data.get("account") or {}
@@ -172,22 +206,135 @@ async def _fetch_tavily() -> TavilyUsage:
             if plan_limit is not None and plan_usage is not None
             else None
         )
-        return TavilyUsage(
-            configured=True,
-            current_plan=str(account.get("current_plan") or "") or None,
-            key_usage=_as_int(key_info.get("usage")),
-            key_limit=_as_int(key_info.get("limit")),
-            plan_usage=plan_usage,
-            plan_limit=plan_limit,
-            search_usage=_as_int(account.get("search_usage")),
-            remaining=remaining,
+        return (
+            str(account.get("current_plan") or "") or None,
+            _as_int(key_info.get("usage")),
+            _as_int(key_info.get("limit")),
+            plan_usage,
+            plan_limit,
+            _as_int(account.get("search_usage")),
+            remaining,
+            None,
         )
     except httpx.HTTPError as exc:
         logger.warning("Tavily usage fetch failed", error=str(exc))
-        return TavilyUsage(
-            configured=True,
-            error="Не удалось связаться с Tavily API",
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "Не удалось связаться с Tavily API",
         )
+
+
+async def _fetch_tavily(session: AsyncSession) -> TavilyUsage:
+    """Собирает usage по всем ключам Tavily и статус цепочки.
+
+    Args:
+        session: сессия БД для чтения настроек.
+
+    Returns:
+        TavilyUsage: сводка по активному ключу и списку ключей.
+    """
+    merged = await PlatformSettingsService(session).get_merged()
+    keys = resolve_keys(merged.get("tavily_api_keys"))
+    auto_switch = parse_bool_setting(merged.get("tavily_auto_switch"), True)
+    active_key_id = (merged.get("tavily_active_key_id") or "").strip() or None
+
+    if not keys:
+        return TavilyUsage(configured=False, auto_switch=auto_switch)
+
+    exhausted = list_exhausted_keys()
+    exhausted_map = {
+        str(item["key_id"]): int(item["ttl_seconds"])
+        for item in exhausted
+        if int(item.get("ttl_seconds") or 0) > 0
+    }
+
+    key_usages: list[TavilyKeyUsage] = []
+    key_meta: dict[str, tuple[int | None, int | None]] = {}
+    for entry in keys:
+        (
+            plan,
+            key_usage,
+            key_limit,
+            plan_usage,
+            plan_limit,
+            search_usage,
+            remaining,
+            error,
+        ) = await _fetch_tavily_key_usage(entry.key)
+        key_meta[entry.id] = (key_usage, key_limit)
+
+        # Проактивно помечаем ключ, если кредиты уже на нуле.
+        if remaining is not None and remaining <= 0 and entry.id not in exhausted_map:
+            mark_key_exhausted(entry.id)
+            exhausted_map[entry.id] = max(exhausted_map.get(entry.id, 0), 1)
+
+        ttl = exhausted_map.get(entry.id)
+        if ttl:
+            status = "exhausted"
+        elif active_key_id and entry.id == active_key_id:
+            status = "active"
+        else:
+            status = "available"
+
+        key_usages.append(
+            TavilyKeyUsage(
+                id=entry.id,
+                label=entry.label,
+                source=entry.source,
+                masked_key=mask_api_key(entry.key),
+                status=status,
+                ttl_seconds=ttl,
+                current_plan=plan,
+                plan_usage=plan_usage,
+                plan_limit=plan_limit,
+                search_usage=search_usage,
+                remaining=remaining,
+                error=error,
+            )
+        )
+
+    next_keys = ordered_keys_for_use(
+        keys,
+        active_key_id=active_key_id,
+        auto_switch=auto_switch,
+    )
+    next_id = next_keys[0].id if next_keys else None
+    for item in key_usages:
+        if item.status == "exhausted":
+            continue
+        if next_id and item.id == next_id:
+            item.status = "next"
+        elif item.status == "active" and next_id and item.id != next_id:
+            item.status = "available"
+
+    primary = next(
+        (item for item in key_usages if item.status == "next"),
+        key_usages[0],
+    )
+    primary_key_usage, primary_key_limit = key_meta.get(
+        primary.id, (None, None)
+    )
+
+    return TavilyUsage(
+        configured=True,
+        auto_switch=auto_switch,
+        active_key_id=active_key_id or next_id,
+        current_plan=primary.current_plan,
+        key_usage=primary_key_usage,
+        key_limit=primary_key_limit,
+        plan_usage=primary.plan_usage,
+        plan_limit=primary.plan_limit,
+        search_usage=primary.search_usage,
+        remaining=primary.remaining,
+        error=primary.error,
+        keys=key_usages,
+    )
 
 
 def _as_int(value: Any) -> int | None:
@@ -305,7 +452,7 @@ class AiUsageService:
             cache_ttl_seconds=_CACHE_TTL_SECONDS,
             from_cache=False,
             deepseek=await _fetch_deepseek(),
-            tavily=await _fetch_tavily(),
+            tavily=await _fetch_tavily(self._session),
             qwen_image=await _fetch_qwen_image(self._session),
             openai=_fetch_openai(),
             local=await _local_stats(self._session),

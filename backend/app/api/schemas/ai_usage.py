@@ -24,10 +24,29 @@ class DeepSeekUsage(BaseModel):
     error: str | None = None
 
 
+class TavilyKeyUsage(BaseModel):
+    """Использование одного ключа Tavily."""
+
+    id: str
+    label: str
+    source: str
+    masked_key: str
+    status: str
+    ttl_seconds: int | None = None
+    current_plan: str | None = None
+    plan_usage: int | None = None
+    plan_limit: int | None = None
+    search_usage: int | None = None
+    remaining: int | None = None
+    error: str | None = None
+
+
 class TavilyUsage(BaseModel):
-    """Кредиты Tavily."""
+    """Кредиты Tavily (активный ключ + цепочка)."""
 
     configured: bool
+    auto_switch: bool = True
+    active_key_id: str | None = None
     current_plan: str | None = None
     key_usage: int | None = None
     key_limit: int | None = None
@@ -36,6 +55,7 @@ class TavilyUsage(BaseModel):
     search_usage: int | None = None
     remaining: int | None = None
     error: str | None = None
+    keys: list[TavilyKeyUsage] = Field(default_factory=list)
 
 
 class QwenImageUsage(BaseModel):

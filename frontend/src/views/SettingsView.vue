@@ -64,23 +64,25 @@
           </template>
         </article>
 
-        <article class="ai-usage-card">
+        <article class="ai-usage-card ai-usage-card-tavily">
           <h3 class="ai-usage-card-title">Tavily</h3>
-          <p class="ai-usage-card-sub">Веб-поиск для статей</p>
-          <template v-if="!aiUsage.tavily.configured">
-            <p class="ai-usage-muted">TAVILY_API_KEY не задан</p>
+          <p class="ai-usage-card-sub">Веб-поиск для статей · несколько ключей</p>
+
+          <template v-if="!aiUsage.tavily.configured && !tavilyKeys.length">
+            <p class="ai-usage-muted">Ключ не задан — добавьте ниже или TAVILY_API_KEY в .env</p>
           </template>
-          <template v-else-if="aiUsage.tavily.error">
+          <template v-else-if="aiUsage.tavily.error && !aiUsage.tavily.keys?.length">
             <p class="ai-usage-error-inline">{{ aiUsage.tavily.error }}</p>
           </template>
           <template v-else>
-            <p class="ai-usage-kpi-label">Осталось в этом месяце</p>
+            <p class="ai-usage-kpi-label">Осталось у текущего ключа</p>
             <p class="ai-usage-balance">
               {{ aiUsage.tavily.remaining ?? '—' }}
               <span class="ai-usage-currency">кредитов</span>
             </p>
             <p class="ai-usage-muted">
-              Лимит плана «{{ aiUsage.tavily.current_plan || '—' }}»: {{ aiUsage.tavily.plan_limit ?? '—' }} / мес.
+              Лимит плана «{{ aiUsage.tavily.current_plan || '—' }}»:
+              {{ aiUsage.tavily.plan_limit ?? '—' }} / мес.
             </p>
             <div v-if="tavilyUsagePercent != null" class="ai-usage-progress-wrap">
               <div class="ai-usage-progress">
@@ -95,6 +97,80 @@
               </p>
             </div>
           </template>
+
+          <div class="tavily-keys-block">
+            <p class="ai-usage-kpi-label">Ключи</p>
+            <p class="ai-usage-muted ai-usage-explainer">
+              Выберите активный ключ. При автопереключении система уйдёт на следующий,
+              если у текущего кончатся кредиты (до конца месяца).
+            </p>
+
+            <label class="tavily-auto-switch">
+              <input v-model="tavilyAutoSwitch" type="checkbox" @change="saveTavilyAutoSwitch" />
+              Автопереключение при исчерпании лимита
+            </label>
+
+            <ul v-if="tavilyKeysDisplay.length" class="tavily-keys-list">
+              <li v-for="item in tavilyKeysDisplay" :key="item.id" class="tavily-key-row">
+                <label class="tavily-key-select">
+                  <input
+                    type="radio"
+                    name="tavily-active"
+                    :value="item.id"
+                    :checked="tavilyActiveKeyId === item.id"
+                    @change="activateTavilyKey(item.id)"
+                  />
+                  <span class="tavily-key-meta">
+                    <span class="tavily-key-label">{{ item.label }}</span>
+                    <span class="font-mono tavily-key-masked">{{ item.masked_key || item.key }}</span>
+                  </span>
+                </label>
+                <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
+                <span v-else-if="item.status === 'exhausted'" class="badge-danger">
+                  Лимит{{ item.ttl_seconds ? ` · ~${formatTtl(item.ttl_seconds)}` : '' }}
+                </span>
+                <span v-else-if="tavilyActiveKeyId === item.id" class="badge-muted">Выбрана</span>
+                <span v-if="item.remaining != null" class="tavily-key-remaining">
+                  {{ item.remaining }} кр.
+                </span>
+                <button
+                  v-if="item.source !== 'env'"
+                  type="button"
+                  class="btn-secondary btn-compact tavily-key-remove"
+                  :disabled="tavilyKeysSaving"
+                  @click="removeTavilyKey(item.id)"
+                >
+                  Удалить
+                </button>
+              </li>
+            </ul>
+            <p v-else class="ai-usage-muted">Пока нет ключей</p>
+
+            <div class="tavily-add-form">
+              <input
+                v-model="tavilyNewLabel"
+                type="text"
+                class="input input-compact-wide"
+                placeholder="Подпись (например, Аккаунт 2)"
+              />
+              <input
+                v-model="tavilyNewKey"
+                type="password"
+                class="input input-compact-wide"
+                placeholder="tvly-…"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="btn-secondary btn-compact"
+                :disabled="tavilyKeysSaving || !tavilyNewKey.trim()"
+                @click="addTavilyKey"
+              >
+                {{ tavilyKeysSaving ? '…' : 'Добавить' }}
+              </button>
+            </div>
+            <p v-if="tavilyKeysError" class="ai-usage-error-inline">{{ tavilyKeysError }}</p>
+          </div>
         </article>
 
         <article class="ai-usage-card">
@@ -448,7 +524,8 @@
           </table>
         </div>
         <p class="field-hint">
-          Работает только для каналов с режимом «Статьи». Нужны TAVILY_API_KEY и QWEN_IMAGE_API_KEY (обложки).
+          Работает только для каналов с режимом «Статьи». Нужен ключ Tavily
+          (в блоке «AI и API» выше или TAVILY_API_KEY) и QWEN_IMAGE_API_KEY (обложки).
         </p>
         <div v-if="articleStatus.length" class="category-meta space-y-1">
           <p v-for="line in articleStatus" :key="line">{{ line }}</p>
@@ -592,11 +669,42 @@ const savedSnapshot = ref('')
 const aiUsage = ref(null)
 const aiUsageLoading = ref(false)
 const aiUsageError = ref('')
+const tavilyKeys = ref([])
+const tavilyActiveKeyId = ref('')
+const tavilyAutoSwitch = ref(true)
+const tavilyNewLabel = ref('')
+const tavilyNewKey = ref('')
+const tavilyKeysSaving = ref(false)
+const tavilyKeysError = ref('')
 
 const tavilyUsagePercent = computed(() => {
   const t = aiUsage.value?.tavily
   if (!t || t.plan_limit == null || t.plan_usage == null || t.plan_limit <= 0) return null
   return Math.min(100, Math.round((t.plan_usage / t.plan_limit) * 100))
+})
+
+const tavilyKeysDisplay = computed(() => {
+  const usageKeys = aiUsage.value?.tavily?.keys
+  if (usageKeys?.length) {
+    return usageKeys.map((item) => ({
+      id: item.id,
+      label: item.label,
+      masked_key: item.masked_key,
+      source: item.source,
+      status: item.status,
+      ttl_seconds: item.ttl_seconds,
+      remaining: item.remaining,
+    }))
+  }
+  return tavilyKeys.value.map((item) => ({
+    id: item.id,
+    label: item.label,
+    masked_key: item.key,
+    source: item.source || 'db',
+    status: tavilyActiveKeyId.value === item.id ? 'next' : 'available',
+    ttl_seconds: null,
+    remaining: null,
+  }))
 })
 
 const isDirty = computed(() => getFormSnapshot() !== savedSnapshot.value)
@@ -679,7 +787,9 @@ function formatTtl(seconds) {
   const mins = Math.max(1, Math.round(Number(seconds) / 60))
   if (mins < 60) return `${mins} мин`
   const hours = Math.round(mins / 60)
-  return `${hours} ч`
+  if (hours < 48) return `${hours} ч`
+  const days = Math.round(hours / 24)
+  return `${days} дн.`
 }
 
 function formatAiUsageTime(iso) {
@@ -697,10 +807,25 @@ async function loadAiUsage(refresh = false) {
   try {
     const { data } = await aiUsageApi.get(refresh ? { refresh: true } : {})
     aiUsage.value = data
+    if (data?.tavily) {
+      tavilyAutoSwitch.value = data.tavily.auto_switch !== false
+      if (data.tavily.active_key_id) {
+        tavilyActiveKeyId.value = data.tavily.active_key_id
+      }
+    }
   } catch (err) {
     aiUsageError.value = err.response?.data?.detail || 'Не удалось загрузить данные AI/API'
   } finally {
     aiUsageLoading.value = false
+  }
+}
+
+function parseTavilyResolved(raw) {
+  try {
+    const parsed = JSON.parse(raw || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }
 
@@ -736,7 +861,110 @@ async function loadSettings() {
   qwenImageEditModels.value = s.qwen_image_edit_models || ''
   schedulerLastFetch.value = s.scheduler_last_fetch_at || ''
   schedulerLastRetention.value = s.scheduler_last_retention_at || ''
+  tavilyKeys.value = parseTavilyResolved(s.tavily_keys_resolved)
+  tavilyActiveKeyId.value = s.tavily_active_key_id || tavilyKeys.value[0]?.id || ''
+  tavilyAutoSwitch.value = boolFrom(s.tavily_auto_switch, true)
   markSaved()
+}
+
+function dbTavilyKeysPayload(extra = null) {
+  const fromSettings = tavilyKeys.value.filter((item) => item.source !== 'env')
+  const list = extra ? [...fromSettings, extra] : fromSettings
+  return JSON.stringify(
+    list.map((item) => ({
+      id: item.id,
+      label: item.label,
+      key: item.key,
+    })),
+  )
+}
+
+async function patchTavilySettings(partial) {
+  tavilyKeysSaving.value = true
+  tavilyKeysError.value = ''
+  try {
+    await settingsApi.update({ settings: partial })
+    await loadSettings()
+    await loadAiUsage(true)
+  } catch (err) {
+    tavilyKeysError.value =
+      err.response?.data?.detail || 'Не удалось сохранить ключи Tavily'
+    throw err
+  } finally {
+    tavilyKeysSaving.value = false
+  }
+}
+
+async function addTavilyKey() {
+  const key = tavilyNewKey.value.trim()
+  if (!key) return
+  const label = tavilyNewLabel.value.trim() || `Ключ ${tavilyKeys.value.length + 1}`
+  const id =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `k-${Date.now()}`
+  try {
+    await patchTavilySettings({
+      tavily_api_keys: dbTavilyKeysPayload({ id, label, key }),
+      tavily_active_key_id: tavilyActiveKeyId.value || id,
+      tavily_auto_switch: String(tavilyAutoSwitch.value),
+    })
+    if (!tavilyActiveKeyId.value) {
+      tavilyActiveKeyId.value = id
+    }
+    tavilyNewKey.value = ''
+    tavilyNewLabel.value = ''
+  } catch {
+    /* ошибка уже в tavilyKeysError */
+  }
+}
+
+async function removeTavilyKey(keyId) {
+  const ok = await dialog.confirm({
+    title: 'Удалить ключ Tavily?',
+    message: 'Ключ будет удалён из панели. Ключ из .env удалить нельзя.',
+  })
+  if (!ok) return
+  const remaining = tavilyKeys.value.filter(
+    (item) => item.source !== 'env' && item.id !== keyId,
+  )
+  const nextActive =
+    tavilyActiveKeyId.value === keyId
+      ? tavilyKeys.value.find((item) => item.id !== keyId)?.id || ''
+      : tavilyActiveKeyId.value
+  try {
+    await patchTavilySettings({
+      tavily_api_keys: JSON.stringify(
+        remaining.map((item) => ({
+          id: item.id,
+          label: item.label,
+          key: item.key,
+        })),
+      ),
+      tavily_active_key_id: nextActive,
+    })
+  } catch {
+    /* ошибка уже в tavilyKeysError */
+  }
+}
+
+async function activateTavilyKey(keyId) {
+  tavilyActiveKeyId.value = keyId
+  try {
+    await patchTavilySettings({ tavily_active_key_id: keyId })
+  } catch {
+    /* ошибка уже в tavilyKeysError */
+  }
+}
+
+async function saveTavilyAutoSwitch() {
+  try {
+    await patchTavilySettings({
+      tavily_auto_switch: String(tavilyAutoSwitch.value),
+    })
+  } catch {
+    /* ошибка уже в tavilyKeysError */
+  }
 }
 
 async function save({ silent = false } = {}) {
@@ -790,7 +1018,11 @@ async function save({ silent = false } = {}) {
 }
 
 .settings-category {
-  @apply p-5 flex flex-col gap-4 min-w-0;
+  @apply flex flex-col gap-4 p-4 min-w-0 sm:p-5;
+}
+
+.table-wrap {
+  @apply max-w-full overflow-x-auto;
 }
 
 .category-header {
@@ -821,6 +1053,71 @@ async function save({ silent = false } = {}) {
   @apply text-center;
 }
 
+/* На мобильных таблицы настроек не влезают по ширине — раскладываем строки в столбик. */
+@media (max-width: 767px) {
+  .settings-table,
+  .settings-table tbody,
+  .settings-table tr,
+  .settings-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .settings-table thead {
+    display: none;
+  }
+
+  .settings-table tr {
+    border: 1px solid rgb(var(--panel-border-rgb));
+    border-radius: 0.75rem;
+    background: rgb(var(--panel-elevated-rgb));
+    padding: 0.875rem 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .settings-table tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .settings-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .settings-table .setting-name {
+    white-space: normal;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .settings-table .setting-desc {
+    margin-top: 0.375rem;
+    font-size: 0.75rem;
+    line-height: 1.45;
+  }
+
+  .settings-table .col-toggle {
+    width: 100%;
+    text-align: left;
+    margin-top: 0.75rem;
+  }
+
+  /* Тумблер: слева, а не по центру колонки. */
+  .settings-table .col-toggle :deep(.toggle) {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .settings-table td[colspan] {
+    margin-top: 0.75rem;
+  }
+
+  .input-compact {
+    @apply w-full;
+  }
+}
+
 .input-compact {
   @apply inline-block w-24;
 }
@@ -831,6 +1128,8 @@ async function save({ silent = false } = {}) {
 
 .category-meta {
   @apply text-xs text-[var(--text-secondary)] font-mono rounded-lg border border-panel-border bg-panel-elevated px-3 py-2;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .field-label {
@@ -925,6 +1224,12 @@ async function save({ silent = false } = {}) {
 
 .ai-usage-chain li {
   @apply flex flex-wrap items-center gap-2 text-xs;
+  overflow-wrap: anywhere;
+}
+
+.ai-usage-chain li .font-mono {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .ai-usage-chain-hint {
@@ -958,5 +1263,58 @@ async function save({ silent = false } = {}) {
 
 .settings-footer {
   @apply flex justify-end border-t border-panel-border pt-4;
+}
+
+.ai-usage-card-tavily {
+  @apply md:col-span-2 xl:col-span-2;
+}
+
+.tavily-keys-block {
+  @apply space-y-2 pt-3 mt-2 border-t border-panel-border;
+}
+
+.tavily-auto-switch {
+  @apply flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer;
+}
+
+.tavily-keys-list {
+  @apply space-y-2 list-none p-0 m-0;
+}
+
+.tavily-key-row {
+  @apply flex flex-wrap items-center gap-2 text-xs rounded-lg border border-panel-border
+    bg-panel px-2.5 py-2;
+}
+
+.tavily-key-select {
+  @apply flex items-start gap-2 flex-1 min-w-[12rem] cursor-pointer;
+}
+
+.tavily-key-meta {
+  @apply flex flex-col gap-0.5 min-w-0;
+}
+
+.tavily-key-label {
+  @apply font-medium text-[var(--text-primary)];
+}
+
+.tavily-key-masked {
+  @apply text-[10px] text-[var(--text-secondary)] break-all;
+}
+
+.tavily-key-remaining {
+  @apply text-[10px] tabular-nums text-[var(--text-secondary)];
+}
+
+.tavily-key-remove {
+  @apply ml-auto;
+}
+
+.tavily-add-form {
+  @apply flex flex-wrap items-center gap-2 pt-1;
+}
+
+.input-compact-wide {
+  @apply inline-block min-w-[10rem] flex-1;
 }
 </style>

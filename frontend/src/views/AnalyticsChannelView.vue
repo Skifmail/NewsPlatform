@@ -166,68 +166,143 @@
             Просмотры появятся после сбора статистики (нужно право view_stats у бота).
           </template>
         </div>
-        <div v-else class="table-wrap panel-card overflow-hidden">
-          <table class="table-panel">
-            <thead>
-              <tr>
-                <th>Пост</th>
-                <th>
-                  <button type="button" class="sort-header" @click="togglePostsSort('published_at')">
-                    Опубликован
-                    <span class="sort-indicator">{{ sortIndicator('published_at') }}</span>
-                  </button>
-                </th>
-                <th>
-                  <button type="button" class="sort-header" @click="togglePostsSort('views')">
-                    Просмотры
-                    <span class="sort-indicator">{{ sortIndicator('views') }}</span>
-                  </button>
-                </th>
-                <th>
-                  <button type="button" class="sort-header" @click="togglePostsSort('reactions')">
-                    Реакции
-                    <span class="sort-indicator">{{ sortIndicator('reactions') }}</span>
-                  </button>
-                </th>
-                <th>
-                  <button type="button" class="sort-header" @click="togglePostsSort('forwards')">
-                    Репосты
-                    <span class="sort-indicator">{{ sortIndicator('forwards') }}</span>
-                  </button>
-                </th>
-                <th>
-                  <button type="button" class="sort-header" @click="togglePostsSort('comments')">
-                    Комменты
-                    <span class="sort-indicator">{{ sortIndicator('comments') }}</span>
-                  </button>
-                </th>
-                <th>
-                  <button type="button" class="sort-header" @click="togglePostsSort('reach')">
-                    Охват
-                    <span class="sort-indicator">{{ sortIndicator('reach') }}</span>
-                  </button>
-                </th>
-                <th>Собрано</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="post in posts" :key="post.id">
-                <td><p class="line-clamp-2 text-sm max-w-md">{{ post.rewritten_text || post.platform_post_id }}</p></td>
-                <td class="whitespace-nowrap text-xs font-mono text-[var(--text-secondary)]">{{ formatDate(post.published_at) }}</td>
-                <td class="font-mono text-sm">{{ formatNum(post.views) }}</td>
-                <td class="font-mono text-sm">{{ formatNum(post.reactions) }}</td>
-                <td class="font-mono text-sm">{{ formatNum(post.forwards) }}</td>
-                <td class="font-mono text-sm">{{ formatNum(post.comments) }}</td>
-                <td class="font-mono text-sm">{{ formatNum(post.reach) }}</td>
-                <td class="whitespace-nowrap text-xs font-mono text-[var(--text-secondary)]">{{ formatDate(post.collected_at) }}</td>
-                <td>
-                  <a v-if="post.post_url" :href="post.post_url" target="_blank" rel="noopener" class="text-xs text-accent hover:underline">Открыть</a>
-                  <span v-else>—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-else>
+          <div class="posts-sort-bar">
+            <span class="posts-sort-label">Сортировка</span>
+            <div class="posts-sort-toggles">
+              <button
+                v-for="option in postsSortOptions"
+                :key="option.value"
+                type="button"
+                class="posts-sort-btn"
+                :class="{ 'posts-sort-btn-active': postsSortBy === option.value }"
+                @click="togglePostsSort(option.value)"
+              >
+                {{ option.label }}
+                <span v-if="postsSortBy === option.value" class="sort-indicator">
+                  {{ postsSortOrder === 'desc' ? '↓' : '↑' }}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="posts-cards">
+            <article v-for="post in posts" :key="`card-${post.id}`" class="post-metric-card panel-card">
+              <p class="post-metric-title">{{ postPreview(post) }}</p>
+              <div class="post-metric-grid">
+                <div>
+                  <span class="post-metric-label">Просмотры</span>
+                  <span class="post-metric-value">{{ formatNum(post.views) }}</span>
+                </div>
+                <div>
+                  <span class="post-metric-label">Реакции</span>
+                  <span class="post-metric-value">{{ formatNum(post.reactions) }}</span>
+                </div>
+                <div>
+                  <span class="post-metric-label">Репосты</span>
+                  <span class="post-metric-value">{{ formatNum(post.forwards) }}</span>
+                </div>
+                <div>
+                  <span class="post-metric-label">Комменты</span>
+                  <span class="post-metric-value">{{ formatNum(post.comments) }}</span>
+                </div>
+                <div v-if="post.reach != null">
+                  <span class="post-metric-label">Охват</span>
+                  <span class="post-metric-value">{{ formatNum(post.reach) }}</span>
+                </div>
+              </div>
+              <div class="post-metric-meta">
+                <span>{{ formatDate(post.published_at) }}</span>
+                <a
+                  v-if="post.post_url"
+                  :href="post.post_url"
+                  target="_blank"
+                  rel="noopener"
+                  class="text-accent"
+                >
+                  Открыть
+                </a>
+              </div>
+            </article>
+          </div>
+
+          <div class="table-wrap panel-card posts-table">
+            <table class="table-panel">
+              <thead>
+                <tr>
+                  <th>Пост</th>
+                  <th>
+                    <button type="button" class="sort-header" @click="togglePostsSort('published_at')">
+                      Опубликован
+                      <span class="sort-indicator">{{ sortIndicator('published_at') }}</span>
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" class="sort-header" @click="togglePostsSort('views')">
+                      Просмотры
+                      <span class="sort-indicator">{{ sortIndicator('views') }}</span>
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" class="sort-header" @click="togglePostsSort('reactions')">
+                      Реакции
+                      <span class="sort-indicator">{{ sortIndicator('reactions') }}</span>
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" class="sort-header" @click="togglePostsSort('forwards')">
+                      Репосты
+                      <span class="sort-indicator">{{ sortIndicator('forwards') }}</span>
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" class="sort-header" @click="togglePostsSort('comments')">
+                      Комменты
+                      <span class="sort-indicator">{{ sortIndicator('comments') }}</span>
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" class="sort-header" @click="togglePostsSort('reach')">
+                      Охват
+                      <span class="sort-indicator">{{ sortIndicator('reach') }}</span>
+                    </button>
+                  </th>
+                  <th>Собрано</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="post in posts" :key="post.id">
+                  <td>
+                    <p class="line-clamp-2 text-sm max-w-md">{{ postPreview(post) }}</p>
+                  </td>
+                  <td class="whitespace-nowrap text-xs font-mono text-[var(--text-secondary)]">
+                    {{ formatDate(post.published_at) }}
+                  </td>
+                  <td class="font-mono text-sm">{{ formatNum(post.views) }}</td>
+                  <td class="font-mono text-sm">{{ formatNum(post.reactions) }}</td>
+                  <td class="font-mono text-sm">{{ formatNum(post.forwards) }}</td>
+                  <td class="font-mono text-sm">{{ formatNum(post.comments) }}</td>
+                  <td class="font-mono text-sm">{{ formatNum(post.reach) }}</td>
+                  <td class="whitespace-nowrap text-xs font-mono text-[var(--text-secondary)]">
+                    {{ formatDate(post.collected_at) }}
+                  </td>
+                  <td>
+                    <a
+                      v-if="post.post_url"
+                      :href="post.post_url"
+                      target="_blank"
+                      rel="noopener"
+                      class="text-xs text-accent hover:underline"
+                    >
+                      Открыть
+                    </a>
+                    <span v-else>—</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -321,6 +396,7 @@ import BarLineChart from '../components/analytics/BarLineChart.vue'
 import AnalyticsRefreshModal from '../components/analytics/AnalyticsRefreshModal.vue'
 import { analyticsApi } from '../api/index.js'
 import { pollRefreshProgress, startRefreshChannel } from '../utils/analyticsRefresh.js'
+import { stripHtmlForPreview } from '../utils/telegramHtml.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -364,6 +440,13 @@ const growthPeriodOptions = [
 const chartMetricOptions = [
   { value: 'subscribers', label: 'Подписчики' },
   { value: 'views', label: 'Просмотры' },
+]
+
+const postsSortOptions = [
+  { value: 'published_at', label: 'Дата' },
+  { value: 'views', label: 'Просмотры' },
+  { value: 'reactions', label: 'Реакции' },
+  { value: 'forwards', label: 'Репосты' },
 ]
 
 const chartTitle = computed(() =>
@@ -482,6 +565,11 @@ function formatDate(iso) {
 function formatDelta(delta) {
   if (delta === 0) return '0'
   return delta > 0 ? `+${formatNum(delta)}` : formatNum(delta)
+}
+
+function postPreview(post) {
+  const text = stripHtmlForPreview(post.rewritten_text || '')
+  return text || post.platform_post_id
 }
 function deltaClass(delta) {
   if (delta > 0) return 'text-accent'
@@ -672,7 +760,7 @@ watch(channelId, () => {
 }
 
 .chart-section {
-  @apply mb-8 p-5;
+  @apply mb-8 overflow-hidden p-4 sm:p-5;
 }
 
 .section-title {
@@ -695,17 +783,39 @@ watch(channelId, () => {
   @apply mt-1 text-xs;
 }
 
+.section-head {
+  @apply mb-4 flex flex-col items-stretch gap-3;
+}
+
+@media (min-width: 768px) {
+  .section-head {
+    @apply flex-row items-start justify-between gap-4;
+  }
+}
+
 .chart-controls {
-  @apply flex flex-wrap items-center justify-end gap-2;
+  @apply flex w-full min-w-0 flex-col gap-2;
+}
+
+@media (min-width: 640px) {
+  .chart-controls {
+    @apply w-auto flex-row flex-wrap items-center justify-end;
+  }
 }
 
 .period-toggle {
-  @apply inline-flex shrink-0 items-center gap-0.5 rounded-pill border border-panel-border bg-panel-surface p-0.5 shadow-sm;
+  @apply flex w-full min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-pill border border-panel-border bg-panel-surface p-0.5 shadow-sm;
+}
+
+@media (min-width: 640px) {
+  .period-toggle {
+    @apply inline-flex w-auto;
+  }
 }
 
 .period-toggle-btn {
-  @apply rounded-pill px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-all duration-200
-    hover:text-[var(--text-primary)];
+  @apply min-w-0 flex-1 rounded-pill px-2.5 py-1.5 text-[11px] leading-tight text-[var(--text-secondary)] transition-all duration-200
+    hover:text-[var(--text-primary)] sm:flex-none sm:px-3 sm:text-xs;
 }
 
 .period-toggle-btn-active {
@@ -713,11 +823,11 @@ watch(channelId, () => {
 }
 
 .detail-block {
-  @apply mb-8;
+  @apply mb-8 min-w-0;
 }
 
-.section-head {
-  @apply mb-4 flex items-center justify-between gap-4;
+.detail-block .section-head {
+  @apply flex-row items-center justify-between;
 }
 
 .ad-form {
@@ -745,7 +855,65 @@ watch(channelId, () => {
 }
 
 .channel-growth-chart {
-  @apply mt-2;
+  @apply mt-2 w-full min-w-0;
+}
+
+.posts-sort-bar {
+  @apply mb-3 flex flex-col gap-2 md:hidden;
+}
+
+.posts-sort-label {
+  @apply text-[10px] uppercase tracking-wide text-[var(--text-secondary)];
+}
+
+.posts-sort-toggles {
+  @apply flex flex-wrap gap-1.5;
+}
+
+.posts-sort-btn {
+  @apply rounded-pill border border-panel-border bg-panel-surface px-2.5 py-1 text-[11px]
+    text-[var(--text-secondary)];
+}
+
+.posts-sort-btn-active {
+  @apply border-accent bg-accent/15 text-accent;
+}
+
+.posts-cards {
+  @apply flex flex-col gap-3 md:hidden;
+}
+
+.post-metric-card {
+  @apply flex flex-col gap-3 p-4;
+}
+
+.post-metric-title {
+  @apply line-clamp-3 text-sm leading-snug text-[var(--text-primary)];
+}
+
+.post-metric-grid {
+  @apply grid grid-cols-2 gap-3 sm:grid-cols-3;
+}
+
+.post-metric-label {
+  @apply block text-[10px] uppercase tracking-wide text-[var(--text-secondary)];
+}
+
+.post-metric-value {
+  @apply mt-0.5 block font-mono text-base font-semibold text-[var(--text-primary)];
+}
+
+.post-metric-meta {
+  @apply flex items-center justify-between gap-3 border-t border-panel-border pt-3
+    text-xs text-[var(--text-secondary)];
+}
+
+.table-wrap {
+  @apply max-w-full overflow-x-auto;
+}
+
+.posts-table {
+  @apply hidden md:block;
 }
 
 .sort-header {

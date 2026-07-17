@@ -328,7 +328,17 @@ onUnmounted(() => {
 }
 
 .overview-chart {
-  @apply min-h-[220px];
+  @apply min-h-[260px];
+}
+
+@media (max-width: 640px) {
+  .overview-chart {
+    min-height: 240px;
+  }
+
+  .chart-section {
+    @apply overflow-visible;
+  }
 }
 
 .secondary-grid {

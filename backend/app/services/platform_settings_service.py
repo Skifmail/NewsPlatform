@@ -41,12 +41,17 @@ class PlatformSettingsService:
         Returns:
             dict[str, str]: словарь для GET /settings.
         """
+        from app.infrastructure.search.tavily_key_chain import mask_keys_json
+
         merged = await self.get_merged()
-        return {
+        public = {
             key: value
             for key, value in merged.items()
             if not is_internal_setting_key(key)
         }
+        if "tavily_api_keys" in public:
+            public["tavily_api_keys"] = mask_keys_json(public.get("tavily_api_keys"))
+        return public
 
     async def load(self) -> PlatformSettings:
         """Типизированный снимок настроек.

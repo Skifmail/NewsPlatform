@@ -87,6 +87,10 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "qwen_image_edit_models": (
         "qwen-image-edit-plus,qwen-image-edit-max,qwen-image-edit"
     ),
+    # Tavily: доп. ключи в панели + активный + автопереключение
+    "tavily_api_keys": "[]",
+    "tavily_active_key_id": "",
+    "tavily_auto_switch": "true",
     CURATED_PICK_HISTORY_KEY: "[]",
 }
 

@@ -78,7 +78,7 @@
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET/PATCH | `/settings` | Автоматика, ручные действия, интервалы, промпты (см. ниже) |
-| GET | `/ai-usage` | Баланс DeepSeek, кредиты Tavily, цепочка Qwen, локальная статистика (`?refresh=true` — без кэша) |
+| GET | `/ai-usage` | Баланс DeepSeek, кредиты Tavily (в т.ч. список ключей), цепочка Qwen, локальная статистика (`?refresh=true` — без кэша) |
 
 Ключи (строки `true`/`false` или числа):
 
@@ -104,6 +104,10 @@
 | `fetch_max_age_days` | Окно свежести материалов (UTC) |
 | `retention_hour_utc` / `retention_minute_utc` | Время запуска очистки |
 | `raw_posts_retention_days` | Срок хранения необработанных материалов (по умолчанию 3 дня) |
+| `qwen_image_models` / `qwen_image_edit_models` | Цепочки моделей обложек |
+| `tavily_api_keys` | JSON-массив доп. ключей Tavily `[{id,label,key}]` (в GET ключи замаскированы) |
+| `tavily_active_key_id` | Id активного ключа (`env` = ключ из `.env`, либо id из `tavily_api_keys`) |
+| `tavily_auto_switch` | Автопереключение на следующий ключ при исчерпании лимита (`true`/`false`) |
 | `auto_approve`, `posts_per_day`, `classification_prompt` | Как раньше |
 | `scheduler_last_fetch_at`, `scheduler_last_retention_at` | Только чтение (статус планировщика) |
 

@@ -3,39 +3,28 @@
     <section class="settings-category panel-card">
       <header class="category-header">
         <h2 class="category-title">Умная публикация</h2>
-        <p class="category-subtitle">Каждые N минут (как парсинг) — 1 лучшая новость на тему → сразу в канал</p>
+        <p class="category-subtitle">
+          Каждые N минут AI выбирает 1 лучшую новость по теме и сразу публикует в канал
+        </p>
       </header>
 
-      <div class="table-wrap overflow-hidden">
-        <table class="table-panel settings-table">
-          <thead>
-            <tr>
-              <th>Параметр</th>
-              <th>Описание</th>
-              <th class="col-toggle">Вкл.</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td class="setting-name">Лучшая новость → рерайт → канал</td>
-              <td class="setting-desc">
-                AI выбирает 1 материал на тему (it/auto/russia/sport), рерайтит и публикует сразу — без очереди слотов
-              </td>
-              <td class="col-toggle">
-                <button
-                  type="button"
-                  class="toggle mx-auto"
-                  :class="{ 'toggle-on': scheduleCurated }"
-                  role="switch"
-                  :aria-checked="scheduleCurated"
-                  @click="scheduleCurated = !scheduleCurated"
-                >
-                  <span class="toggle-thumb" />
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="setting-card">
+        <div class="setting-card-text">
+          <p class="setting-card-title">Автоматически выбирать и публиковать</p>
+          <p class="setting-card-desc">
+            AI берёт один материал по теме, переписывает и отправляет в канал без очереди.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="toggle shrink-0"
+          :class="{ 'toggle-on': scheduleCurated }"
+          role="switch"
+          :aria-checked="scheduleCurated"
+          @click="scheduleCurated = !scheduleCurated"
+        >
+          <span class="toggle-thumb" />
+        </button>
       </div>
 
       <p class="field-hint">
@@ -45,7 +34,7 @@
         Окно публикации каналов (UTC) по-прежнему учитывается: ночью посты не выходят.
       </p>
 
-      <div v-if="curatedStatus.length" class="category-meta space-y-1">
+      <div v-if="curatedStatus.length" class="category-meta">
         <p v-for="line in curatedStatus" :key="line">{{ line }}</p>
       </div>
 
@@ -53,7 +42,7 @@
       <textarea
         v-model="curatedPickPrompt"
         rows="6"
-        class="input w-full mt-1 font-mono text-xs"
+        class="input prompt-input"
       />
 
       <footer class="panel-footer">
@@ -74,41 +63,28 @@
       <div v-else-if="!curatedHistory.length" class="empty-state">
         Журнал выборов появится после первой умной публикации.
       </div>
-      <div v-else class="table-wrap overflow-x-auto">
-        <table class="table-panel curated-table">
-          <thead>
-            <tr>
-              <th>Дата</th>
-              <th>Тема</th>
-              <th>Номер</th>
-              <th>Источник</th>
-              <th>Новость</th>
-              <th>Причина</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="entry in curatedHistory"
-              :key="`${entry.picked_at}-${entry.raw_post_id}`"
-            >
-              <td class="whitespace-nowrap font-mono text-xs text-[var(--text-secondary)]">
-                {{ formatPickTime(entry.picked_at) }}
-              </td>
-              <td class="whitespace-nowrap">
-                <span class="curated-history-topic">{{ entry.topic_label }}</span>
-              </td>
-              <td class="whitespace-nowrap font-mono text-xs">#{{ entry.raw_post_id }}</td>
-              <td class="whitespace-nowrap">{{ entry.source_name || '—' }}</td>
-              <td class="cell-title">{{ entry.title }}</td>
-              <td class="cell-reason">
-                {{ entry.reason }}
-                <span v-if="entry.candidates_count > 1" class="cell-candidates">
-                  (из {{ entry.candidates_count }} кандидатов)
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else class="history-list">
+        <article
+          v-for="entry in curatedHistory"
+          :key="`${entry.picked_at}-${entry.raw_post_id}`"
+          class="history-item"
+        >
+          <div class="history-item-head">
+            <span class="topic-pill">{{ entry.topic_label }}</span>
+            <time class="history-item-time">{{ formatPickTime(entry.picked_at) }}</time>
+          </div>
+          <p class="history-item-title">{{ entry.title || 'Без заголовка' }}</p>
+          <p class="history-item-source">
+            {{ entry.source_name || 'Источник не указан' }} · #{{ entry.raw_post_id }}
+          </p>
+          <div class="history-item-reason">
+            <span class="history-item-reason-label">Почему выбрано</span>
+            <p>{{ entry.reason || 'Причина не сохранена' }}</p>
+            <small v-if="entry.candidates_count > 1">
+              Выбрано из {{ entry.candidates_count }} материалов
+            </small>
+          </div>
+        </article>
       </div>
     </section>
   </div>
@@ -193,78 +169,208 @@ onMounted(load)
 
 <style scoped>
 .curated-panel {
-  @apply space-y-6;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .settings-category {
-  @apply p-5 flex flex-col gap-4 min-w-0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem;
+}
+
+@media (min-width: 640px) {
+  .settings-category {
+    padding: 1.25rem;
+  }
 }
 
 .category-header {
-  @apply border-b border-panel-border pb-3;
+  border-bottom: 1px solid rgb(var(--panel-border-rgb));
+  padding-bottom: 0.75rem;
 }
 
 .category-title {
-  @apply text-base font-semibold text-[var(--text-primary)];
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .category-subtitle {
-  @apply text-sm text-[var(--text-secondary)] mt-0.5;
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
 }
 
-.settings-table .setting-name {
-  @apply font-medium text-[var(--text-primary)] align-top whitespace-nowrap;
+.setting-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid rgb(var(--panel-border-rgb));
+  border-radius: 0.75rem;
+  background: rgb(var(--panel-elevated-rgb));
+  padding: 1rem;
 }
 
-.settings-table .setting-desc {
-  @apply text-sm text-[var(--text-secondary)] align-top;
+.setting-card-text {
+  min-width: 0;
+  flex: 1;
 }
 
-.settings-table .col-toggle {
-  @apply w-20 text-center align-middle;
+.setting-card-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
-.settings-table th.col-toggle {
-  @apply text-center;
+.setting-card-desc {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.shrink-0 {
+  flex-shrink: 0;
 }
 
 .field-label {
-  @apply block text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)];
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 .field-hint {
-  @apply text-xs text-[var(--text-secondary)];
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 .category-meta {
-  @apply text-xs text-[var(--text-secondary)] font-mono rounded-lg border border-panel-border bg-panel-elevated px-3 py-2;
+  border: 1px solid rgb(var(--panel-border-rgb));
+  border-radius: 0.75rem;
+  background: rgb(var(--panel-elevated-rgb));
+  padding: 0.75rem 1rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.prompt-input {
+  width: 100%;
+  margin-top: 0.25rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
 }
 
 .panel-footer {
-  @apply flex items-center justify-end gap-3 border-t border-panel-border pt-4;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  border-top: 1px solid rgb(var(--panel-border-rgb));
+  padding-top: 1rem;
 }
 
 .saved-note {
-  @apply text-xs text-accent;
+  font-size: 0.75rem;
+  color: rgb(var(--accent-rgb));
 }
 
-.curated-history-topic {
-  @apply inline-flex rounded bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent;
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
-.curated-table td {
-  @apply align-top;
+.history-item {
+  border: 1px solid rgb(var(--panel-border-rgb));
+  border-radius: 0.75rem;
+  background: rgb(var(--panel-elevated-rgb));
+  padding: 1rem;
+  min-width: 0;
 }
 
-.cell-title {
-  @apply min-w-[220px] text-sm font-medium text-[var(--text-primary)];
+.history-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
-.cell-reason {
-  @apply min-w-[260px] text-sm text-[var(--text-secondary)];
+.topic-pill {
+  display: inline-flex;
+  border-radius: 0.375rem;
+  background: rgb(var(--accent-rgb) / 0.15);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgb(var(--accent-rgb));
 }
 
-.cell-candidates {
-  @apply text-xs text-[var(--text-tertiary)];
+.history-item-time {
+  font-family: ui-monospace, monospace;
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+}
+
+.history-item-title {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.history-item-source {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.history-item-reason {
+  margin-top: 0.75rem;
+  border-top: 1px solid rgb(var(--panel-border-rgb));
+  padding-top: 0.75rem;
+}
+
+.history-item-reason-label {
+  display: block;
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.history-item-reason p {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.history-item-reason small {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.65rem;
+  color: var(--text-secondary);
 }
 </style>

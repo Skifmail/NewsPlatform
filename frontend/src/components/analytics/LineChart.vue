@@ -7,7 +7,9 @@
   >
     <div
       v-if="hoveredPoint"
+      ref="tooltipRef"
       class="chart-tooltip"
+      :class="tooltipPlacement === 'below' ? 'chart-tooltip--below' : 'chart-tooltip--above'"
       :style="tooltipStyle"
       role="tooltip"
     >
@@ -85,7 +87,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 
 const props = defineProps({
   series: {
@@ -97,11 +99,17 @@ const props = defineProps({
   animate: { type: Boolean, default: false },
 })
 
-const padding = { top: 16, right: 16, bottom: 28, left: 48 }
+const TOOLTIP_EDGE_GAP = 8
+const TOOLTIP_POINT_GAP = 12
+const TOOLTIP_ESTIMATED_HEIGHT = 48
+
+const padding = { top: 28, right: 20, bottom: 28, left: 48 }
 
 const containerRef = ref(null)
+const tooltipRef = ref(null)
 const hoveredIndex = ref(null)
 const tooltipPos = ref({ x: 0, y: 0 })
+const tooltipPlacement = ref('above')
 
 const cleanSeries = computed(() =>
   props.series.filter((p) => p.value != null)
@@ -213,6 +221,11 @@ function setHover(index) {
 
 function clearHover() {
   hoveredIndex.value = null
+  tooltipPlacement.value = 'above'
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
 }
 
 function updateTooltipPosition(index) {
@@ -228,9 +241,35 @@ function updateTooltipPosition(index) {
   const scaleX = svgRect.width / props.width
   const scaleY = svgRect.height / props.height
 
+  const pointX = svgRect.left - containerRect.left + point.x * scaleX
+  const pointY = svgRect.top - containerRect.top + point.y * scaleY
+
+  const tooltipHeight =
+    tooltipRef.value?.offsetHeight || TOOLTIP_ESTIMATED_HEIGHT
+  const tooltipWidth = tooltipRef.value?.offsetWidth || 96
+  const placeBelow = pointY - tooltipHeight - TOOLTIP_POINT_GAP < TOOLTIP_EDGE_GAP
+  tooltipPlacement.value = placeBelow ? 'below' : 'above'
+
+  const rawY = placeBelow
+    ? pointY + TOOLTIP_POINT_GAP
+    : pointY - TOOLTIP_POINT_GAP
+  const halfWidth = tooltipWidth / 2
+
   tooltipPos.value = {
-    x: svgRect.left - containerRect.left + point.x * scaleX,
-    y: svgRect.top - containerRect.top + point.y * scaleY - 12,
+    x: clamp(
+      pointX,
+      halfWidth + TOOLTIP_EDGE_GAP,
+      containerRect.width - halfWidth - TOOLTIP_EDGE_GAP,
+    ),
+    y: clamp(
+      rawY,
+      TOOLTIP_EDGE_GAP + (placeBelow ? 0 : tooltipHeight),
+      containerRect.height - TOOLTIP_EDGE_GAP - (placeBelow ? tooltipHeight : 0),
+    ),
+  }
+
+  if (!tooltipRef.value) {
+    nextTick(() => updateTooltipPosition(index))
   }
 }
 
@@ -269,8 +308,16 @@ function onMouseMove(event) {
 }
 
 .chart-tooltip {
-  @apply pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full
+  @apply pointer-events-none absolute z-10 -translate-x-1/2
     rounded-md border border-panel-border bg-panel-surface px-2 py-1 text-center shadow-md;
+}
+
+.chart-tooltip--above {
+  @apply -translate-y-full;
+}
+
+.chart-tooltip--below {
+  @apply translate-y-0;
 }
 
 .chart-tooltip-value {

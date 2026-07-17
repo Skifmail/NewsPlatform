@@ -58,7 +58,9 @@
 5. `ProcessedPost`: `article_body`, `rewritten_text` = анонс, без `raw_post_id`.
 6. Публикация: Telegraph (полный текст) + Telegram (фото + анонс + ссылка).
 
-Требуется `TAVILY_API_KEY` в `.env`; для обложек — `QWEN_IMAGE_API_KEY` (основной) или `OPENAI_API_KEY` (fallback).
+Требуется ключ Tavily (`TAVILY_API_KEY` в `.env` и/или дополнительные ключи в настройках
+панели с автопереключением при исчерпании месячного лимита); для обложек —
+`QWEN_IMAGE_API_KEY` (основной) или `OPENAI_API_KEY` (fallback).
 
 ## Хранение данных
 

@@ -4,20 +4,28 @@
     class="bar-line-chart"
     :class="{ 'bar-line-chart--compact': compact, 'bar-line-chart--themed': themed }"
     :style="chartStyle"
-    @mousemove="onMouseMove"
+    @mousemove="onPointerMove"
     @mouseleave="clearHover"
+    @touchstart.passive="onPointerMove"
+    @touchmove.passive="onPointerMove"
   >
-    <div
-      v-if="hoveredPoint && !compact"
-      class="chart-tooltip"
-      :style="tooltipStyle"
-      role="tooltip"
-    >
-      <span class="chart-tooltip-value">{{ formatValue(hoveredPoint.value) }}</span>
-      <span v-if="hoveredPoint.fullLabel" class="chart-tooltip-label">
-        {{ hoveredPoint.fullLabel }}
-      </span>
-    </div>
+    <div v-if="themed" class="bar-line-chart-surface" aria-hidden="true" />
+
+    <Teleport to="body">
+      <div
+        v-if="hoveredPoint && !compact"
+        ref="tooltipRef"
+        class="chart-tooltip"
+        :class="tooltipPlacement === 'below' ? 'chart-tooltip--below' : 'chart-tooltip--above'"
+        :style="tooltipStyle"
+        role="tooltip"
+      >
+        <span class="chart-tooltip-value">{{ formatValue(hoveredPoint.value) }}</span>
+        <span v-if="hoveredPoint.fullLabel" class="chart-tooltip-label">
+          {{ hoveredPoint.fullLabel }}
+        </span>
+      </div>
+    </Teleport>
 
     <svg :viewBox="`0 0 ${width} ${chartHeight}`" class="chart-svg" role="img">
       <g v-if="hasData">
@@ -71,7 +79,6 @@
           @mouseenter="setHover(i)"
         />
 
-        <!-- Линия тренда: соединяет вершины столбцов -->
         <polyline
           v-if="lineVisible"
           :key="lineRenderKey"
@@ -148,21 +155,28 @@ const props = defineProps({
 const BAR_STAGGER_MS = 22
 const LINE_AFTER_BARS_MS = 80
 
-const chartHeight = computed(() => props.height ?? (props.compact ? 44 : 260))
+const chartHeight = computed(() => props.height ?? (props.compact ? 44 : 280))
+
+const TOOLTIP_EDGE_GAP = 8
+const TOOLTIP_POINT_GAP = 14
+const TOOLTIP_ESTIMATED_HEIGHT = 52
 
 const padding = computed(() =>
   props.compact
     ? { top: 6, right: 4, bottom: 4, left: 4 }
-    : { top: 16, right: 16, bottom: 28, left: 48 },
+    : { top: 48, right: 16, bottom: 32, left: 44 },
 )
 
 const containerRef = ref(null)
+const tooltipRef = ref(null)
 const hoveredIndex = ref(null)
 const tooltipPos = ref({ x: 0, y: 0 })
+const tooltipPlacement = ref('above')
 const lineAnimationDone = ref(!props.animate)
 const lineVisible = ref(true)
 const lineRenderKey = ref(0)
 let lineFallbackTimer = null
+let measurePass = false
 
 const cleanSeries = computed(() => props.series.filter((p) => p.value != null))
 const hasData = computed(() => cleanSeries.value.length >= 2)
@@ -187,8 +201,11 @@ const bounds = computed(() => {
   if (min === max) {
     return { min: min - 1, max: max + 1 }
   }
-  const pad = (max - min) * 0.08
-  return { min: Math.max(0, min - pad), max: max + pad }
+  // Запас сверху, чтобы пик и тултип не прилипали к краю на узких экранах.
+  const span = max - min
+  const padTop = Math.max(span * 0.28, 6)
+  const padBottom = Math.max(span * 0.1, 1)
+  return { min: Math.max(0, min - padBottom), max: max + padTop }
 })
 
 const plotWidth = computed(() => props.width - padding.value.left - padding.value.right)
@@ -358,41 +375,33 @@ function formatValue(value) {
 
 function setHover(index) {
   hoveredIndex.value = index
+  measurePass = false
   updateTooltipPosition(index)
 }
 
 function clearHover() {
   hoveredIndex.value = null
+  tooltipPlacement.value = 'above'
+  measurePass = false
 }
 
-function updateTooltipPosition(index) {
-  const container = containerRef.value
-  const point = points.value[index]
-  if (!container || !point) return
-
-  const svg = container.querySelector('.chart-svg')
-  if (!svg) return
-
-  const svgRect = svg.getBoundingClientRect()
-  const containerRect = container.getBoundingClientRect()
-  const scaleX = svgRect.width / props.width
-  const scaleY = svgRect.height / chartHeight.value
-
-  tooltipPos.value = {
-    x: svgRect.left - containerRect.left + point.x * scaleX,
-    y: svgRect.top - containerRect.top + point.y * scaleY - 12,
-  }
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
 }
 
-function onMouseMove(event) {
-  if (!hasData.value || props.compact) return
+function eventClientX(event) {
+  if (event.touches?.[0]) return event.touches[0].clientX
+  if (event.changedTouches?.[0]) return event.changedTouches[0].clientX
+  return event.clientX
+}
 
+function pickNearestIndex(clientX) {
   const svg = containerRef.value?.querySelector('.chart-svg')
-  if (!svg) return
+  if (!svg || !points.value.length) return null
 
   const rect = svg.getBoundingClientRect()
   const scaleX = props.width / rect.width
-  const relativeX = (event.clientX - rect.left) * scaleX
+  const relativeX = (clientX - rect.left) * scaleX
 
   let nearest = 0
   let minDistance = Infinity
@@ -403,18 +412,71 @@ function onMouseMove(event) {
       nearest = index
     }
   })
+  return nearest
+}
 
+function updateTooltipPosition(index) {
+  const point = points.value[index]
+  if (!point) return
+
+  const svg = containerRef.value?.querySelector('.chart-svg')
+  if (!svg) return
+
+  const svgRect = svg.getBoundingClientRect()
+  const scaleX = svgRect.width / props.width
+  const scaleY = svgRect.height / chartHeight.value
+
+  // Viewport-координаты: тултип в Teleport не клипается overflow графика.
+  const pointX = svgRect.left + point.x * scaleX
+  const pointY = svgRect.top + point.y * scaleY
+
+  const tooltipHeight =
+    tooltipRef.value?.offsetHeight || TOOLTIP_ESTIMATED_HEIGHT
+  const tooltipWidth = tooltipRef.value?.offsetWidth || 110
+  const placeBelow = pointY - tooltipHeight - TOOLTIP_POINT_GAP < TOOLTIP_EDGE_GAP
+  tooltipPlacement.value = placeBelow ? 'below' : 'above'
+
+  const rawY = placeBelow
+    ? pointY + TOOLTIP_POINT_GAP
+    : pointY - TOOLTIP_POINT_GAP
+  const halfWidth = tooltipWidth / 2
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  tooltipPos.value = {
+    x: clamp(pointX, halfWidth + TOOLTIP_EDGE_GAP, viewportWidth - halfWidth - TOOLTIP_EDGE_GAP),
+    y: clamp(
+      rawY,
+      TOOLTIP_EDGE_GAP + (placeBelow ? 0 : tooltipHeight),
+      viewportHeight - TOOLTIP_EDGE_GAP - (placeBelow ? tooltipHeight : 0),
+    ),
+  }
+
+  if (!props.compact && !measurePass) {
+    measurePass = true
+    nextTick(() => updateTooltipPosition(index))
+  }
+}
+
+function onPointerMove(event) {
+  if (!hasData.value || props.compact) return
+  const clientX = eventClientX(event)
+  if (clientX == null) return
+  const nearest = pickNearestIndex(clientX)
+  if (nearest == null) return
   hoveredIndex.value = nearest
+  measurePass = false
   updateTooltipPosition(nearest)
 }
 </script>
 
 <style scoped>
 .bar-line-chart {
-  @apply relative w-full overflow-hidden rounded-panel;
+  @apply relative w-full overflow-visible rounded-panel;
 }
 
-.bar-line-chart--themed {
+.bar-line-chart-surface {
+  @apply pointer-events-none absolute inset-0 overflow-hidden rounded-panel;
   background-color: rgb(var(--panel-bg-rgb));
   background-image:
     linear-gradient(rgb(var(--panel-border-rgb) / 0.45) 1px, transparent 1px),
@@ -429,17 +491,29 @@ function onMouseMove(event) {
   min-height: 2.5rem;
 }
 
-.bar-line-chart--compact.bar-line-chart--themed {
+.bar-line-chart--compact .bar-line-chart-surface {
+  @apply rounded-md;
   background-size: 6px 6px;
 }
 
 .chart-svg {
-  @apply block w-full;
+  @apply relative z-[1] block w-full;
 }
 
 .chart-tooltip {
-  @apply pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full
-    rounded-md border border-panel-border bg-panel-surface px-2 py-1 text-center shadow-panel;
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  transform: translateX(-50%);
+  @apply rounded-md border border-panel-border bg-panel-surface px-2.5 py-1.5 text-center shadow-panel;
+}
+
+.chart-tooltip--above {
+  transform: translate(-50%, -100%);
+}
+
+.chart-tooltip--below {
+  transform: translate(-50%, 0);
 }
 
 .chart-tooltip-value {

@@ -79,20 +79,42 @@ async def test_fetch_tavily_parses_plan_usage() -> None:
             "search_usage": 120,
         },
     }
+    session = AsyncMock()
 
     with patch("app.services.ai_usage_service.get_settings") as settings_mock:
-        settings_mock.return_value = MagicMock(tavily_api_key="tvly-test")
-        with patch("app.services.ai_usage_service.httpx.AsyncClient") as client_cls:
-            client = AsyncMock()
-            client.__aenter__.return_value = client
-            client.get = AsyncMock(return_value=response)
-            client_cls.return_value = client
+        settings_mock.return_value = MagicMock(
+            tavily_api_key="tvly-test",
+            redis_url="redis://localhost:6379/0",
+        )
+        with patch(
+            "app.services.ai_usage_service.PlatformSettingsService"
+        ) as ps_cls:
+            ps_cls.return_value.get_merged = AsyncMock(
+                return_value={
+                    "tavily_api_keys": "[]",
+                    "tavily_active_key_id": "",
+                    "tavily_auto_switch": "true",
+                }
+            )
+            with patch(
+                "app.services.ai_usage_service.list_exhausted_keys",
+                return_value=[],
+            ):
+                with patch(
+                    "app.services.ai_usage_service.httpx.AsyncClient"
+                ) as client_cls:
+                    client = AsyncMock()
+                    client.__aenter__.return_value = client
+                    client.get = AsyncMock(return_value=response)
+                    client_cls.return_value = client
 
-            usage = await _fetch_tavily()
+                    usage = await _fetch_tavily(session)
 
     assert usage.configured is True
     assert usage.current_plan == "Researcher"
     assert usage.remaining == 850
+    assert len(usage.keys) == 1
+    assert usage.keys[0].status == "next"
 
 
 @pytest.mark.asyncio

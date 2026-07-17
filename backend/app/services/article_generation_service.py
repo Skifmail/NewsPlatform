@@ -74,11 +74,18 @@ class ArticleGenerationService:
             celery_task_id, "Загрузка настроек канала…", 12
         )
 
+        platform_settings = await PlatformSettingsService(self._session).get_merged()
         ideation_prompt = await self._settings.get("article_ideation_prompt", "")
         writing_prompt = await self._settings.get("article_writing_prompt", "")
         teaser_max = int(await self._settings.get("article_teaser_max_length", "900"))
         body_max = int(await self._settings.get("article_body_max_length", "12000"))
         telegram_max = int(await self._settings.get("article_telegram_max_length", "3800"))
+        tavily_keys_raw = platform_settings.get("tavily_api_keys")
+        tavily_active_key_id = platform_settings.get("tavily_active_key_id", "")
+        tavily_auto_switch = (
+            str(platform_settings.get("tavily_auto_switch", "true")).lower()
+            in {"true", "1", "yes", "on"}
+        )
 
         if is_telegram_long_form_channel(channel):
             # Тело должно поместиться вместе с анонсом и футером в одно сообщение,
@@ -122,7 +129,12 @@ class ArticleGenerationService:
             await report_job_stage(
                 celery_task_id, "Поиск материалов в интернете…", 42
             )
-            research_context, sources = await self._research.research(plan.search_queries)
+            research_context, sources = await self._research.research(
+                plan.search_queries,
+                keys_raw=tavily_keys_raw,
+                active_key_id=tavily_active_key_id or None,
+                auto_switch=tavily_auto_switch,
+            )
 
             await report_job_stage(
                 celery_task_id, "Написание статьи через AI…", 62
@@ -163,7 +175,6 @@ class ArticleGenerationService:
         await report_job_stage(
             celery_task_id, "Генерация обложки…", 80
         )
-        platform_settings = await PlatformSettingsService(self._session).get_merged()
         images = ImageService.from_settings_dict(platform_settings)
         fallback_image = sources[0].url if sources else None
         image_url, image_source = await images.resolve_article_image(

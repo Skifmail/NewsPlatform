@@ -36,13 +36,45 @@
       Задач пока нет. Запустите парсинг в «Источники» или генерацию статьи в «Каналы».
     </p>
 
-    <div v-else class="table-wrap panel-card overflow-hidden">
+    <template v-else>
+      <div class="jobs-explainer panel-card">
+        <p><strong>Тип</strong> — какое действие выполнялось.</p>
+        <p><strong>Статус</strong> — ожидает, выполняется, завершено или завершилось ошибкой.</p>
+        <p><strong>Время</strong> — когда задача была запущена.</p>
+      </div>
+
+      <div class="jobs-cards">
+        <article
+          v-for="job in jobs"
+          :key="`card-${job.id}`"
+          class="job-card panel-card"
+        >
+          <div class="job-card-head">
+            <span :class="typeBadgeClass(job.job_type)">{{ typeLabel(job.job_type) }}</span>
+            <span :class="statusBadgeClass(job.status)">{{ statusLabel(job.status) }}</span>
+          </div>
+          <p class="job-card-title">{{ job.label || typeDescription(job.job_type) }}</p>
+          <p class="job-card-description">{{ typeDescription(job.job_type) }}</p>
+          <div class="job-card-result">
+            <span class="job-card-result-label">Результат</span>
+            <span v-if="jobResultText(job)" :class="jobResultClass(job)">
+              {{ jobResultText(job) }}
+            </span>
+            <span v-else-if="job.status === 'running'">Выполняется…</span>
+            <span v-else-if="job.status === 'queued'">Ожидает запуска</span>
+            <span v-else>Выполнено без дополнительного отчёта</span>
+          </div>
+          <time class="job-card-time">{{ formatTime(job.created_at) }}</time>
+        </article>
+      </div>
+
+      <div class="table-wrap panel-card jobs-table">
       <table class="table-panel">
         <thead>
           <tr>
-            <th>Время</th>
-            <th>Тип</th>
-            <th>Статус</th>
+            <th>Запущено</th>
+            <th>Действие</th>
+            <th>Состояние</th>
             <th>Описание</th>
             <th>Результат</th>
           </tr>
@@ -73,9 +105,10 @@
           </tr>
         </tbody>
       </table>
-    </div>
+      </div>
+    </template>
 
-    <p class="hint">Обновление каждые 5 с. Убедитесь, что запущен <code class="text-xs">celery_worker</code>.</p>
+    <p class="hint">Список обновляется автоматически каждые 5 секунд.</p>
   </div>
 </template>
 
@@ -97,6 +130,13 @@ const typeLabels = {
   article: 'Статья',
 }
 
+const typeDescriptions = {
+  fetch: 'Получение новых материалов из источника',
+  process: 'Обработка и подготовка материала с помощью AI',
+  publish: 'Публикация готового поста в канале',
+  article: 'Генерация и подготовка статьи',
+}
+
 const statusLabels = {
   queued: 'В очереди',
   running: 'В работе',
@@ -106,6 +146,10 @@ const statusLabels = {
 
 function typeLabel(t) {
   return typeLabels[t] || t
+}
+
+function typeDescription(t) {
+  return typeDescriptions[t] || 'Фоновая операция платформы'
 }
 
 function statusLabel(s) {
@@ -190,6 +234,50 @@ onUnmounted(() => {
 <style scoped>
 .stats-row {
   @apply mb-6 grid gap-4 grid-cols-2 lg:grid-cols-4;
+}
+
+.jobs-explainer {
+  @apply mb-3 space-y-1 p-4 text-xs leading-relaxed text-[var(--text-secondary)] md:hidden;
+}
+
+.jobs-explainer strong {
+  @apply text-[var(--text-primary)];
+}
+
+.jobs-cards {
+  @apply flex flex-col gap-3 md:hidden;
+}
+
+.job-card {
+  @apply flex flex-col gap-3 p-4;
+}
+
+.job-card-head {
+  @apply flex flex-wrap items-center justify-between gap-2;
+}
+
+.job-card-title {
+  @apply text-sm font-medium text-[var(--text-primary)];
+}
+
+.job-card-description {
+  @apply text-xs leading-relaxed text-[var(--text-secondary)];
+}
+
+.job-card-result {
+  @apply flex flex-col gap-1 border-t border-panel-border pt-3 text-xs text-[var(--text-secondary)];
+}
+
+.job-card-result-label {
+  @apply text-[10px] uppercase tracking-wide text-[var(--text-secondary)];
+}
+
+.job-card-time {
+  @apply font-mono text-[10px] text-[var(--text-secondary)];
+}
+
+.jobs-table {
+  @apply hidden max-w-full overflow-x-auto md:block;
 }
 
 .hint {
