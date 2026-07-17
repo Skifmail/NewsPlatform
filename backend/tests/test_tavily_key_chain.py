@@ -82,6 +82,15 @@ def test_ordered_keys_without_auto_switch_only_active() -> None:
     assert [item.id for item in ordered] == ["b"]
 
 
+def test_is_key_configured_rejects_garbage() -> None:
+    from app.infrastructure.search.tavily_key_chain import is_key_configured
+
+    assert is_key_configured("tvly-ok-key-123456") is True
+    assert is_key_configured("x" * 500) is False
+    assert is_key_configured("tvly-bad-❌-key") is False
+    assert is_key_configured("tvly with spaces") is False
+
+
 def test_is_quota_exhausted_detects_credits() -> None:
     assert is_quota_exhausted(status_code=402, body_text="") is True
     assert (

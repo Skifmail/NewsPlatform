@@ -17,6 +17,8 @@ from app.core.config import get_settings
 _EXHAUSTED_PREFIX = "tavily:exhausted:"
 _ENV_KEY_ID = "env"
 _MASK_MARKER = "…"
+# Реальные ключи Tavily короткие (обычно tvly-…); длинные/не-ASCII — мусор из логов.
+_MAX_KEY_LENGTH = 200
 _PLACEHOLDERS = frozenset({"", "tvly-...", "tvly-…", "your_api_key", "change_me"})
 
 _QUOTA_MARKERS = (
@@ -58,10 +60,22 @@ def is_key_configured(key: str) -> bool:
         key: значение API-ключа.
 
     Returns:
-        bool: True если ключ задан.
+        bool: True если ключ задан и пригоден для HTTP Authorization (ASCII).
     """
-    normalized = key.strip().lower()
-    return bool(normalized) and normalized not in _PLACEHOLDERS
+    normalized = key.strip()
+    if not normalized or normalized.lower() in _PLACEHOLDERS:
+        return False
+    if len(normalized) > _MAX_KEY_LENGTH:
+        return False
+    # Заголовок Authorization в httpx кодируется как ASCII —
+    # эмодзи/кириллица в «ключе» (часто вставленный лог) роняют весь /ai-usage.
+    try:
+        normalized.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    if any(ch.isspace() for ch in normalized):
+        return False
+    return True
 
 
 def mask_api_key(key: str) -> str:
@@ -165,6 +179,12 @@ def resolve_keys(raw_db: str | None = None) -> list[TavilyKeyEntry]:
             )
         )
         seen_secrets.add(env_key)
+    elif env_key:
+        logger.warning(
+            "TAVILY_API_KEY ignored: invalid format "
+            "(non-ASCII, whitespace, or too long)",
+            length=len(env_key),
+        )
 
     for entry in parse_stored_keys(raw_db):
         if entry.key in seen_secrets:

@@ -32,6 +32,7 @@ from app.infrastructure.ai.qwen_image_chain import (
 from app.infrastructure.models.background_job import BackgroundJob
 from app.infrastructure.models.processed_post import ProcessedPost
 from app.infrastructure.search.tavily_key_chain import (
+    is_key_configured,
     list_exhausted_keys,
     mark_key_exhausted,
     mask_api_key,
@@ -166,11 +167,23 @@ async def _fetch_tavily_key_usage(
         tuple: plan, key_usage, key_limit, plan_usage, plan_limit,
             search_usage, remaining, error.
     """
+    if not is_key_configured(key):
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "Некорректный API-ключ (ожидается короткий ASCII tvly-…)",
+        )
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(
                 _TAVILY_USAGE_URL,
-                headers={"Authorization": f"Bearer {key}"},
+                headers={"Authorization": f"Bearer {key.strip()}"},
             )
         if response.status_code == 401:
             return (None, None, None, None, None, None, None, "Неверный API-ключ")
@@ -216,7 +229,7 @@ async def _fetch_tavily_key_usage(
             remaining,
             None,
         )
-    except httpx.HTTPError as exc:
+    except Exception as exc:
         logger.warning("Tavily usage fetch failed", error=str(exc))
         return (
             None,

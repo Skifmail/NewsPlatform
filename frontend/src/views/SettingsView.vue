@@ -898,6 +898,11 @@ async function patchTavilySettings(partial) {
 async function addTavilyKey() {
   const key = tavilyNewKey.value.trim()
   if (!key) return
+  if (key.length > 200 || /[^\x20-\x7E]/.test(key) || /\s/.test(key)) {
+    tavilyKeysError.value =
+      'Ключ должен быть коротким ASCII (tvly-…), без пробелов и эмодзи. Не вставляйте лог деплоя.'
+    return
+  }
   const label = tavilyNewLabel.value.trim() || `Ключ ${tavilyKeys.value.length + 1}`
   const id =
     typeof crypto !== 'undefined' && crypto.randomUUID
