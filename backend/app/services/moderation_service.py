@@ -55,11 +55,15 @@ class ModerationService:
         updated = await self._processed.update(post)
 
         if not publish_immediately:
-            from app.services.scheduling_service import SchedulingService
+            from app.services.platform_settings_service import PlatformSettingsService
 
-            updated = await SchedulingService(self._session).assign_schedule_to_post(
-                updated
-            )
+            platform = await PlatformSettingsService(self._session).load()
+            if not platform.schedule_curated_publish_enabled:
+                from app.services.scheduling_service import SchedulingService
+
+                updated = await SchedulingService(self._session).assign_schedule_to_post(
+                    updated
+                )
 
         await self._session.commit()
 

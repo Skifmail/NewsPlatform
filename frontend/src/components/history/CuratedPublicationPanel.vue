@@ -3,7 +3,7 @@
     <section class="settings-category panel-card">
       <header class="category-header">
         <h2 class="category-title">Умная публикация</h2>
-        <p class="category-subtitle">Экономия токенов — выбор лучшей новости по теме</p>
+        <p class="category-subtitle">Каждые N минут (как парсинг) — 1 лучшая новость на тему → сразу в канал</p>
       </header>
 
       <div class="table-wrap overflow-hidden">
@@ -19,7 +19,7 @@
             <tr>
               <td class="setting-name">Лучшая новость → рерайт → канал</td>
               <td class="setting-desc">
-                AI выбирает 1 материал на тему (it/auto/russia/sport), рерайтит и публикует по расписанию каналов
+                AI выбирает 1 материал на тему (it/auto/russia/sport), рерайтит и публикует сразу — без очереди слотов
               </td>
               <td class="col-toggle">
                 <button
@@ -39,8 +39,10 @@
       </div>
 
       <p class="field-hint">
-        Рекомендуется выключить «AI после автопарсинга» — иначе все материалы пойдут на рерайт.
-        Расписание слотов берётся из настроек каналов (интервал и окно UTC).
+        Интервал совпадает с автопарсингом (сейчас {{ fetchIntervalMinutes }} мин).
+        При включении автоматически выключаются «AI после автопарсинга» и «Публикация по слотам» —
+        иначе материалы пойдут на рерайт всей пачкой и накопятся в «Одобренных».
+        Окно публикации каналов (UTC) по-прежнему учитывается: ночью посты не выходят.
       </p>
 
       <div v-if="curatedStatus.length" class="category-meta space-y-1">
@@ -120,6 +122,7 @@ import { formatUtcDateTime } from '../../utils/datetime.js'
 
 const scheduleCurated = ref(false)
 const curatedPickPrompt = ref('')
+const fetchIntervalMinutes = ref(30)
 const curatedStatus = ref([])
 const curatedHistory = ref([])
 const loading = ref(false)
@@ -151,8 +154,9 @@ async function load() {
   try {
     const { data } = await settingsApi.get()
     const s = data.settings || {}
-    scheduleCurated.value = boolFrom(s.schedule_curated_publish_enabled, false)
+    scheduleCurated.value = boolFrom(s.schedule_curated_publish_enabled, true)
     curatedPickPrompt.value = s.curated_pick_prompt || ''
+    fetchIntervalMinutes.value = Number.parseInt(s.fetch_interval_minutes || '30', 10) || 30
     curatedStatus.value = TOPIC_OPTIONS.map(({ value, label }) => {
       const key = `scheduler_last_curated_${value}`
       return s[key] ? `${label} (UTC): ${s[key]}` : null
@@ -167,12 +171,15 @@ async function save() {
   saving.value = true
   savedNote.value = ''
   try {
-    await settingsApi.update({
-      settings: {
-        schedule_curated_publish_enabled: String(scheduleCurated.value),
-        curated_pick_prompt: curatedPickPrompt.value,
-      },
-    })
+    const settings = {
+      schedule_curated_publish_enabled: String(scheduleCurated.value),
+      curated_pick_prompt: curatedPickPrompt.value,
+    }
+    if (scheduleCurated.value) {
+      settings.schedule_ai_enabled = 'false'
+      settings.schedule_publish_enabled = 'false'
+    }
+    await settingsApi.update({ settings })
     await load()
     savedNote.value = 'Сохранено'
     setTimeout(() => (savedNote.value = ''), 2500)

@@ -15,13 +15,13 @@
 
 1. **Celery Beat** каждую минуту → `platform_scheduler_tick` читает настройки из БД (`/settings`):
    - автопарсинг активных источников (интервал `fetch_interval_minutes`, флаг `schedule_fetch_enabled`);
-   - AI после парсинга (`schedule_ai_enabled` / отдельно для ручного парсинга);
-   - **умная публикация** (`schedule_curated_publish_enabled`): по расписанию каналов AI выбирает 1 лучший материал на тему из «Материалов», фиксирует обоснование в `curated_pick_history`, рерайтит и публикует;
+   - AI после парсинга (`schedule_ai_enabled`, по умолчанию выкл. при умной публикации) — рерайтит **все** новые материалы в очередь pending;
+   - **умная публикация** (`schedule_curated_publish_enabled`, по умолчанию вкл.): каждые `fetch_interval_minutes` (как автопарсинг) AI выбирает 1 лучший необработанный материал на тему из «Материалов», рерайтит и **сразу публикует** (`curated=True` → без очереди `scheduled_at`). Окно публикации канала (UTC) сохраняется; лимит `posts_per_day` в этом режиме не применяется;
    - **автогенерация статей** (`schedule_article_publish_enabled`): для каналов с `content_mode=article` AI придумывает тему, ищет в интернете (Tavily), пишет длинную статью, публикует на Telegraph и анонс в Telegram;
-   - публикация по `scheduled_at` (`schedule_publish_enabled`);
+   - публикация по `scheduled_at` (`schedule_publish_enabled`, по умолчанию выкл.) — для ручной очереди «Одобренных»; при включённой умной публикации новые одобрения без «Опубликовать сейчас» **не** получают автослот;
    - очистка старых записей (`schedule_retention_enabled`, время UTC в настройках).
 2. Парсер сохраняет `raw_posts` (окно свежести: `fetch_max_age_days`, по умолчанию вчера+сегодня UTC).
-3. `process_post` (DeepSeek) → `processed_post` (pending) на каждый канал с тем же `topic`.
+3. Основной автопоток: парсинг → накопление в «Материалах» → умная публикация (1 на тему → сразу в канал). Альтернатива: `process_post` после парсинга (`schedule_ai_enabled`) → `processed_post` (pending) на каждый канал с тем же `topic`.
 4. Модерация в Vue-панели → `publish_post` → Telegram / VK / MAX (ручная публикация отключается флагом).
 5. Redis pub/sub → WebSocket `/ws/updates`
 

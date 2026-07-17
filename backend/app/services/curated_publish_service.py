@@ -52,13 +52,14 @@ class CuratedPublishService:
             pick_prompt = DEFAULT_CURATED_PICK_PROMPT
 
         now = datetime.now(UTC)
+        interval_minutes = max(1, platform.fetch_interval_minutes)
         result: dict[str, int | None] = {}
         for topic in Topic:
             raw_id = await self._try_topic(
                 topic=topic.value,
                 now=now,
                 pick_prompt=pick_prompt,
-                posts_per_day=platform.posts_per_day,
+                interval_minutes=interval_minutes,
             )
             result[topic.value] = raw_id
         return result
@@ -69,15 +70,16 @@ class CuratedPublishService:
         topic: str,
         now: datetime,
         pick_prompt: str,
-        posts_per_day: int,
+        interval_minutes: int,
     ) -> int | None:
         """Пытается поставить в очередь лучший материал одной темы.
 
         Args:
-            topic: it | auto | russia.
+            topic: it | auto | russia | sport.
             now: текущий момент UTC.
             pick_prompt: шаблон промпта выбора.
-            posts_per_day: лимит публикаций на канал в сутки.
+            interval_minutes: минимальный интервал между публикациями темы
+                (совпадает с fetch_interval_minutes платформы).
 
         Returns:
             int | None: id raw_post или None.
@@ -89,15 +91,7 @@ class CuratedPublishService:
         if not any(self._scheduling._in_publish_window(now, ch) for ch in channels):
             return None
 
-        daily_limits = [
-            await self._processed.count_published_today(ch.id) >= posts_per_day
-            for ch in channels
-        ]
-        if all(daily_limits):
-            logger.info("Curated publish skipped: daily limit", topic=topic)
-            return None
-
-        interval = min(max(1, ch.publish_interval_minutes) for ch in channels)
+        interval = max(1, interval_minutes)
         last_key = curated_scheduler_key(topic)
         last_raw = (await self._settings.get(last_key, "")).strip()
         if last_raw:

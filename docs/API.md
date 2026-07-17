@@ -88,7 +88,7 @@
 | `schedule_ai_enabled` | AI после автопарсинга |
 | `schedule_publish_enabled` | Публикация по `scheduled_at` |
 | `schedule_retention_enabled` | Ежедневная очистка (`RETENTION_DAYS` в `.env` + `raw_posts_retention_days` для необработанных материалов) |
-| `schedule_curated_publish_enabled` | AI выбирает лучшую новость по теме → рерайт → публикация |
+| `schedule_curated_publish_enabled` | AI выбирает 1 лучшую новость на тему каждые `fetch_interval_minutes` → рерайт → немедленная публикация (без `scheduled_at`) |
 | `schedule_article_publish_enabled` | Автогенерация статей для каналов с `content_mode=article` |
 | `article_ideation_prompt` | Промпт выбора темы статьи (`{channel_name}`, `{channel_niche}`, `{recent_topics}`) |
 | `article_writing_prompt` | Промпт написания статьи (`{research_context}`, `{topic}`, `{angle}` и др.) |

@@ -56,10 +56,10 @@ def is_internal_setting_key(key: str) -> bool:
 PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     # Автоматика по расписанию (Celery Beat → platform_scheduler_tick)
     "schedule_fetch_enabled": "true",
-    "schedule_ai_enabled": "true",
-    "schedule_publish_enabled": "true",
+    "schedule_ai_enabled": "false",
+    "schedule_publish_enabled": "false",
     "schedule_retention_enabled": "true",
-    "schedule_curated_publish_enabled": "false",
+    "schedule_curated_publish_enabled": "true",
     "schedule_article_publish_enabled": "false",
     "schedule_analytics_enabled": "false",
     # Ручные действия из панели
@@ -172,16 +172,16 @@ class PlatformSettings:
                 merged.get("schedule_fetch_enabled", "true"), True
             ),
             schedule_ai_enabled=_parse_bool(
-                merged.get("schedule_ai_enabled", "true"), True
+                merged.get("schedule_ai_enabled", "false"), False
             ),
             schedule_publish_enabled=_parse_bool(
-                merged.get("schedule_publish_enabled", "true"), True
+                merged.get("schedule_publish_enabled", "false"), False
             ),
             schedule_retention_enabled=_parse_bool(
                 merged.get("schedule_retention_enabled", "true"), True
             ),
             schedule_curated_publish_enabled=_parse_bool(
-                merged.get("schedule_curated_publish_enabled", "false"), False
+                merged.get("schedule_curated_publish_enabled", "true"), True
             ),
             schedule_article_publish_enabled=_parse_bool(
                 merged.get("schedule_article_publish_enabled", "false"), False
