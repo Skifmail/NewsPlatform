@@ -1283,7 +1283,7 @@ async function save({ silent = false } = {}) {
 
 .tavily-key-row {
   @apply flex flex-wrap items-center gap-2 text-xs rounded-lg border border-panel-border
-    bg-panel px-2.5 py-2;
+    bg-panel-bg px-2.5 py-2;
 }
 
 .tavily-key-select {
