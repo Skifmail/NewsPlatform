@@ -303,9 +303,11 @@ class MaxStatsCollector(BaseStatsCollector):
     ) -> list[PostMetricDTO]:
         """Собирает просмотры известных постов через GET /messages.
 
-        Запрашивает посты пачками по ``message_ids`` (до 100 за раз) и читает
-        ``stat.views``. Недоступность статистики (нет права ``view_stats``)
-        логируется и не прерывает сбор остальных метрик канала.
+        Запрашивает посты пачками по ``_MESSAGE_IDS_BATCH`` и читает
+        ``stat.views``. Каждая пачка собирается адаптивно
+        (``_collect_messages_adaptive``): при ошибке дробится пополам, поэтому
+        рост канала или битый id не замораживают сбор. Недоступность
+        статистики (нет права ``view_stats``) не прерывает остальные метрики.
 
         Args:
             session: HTTP-сессия с доверием к CA Минцифры.
@@ -322,10 +324,47 @@ class MaxStatsCollector(BaseStatsCollector):
         metrics: list[PostMetricDTO] = []
         for start in range(0, len(unique_ids), _MESSAGE_IDS_BATCH):
             batch = unique_ids[start : start + _MESSAGE_IDS_BATCH]
-            payload = await self._fetch_messages(session, token, batch)
-            if payload:
-                metrics.extend(parse_max_message_metrics(payload))
+            metrics.extend(await self._collect_messages_adaptive(session, token, batch))
         return metrics
+
+    async def _collect_messages_adaptive(
+        self,
+        session: aiohttp.ClientSession,
+        token: str,
+        message_ids: list[str],
+    ) -> list[PostMetricDTO]:
+        """Собирает метрики пачки, дробя её пополам при ошибке запроса.
+
+        Самовосстановление: если MAX отвечает ошибкой (слишком длинный URL,
+        битый/удалённый id и т.п.), пачка делится надвое и повторяется вплоть
+        до одного id. Один проблемный пост изолируется и пропускается, а
+        остальные всё равно собираются — сбор не «замерзает» с ростом канала.
+
+        Args:
+            session: HTTP-сессия.
+            token: токен бота.
+            message_ids: идентификаторы постов одной пачки.
+
+        Returns:
+            list[PostMetricDTO]: метрики успешно полученных постов.
+        """
+        if not message_ids:
+            return []
+        payload = await self._fetch_messages(session, token, message_ids)
+        if payload is not None:
+            return parse_max_message_metrics(payload)
+
+        if len(message_ids) == 1:
+            logger.warning(
+                "MAX message stats: пропуск поста после ошибки",
+                message_id=message_ids[0],
+            )
+            return []
+
+        mid = len(message_ids) // 2
+        left = await self._collect_messages_adaptive(session, token, message_ids[:mid])
+        right = await self._collect_messages_adaptive(session, token, message_ids[mid:])
+        return left + right
 
     async def _fetch_messages(
         self,
@@ -333,7 +372,12 @@ class MaxStatsCollector(BaseStatsCollector):
         token: str,
         message_ids: list[str],
     ) -> dict[str, Any] | None:
-        """GET /messages?message_ids=... для одной пачки идентификаторов."""
+        """GET /messages?message_ids=... для одной пачки идентификаторов.
+
+        Возвращает None при ошибке — вызывающий (`_collect_messages_adaptive`)
+        сам дробит пачку и повторяет, поэтому здесь ошибка не критична и
+        логируется на уровне debug.
+        """
         url = f"{get_max_api_base()}/messages"
         headers = {"Authorization": token}
         params = {"message_ids": ",".join(message_ids)}
@@ -341,16 +385,21 @@ class MaxStatsCollector(BaseStatsCollector):
             async with session.get(url, headers=headers, params=params) as resp:
                 if resp.status >= 400:
                     body = await resp.text()
-                    logger.warning(
-                        "MAX message stats failed",
+                    logger.debug(
+                        "MAX message stats batch failed, will split",
                         status=resp.status,
+                        batch_size=len(message_ids),
                         body=body[:200],
                     )
                     return None
                 data = await resp.json()
                 return data if isinstance(data, dict) else None
         except Exception as exc:
-            logger.warning("MAX message stats collection failed", error=str(exc))
+            logger.debug(
+                "MAX message stats batch error, will split",
+                batch_size=len(message_ids),
+                error=str(exc),
+            )
             return None
 
     async def _fetch_chat(

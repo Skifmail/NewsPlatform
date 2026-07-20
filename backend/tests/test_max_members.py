@@ -104,6 +104,68 @@ async def test_post_metrics_batches_within_max_url_limit() -> None:
     assert sum(len(chunk) for chunk in calls) == 97
 
 
+def _messages_session(fail_if_larger_than: int, bad_id: str | None = None):
+    """Мок-сессия GET /messages: 400 если батч велик или содержит bad_id."""
+    calls: list[list[str]] = []
+
+    def _get(_url: str, *, headers=None, params=None):
+        ids = params["message_ids"].split(",")
+        calls.append(ids)
+        too_big = len(ids) > fail_if_larger_than
+        has_bad = bad_id is not None and bad_id in ids
+        status = 400 if (too_big or has_bad) else 200
+
+        class _Resp:
+            def __init__(self) -> None:
+                self.status = status
+
+            async def json(self) -> dict:
+                return {
+                    "messages": [
+                        {"body": {"mid": i}, "stat": {"views": 10}} for i in ids
+                    ]
+                }
+
+            async def text(self) -> str:
+                return "Invalid HTTP request"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_: object) -> bool:
+                return False
+
+        return _Resp()
+
+    session = MagicMock()
+    session.get = _get
+    return session, calls
+
+
+@pytest.mark.asyncio
+async def test_adaptive_splits_on_oversized_batch() -> None:
+    """Если MAX даёт 400 на большой батч — он дробится и всё собирается."""
+    # сервер принимает максимум 10 id за запрос
+    session, calls = _messages_session(fail_if_larger_than=10)
+    ids = [f"mid.{i:032x}" for i in range(40)]
+    metrics = await MaxStatsCollector()._collect_messages_adaptive(session, "t", ids)
+    assert len(metrics) == 40  # все собраны после дробления
+    assert all(len(c) <= 40 for c in calls)
+    assert any(len(c) <= 10 for c in calls)  # были и мелкие успешные пачки
+
+
+@pytest.mark.asyncio
+async def test_adaptive_isolates_bad_id() -> None:
+    """Один битый id пропускается, остальные собираются."""
+    bad = "mid.deadbeef"
+    session, _ = _messages_session(fail_if_larger_than=1000, bad_id=bad)
+    ids = [f"mid.{i:032x}" for i in range(9)] + [bad]
+    metrics = await MaxStatsCollector()._collect_messages_adaptive(session, "t", ids)
+    got = {m.platform_post_id for m in metrics}
+    assert bad not in got
+    assert len(metrics) == 9
+
+
 def _mock_session(existing: list[MaxMember]) -> tuple[MagicMock, list]:
     """Мок-сессия, отдающая existing по execute и копящая add()."""
     added: list = []
