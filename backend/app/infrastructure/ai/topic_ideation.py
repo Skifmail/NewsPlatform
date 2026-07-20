@@ -46,6 +46,7 @@ class TopicIdeationService:
         channel: Channel,
         recent_topics: list[str],
         prompt_template: str,
+        candidate_repos: list[str] | None = None,
     ) -> ArticleTopicPlan:
         """Генерирует план темы статьи с проверкой на повторы.
 
@@ -53,6 +54,9 @@ class TopicIdeationService:
             channel: канал публикации.
             recent_topics: недавние темы для антиповтора.
             prompt_template: шаблон промпта из settings.
+            candidate_repos: живой список трендовых репозиториев (GitHub
+                Trending) для devtools-канала. Если задан — модель выбирает
+                тему из него, а не выдумывает из памяти.
 
         Returns:
             ArticleTopicPlan: тема, угол и запросы для поиска.
@@ -68,6 +72,7 @@ class TopicIdeationService:
                 channel,
                 blocked_topics=blocked,
                 prompt_template=prompt_template,
+                candidate_repos=candidate_repos,
             )
             last_plan = plan
             if not is_topic_too_similar(plan.topic, blocked) and not is_topic_too_similar(
@@ -107,6 +112,7 @@ class TopicIdeationService:
         *,
         blocked_topics: list[str],
         prompt_template: str,
+        candidate_repos: list[str] | None = None,
     ) -> ArticleTopicPlan:
         """Один запрос к модели за темой статьи.
 
@@ -114,6 +120,7 @@ class TopicIdeationService:
             channel: канал публикации.
             blocked_topics: темы, которые нельзя предлагать.
             prompt_template: шаблон промпта из settings.
+            candidate_repos: живой список трендовых репозиториев для выбора.
 
         Returns:
             ArticleTopicPlan: распознанный план.
@@ -130,25 +137,7 @@ class TopicIdeationService:
             recent_topics=recent,
         )
         if is_devtools_article_channel(channel.topic, channel.name):
-            prompt = (
-                f"{prompt}\n\n"
-                "Канал — подборка находок с GitHub. "
-                "Тема = один конкретный репозиторий (не обзор «топ-10»).\n"
-                "Отбирай только то, что зацепит широкую техно-аудиторию и что "
-                "хочется переслать. Приоритет:\n"
-                "- популярные или трендовые репозитории (тысячи звёзд или бурный "
-                "рост в последние недели);\n"
-                "- ИИ/LLM/агенты, кодинг-ассистенты, интеграции с Claude Code / "
-                "Cursor / Codex;\n"
-                "- потребительские open-source приложения и «бесплатная "
-                "альтернатива <известному продукту>» (CapCut, Notion, Postman и т.п.).\n"
-                "Избегай узких CLI-утилит без явного вау и безвестных обёрток — "
-                "из двух проектов выбирай более популярный и понятный.\n"
-                "В search_queries обязательно добавь запросы, подтверждающие "
-                "актуальность и популярность, например: "
-                '"<repo> github stars", "<repo> github trending 2026", '
-                '"<repo> open source alternative".'
-            )
+            prompt = f"{prompt}\n\n{_devtools_ideation_extra(candidate_repos)}"
         elif is_paragraph_article_channel(channel.name):
             prompt = f"{prompt}\n\n{_paragraph_ideation_extra()}"
 
@@ -241,6 +230,51 @@ def _system_prompt(channel: Channel) -> str:
             "не предлагай подряд психологию мозга и когнитивные эффекты."
         )
     return base
+
+
+def _devtools_ideation_extra(candidate_repos: list[str] | None) -> str:
+    """Инструкции идеации для канала GitHub-находок.
+
+    Args:
+        candidate_repos: живой список трендовых репозиториев (строки-описания).
+            Если задан — модель выбирает из него; иначе выбирает из своих знаний.
+
+    Returns:
+        str: блок инструкций для промпта.
+    """
+    base = (
+        "Канал — подборка находок с GitHub. "
+        "Тема = один конкретный репозиторий (не обзор «топ-10»).\n"
+        "Отбирай только то, что зацепит широкую техно-аудиторию и что "
+        "хочется переслать. Приоритет:\n"
+        "- популярные или трендовые репозитории (тысячи звёзд или бурный "
+        "рост в последние недели);\n"
+        "- ИИ/LLM/агенты, кодинг-ассистенты, интеграции с Claude Code / "
+        "Cursor / Codex;\n"
+        "- потребительские open-source приложения и «бесплатная "
+        "альтернатива <известному продукту>» (CapCut, Notion, Postman и т.п.).\n"
+        "Избегай узких CLI-утилит без явного вау и безвестных обёрток — "
+        "из двух проектов выбирай более популярный и понятный."
+    )
+    if candidate_repos:
+        repos_block = "\n".join(f"- {line}" for line in candidate_repos)
+        return (
+            f"{base}\n\n"
+            "Ниже — ЖИВОЙ список трендовых репозиториев GitHub прямо сейчас. "
+            "Выбери РОВНО ОДИН из этого списка (не выдумывай свой), тот, что "
+            "будет интереснее всего аудитории и ещё не выходил в канале.\n"
+            f"{repos_block}\n\n"
+            'Поле topic — «owner/repo: суть», в angle укажи, чем цепляет. '
+            "В search_queries укажи запросы именно про выбранный репозиторий: "
+            '"<repo> github", "<repo> features", "<repo> alternative".'
+        )
+    return (
+        f"{base}\n"
+        "В search_queries обязательно добавь запросы, подтверждающие "
+        "актуальность и популярность, например: "
+        '"<repo> github stars", "<repo> github trending 2026", '
+        '"<repo> open source alternative".'
+    )
 
 
 def _paragraph_ideation_extra() -> str:

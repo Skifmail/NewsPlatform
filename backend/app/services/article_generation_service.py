@@ -1,5 +1,7 @@
 """Оркестрация генерации автономных статей."""
 
+import re
+
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,11 @@ from app.infrastructure.ai.devtools_teaser_formatter import (
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.ai.image_service import ImageService
 from app.infrastructure.ai.topic_ideation import TopicIdeationService
+from app.infrastructure.parsers.github_repo_logo import parse_github_repo
+from app.infrastructure.search.github_trending_client import (
+    GitHubTrendingClient,
+    TrendingRepo,
+)
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.processed_post import ProcessedPost
 from app.repositories.channel_repository import ChannelRepository
@@ -32,6 +39,7 @@ from app.utils.telegram_channels import is_telegram_long_form_channel
 from app.utils.text_format import long_form_body_limit
 
 _MAX_DRAFT_DEDUP_ATTEMPTS = 3
+_GITHUB_URL_RE = re.compile(r"https?://github\.com/[^\s\"'<>)]+", re.IGNORECASE)
 
 
 class ArticleGenerationService:
@@ -45,6 +53,7 @@ class ArticleGenerationService:
         self._ideation = TopicIdeationService()
         self._research = WebResearchService()
         self._writer = ArticleWriter()
+        self._trending = GitHubTrendingClient()
 
     async def generate_for_channel(
         self, channel_id: int, *, celery_task_id: str | None = None
@@ -107,6 +116,7 @@ class ArticleGenerationService:
         settings_history = parse_topic_history(await self._settings.get(history_key, ""))
 
         recent_hooks: list[str] | None = None
+        candidate_repos: list[str] | None = None
         if is_devtools_article_channel(channel.topic, channel.name):
             teasers = await self._processed.list_recent_article_teasers(channel_id, limit=12)
             recent_hooks = [
@@ -114,6 +124,7 @@ class ArticleGenerationService:
                 for teaser in teasers
                 if (hook := extract_devtools_hook(teaser))
             ][:8] or None
+            candidate_repos = await self._load_trending_candidates(channel_id)
 
         draft = None
         plan = None
@@ -124,7 +135,9 @@ class ArticleGenerationService:
             await report_job_stage(
                 celery_task_id, "Выбор темы и угла статьи…", 25
             )
-            plan = await self._ideation.plan_topic(channel, recent, ideation_prompt)
+            plan = await self._ideation.plan_topic(
+                channel, recent, ideation_prompt, candidate_repos=candidate_repos
+            )
 
             await report_job_stage(
                 celery_task_id, "Поиск материалов в интернете…", 42
@@ -233,6 +246,61 @@ class ArticleGenerationService:
             sources=len(sources),
         )
         return saved.id
+
+    async def _load_trending_candidates(
+        self, channel_id: int, *, limit: int = 25
+    ) -> list[str] | None:
+        """Готовит живой список трендовых репозиториев без уже опубликованных.
+
+        Args:
+            channel_id: ID devtools-канала.
+            limit: максимум кандидатов для промпта идеации.
+
+        Returns:
+            list[str] | None: строки-описания репозиториев или None, если
+                живой список получить не удалось (тогда идеация — «из памяти»).
+        """
+        trending = await self._trending.fetch_trending(limit=limit * 2)
+        if not trending:
+            return None
+
+        posted = await self._posted_repo_full_names(channel_id)
+        fresh: list[TrendingRepo] = [
+            repo for repo in trending if repo.full_name.lower() not in posted
+        ]
+        if not fresh:
+            logger.info(
+                "All trending repos already posted, ideation falls back",
+                channel_id=channel_id,
+                trending=len(trending),
+            )
+            return None
+
+        logger.info(
+            "Trending candidates prepared",
+            channel_id=channel_id,
+            total=len(trending),
+            after_dedup=len(fresh),
+        )
+        return [repo.as_candidate_line() for repo in fresh[:limit]]
+
+    async def _posted_repo_full_names(self, channel_id: int) -> set[str]:
+        """Собирает owner/repo из недавних статей канала для дедупа.
+
+        Args:
+            channel_id: ID канала.
+
+        Returns:
+            set[str]: нормализованные (lowercase) full_name опубликованных репо.
+        """
+        bodies = await self._processed.list_recent_article_bodies(channel_id)
+        posted: set[str] = set()
+        for text in bodies:
+            for match in _GITHUB_URL_RE.finditer(text):
+                parsed = parse_github_repo(match.group(0))
+                if parsed:
+                    posted.add(f"{parsed[0]}/{parsed[1]}".lower())
+        return posted
 
     async def _load_recent_topics(self, channel: Channel) -> list[str]:
         """Собирает историю тем с учётом связанных каналов (Параграф TG + MAX).

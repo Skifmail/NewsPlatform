@@ -401,6 +401,47 @@ class ProcessedPostRepository:
         )
         return [str(text).strip() for text in result.scalars().all() if text]
 
+    async def list_recent_article_bodies(
+        self,
+        channel_id: int,
+        *,
+        limit: int = 60,
+        days: int = 120,
+    ) -> list[str]:
+        """Возвращает недавние тела и анонсы статей канала для дедупа ссылок.
+
+        Args:
+            channel_id: ID канала.
+            limit: максимум записей.
+            days: глубина поиска в днях.
+
+        Returns:
+            list[str]: строки «анонс + тело» от новых к старым.
+        """
+        from app.domain.enums import ContentMode
+
+        since = datetime.now(UTC) - timedelta(days=days)
+        result = await self._session.execute(
+            select(
+                ProcessedPost.rewritten_text,
+                ProcessedPost.article_body,
+                ProcessedPost.article_title,
+            )
+            .where(
+                ProcessedPost.channel_id == channel_id,
+                ProcessedPost.content_mode == ContentMode.ARTICLE.value,
+                ProcessedPost.status != PostStatus.REJECTED.value,
+                ProcessedPost.created_at >= since,
+            )
+            .order_by(ProcessedPost.created_at.desc())
+            .limit(limit)
+        )
+        rows = result.all()
+        return [
+            " ".join(str(part) for part in row if part)
+            for row in rows
+        ]
+
     async def count_articles_created_today(self, channel_id: int) -> int:
         """Количество сгенерированных статей за сегодня (кроме rejected).
 

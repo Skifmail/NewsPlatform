@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # Tavily (веб-поиск для статей)
     tavily_api_key: str = ""
 
+    # GitHub (живой Trending для отбора репозиториев в канал находок).
+    # Необязателен: без токена работает с меньшим rate limit.
+    github_token: str = ""
+
     # Telegraph (полный текст статей)
     telegraph_access_token: str = ""
 

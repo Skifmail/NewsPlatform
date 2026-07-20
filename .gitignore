@@ -15,3 +15,6 @@ telethon_sessions/
 backend/telethon_sessions/
 .venv/
 venv/
+
+# Локальные креды доступа к серверу (не коммитить)
+server.txt
