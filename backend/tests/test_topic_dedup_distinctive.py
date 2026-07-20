@@ -17,6 +17,24 @@ def test_same_subject_pyramids_caught() -> None:
     assert is_topic_too_similar(a, [b]) is True
 
 
+def test_single_shared_distinctive_word_not_flagged() -> None:
+    """Одно общее отличительное слово НЕ делает темы дубликатами (регресс 9098caf).
+
+    Из-за срабатывания по одному слову идеация канала находок отвергала все
+    варианты и падала «не удалось подобрать уникальную тему».
+    """
+    candidate = "Zed: быстрый редактор кода на Rust"
+    recent = ["Helix: модальный редактор в терминале"]
+    assert is_topic_too_similar(candidate, recent) is False
+
+
+def test_two_shared_distinctive_words_flagged() -> None:
+    """Два общих отличительных слова — уже дубликат."""
+    candidate = "Zed: модальный редактор на Rust"
+    recent = ["Helix: модальный редактор в терминале"]
+    assert is_topic_too_similar(candidate, recent) is True
+
+
 def test_shared_verb_not_flagged() -> None:
     """Общий глагол «падают» не делает разные темы дубликатами."""
     a = "Почему небоскребы не падают: крошечные ошибки в проекте"
