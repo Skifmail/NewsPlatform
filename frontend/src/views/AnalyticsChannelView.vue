@@ -155,6 +155,89 @@
         </p>
       </section>
 
+      <section v-if="overview.channel.platform === 'max'" class="detail-block">
+        <h2 class="section-title">Аудитория MAX</h2>
+        <p v-if="membersLoading && !memberAnalytics" class="hint">Загрузка аудитории…</p>
+        <div v-else-if="!memberAnalytics" class="empty-state panel-card p-6">
+          Данные об участниках появятся после сбора статистики (бот должен быть админом канала).
+          Нажмите «Обновить».
+        </div>
+        <template v-else>
+          <div class="kpi-grid">
+            <div class="kpi-card panel-card">
+              <span class="kpi-label">Подписчиков сейчас</span>
+              <span class="kpi-value text-accent">{{ formatNum(memberAnalytics.members_present) }}</span>
+              <span class="kpi-delta text-[var(--text-secondary)]">из списка участников</span>
+            </div>
+            <div class="kpi-card panel-card">
+              <span class="kpi-label">Вступили</span>
+              <span class="kpi-value">{{ formatNum(memberAnalytics.joined_7d) }}</span>
+              <span class="kpi-delta text-[var(--text-secondary)]">
+                за 7 дней · {{ formatNum(memberAnalytics.joined_24h) }} за сутки · {{ formatNum(memberAnalytics.joined_30d) }} за месяц
+              </span>
+            </div>
+            <div class="kpi-card panel-card">
+              <span class="kpi-label">Отписались</span>
+              <span class="kpi-value">{{ formatNum(memberAnalytics.left_7d) }}</span>
+              <span class="kpi-delta text-[var(--text-secondary)]">
+                за 7 дней · {{ formatNum(memberAnalytics.left_30d) }} за месяц
+              </span>
+            </div>
+            <div class="kpi-card panel-card">
+              <span class="kpi-label">Заходили в канал</span>
+              <span class="kpi-value">{{ formatNum(memberAnalytics.active_access_7d) }}</span>
+              <span class="kpi-delta text-[var(--text-secondary)]">за 7 дней (β)</span>
+            </div>
+            <div class="kpi-card panel-card">
+              <span class="kpi-label">Активны в MAX</span>
+              <span class="kpi-value">{{ formatNum(memberAnalytics.active_activity_24h) }}</span>
+              <span class="kpi-delta text-[var(--text-secondary)]">за 24ч, онлайн в MAX (β)</span>
+            </div>
+            <div class="kpi-card panel-card">
+              <span class="kpi-label">Админов</span>
+              <span class="kpi-value">{{ formatNum(memberAnalytics.admins_count) }}</span>
+              <span class="kpi-delta text-[var(--text-secondary)]">включая ботов</span>
+            </div>
+          </div>
+
+          <div v-if="memberJoinsSeries.length" class="chart-section panel-card mt-4">
+            <div class="section-head">
+              <h3 class="section-title">Вступления по дням (30 дней)</h3>
+            </div>
+            <BarLineChart :series="memberJoinsSeries" :animate="true" class="channel-growth-chart" />
+          </div>
+
+          <div v-if="memberAnalytics.recent_members?.length" class="mt-4">
+            <h3 class="section-title">Последние подписчики</h3>
+            <div class="table-wrap panel-card overflow-hidden mt-2">
+              <table class="table-panel">
+                <thead>
+                  <tr>
+                    <th>Участник</th>
+                    <th>Вступил</th>
+                    <th>Был в канале</th>
+                    <th>Роль</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="member in memberAnalytics.recent_members" :key="member.user_id">
+                    <td>{{ memberName(member) }}</td>
+                    <td>{{ formatDate(member.join_at) }}</td>
+                    <td>{{ formatDate(member.last_access_at) }}</td>
+                    <td>
+                      <span v-if="member.is_owner" class="badge-muted">владелец</span>
+                      <span v-else-if="member.is_admin" class="badge-muted">админ</span>
+                      <span v-else-if="member.is_bot" class="badge-muted">бот</span>
+                      <span v-else class="text-[var(--text-secondary)]">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+      </section>
+
       <section class="detail-block">
         <h2 class="section-title">Метрики постов</h2>
         <div v-if="!posts.length" class="empty-state panel-card p-6">
@@ -411,6 +494,8 @@ const posts = ref([])
 const postsSortBy = ref('published_at')
 const postsSortOrder = ref('desc')
 const postsLoading = ref(false)
+const memberAnalytics = ref(null)
+const membersLoading = ref(false)
 const ads = ref([])
 const loading = ref(false)
 const refreshing = ref(false)
@@ -648,11 +733,51 @@ async function load() {
     overview.value = ovRes.data
     ads.value = adsRes.data
     await loadPosts()
+    await loadMembers()
   } catch (e) {
     error.value = e.response?.data?.detail || e.message
   } finally {
     loading.value = false
   }
+}
+
+async function loadMembers() {
+  if (overview.value?.channel?.platform !== 'max') {
+    memberAnalytics.value = null
+    return
+  }
+  membersLoading.value = true
+  try {
+    const res = await analyticsApi.channelMembers(channelId.value)
+    memberAnalytics.value = res.data
+  } catch {
+    memberAnalytics.value = null
+  } finally {
+    membersLoading.value = false
+  }
+}
+
+const memberJoinsSeries = computed(() => {
+  if (!memberAnalytics.value?.joins_by_day?.length) return []
+  return memberAnalytics.value.joins_by_day.map((p) => ({
+    value: p.count,
+    label: formatJoinsLabel(p.day),
+    fullLabel: formatJoinsFull(p.day),
+  }))
+})
+
+function formatJoinsLabel(day) {
+  const date = new Date(day)
+  return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+}
+
+function formatJoinsFull(day) {
+  const date = new Date(day)
+  return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function memberName(member) {
+  return member.name || [member.first_name, member.last_name].filter(Boolean).join(' ') || `#${member.user_id}`
 }
 
 function closeRefreshModal() {
