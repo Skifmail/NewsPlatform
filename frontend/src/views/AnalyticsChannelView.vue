@@ -184,14 +184,9 @@
               </span>
             </div>
             <div class="kpi-card panel-card">
-              <span class="kpi-label">Заходили в канал</span>
-              <span class="kpi-value">{{ formatNum(memberAnalytics.active_access_7d) }}</span>
-              <span class="kpi-delta text-[var(--text-secondary)]">за 7 дней (β)</span>
-            </div>
-            <div class="kpi-card panel-card">
-              <span class="kpi-label">Активны в MAX</span>
+              <span class="kpi-label">Онлайн в MAX</span>
               <span class="kpi-value">{{ formatNum(memberAnalytics.active_activity_24h) }}</span>
-              <span class="kpi-delta text-[var(--text-secondary)]">за 24ч, онлайн в MAX (β)</span>
+              <span class="kpi-delta text-[var(--text-secondary)]">за 24ч, в мессенджере вообще, не в канале (β)</span>
             </div>
             <div class="kpi-card panel-card">
               <span class="kpi-label">Админов</span>
@@ -215,7 +210,7 @@
                   <tr>
                     <th>Участник</th>
                     <th>Вступил</th>
-                    <th>Был в канале</th>
+                    <th>Онлайн в MAX</th>
                     <th>Роль</th>
                   </tr>
                 </thead>
@@ -223,7 +218,7 @@
                   <tr v-for="member in memberAnalytics.recent_members" :key="member.user_id">
                     <td>{{ memberName(member) }}</td>
                     <td>{{ formatDate(member.join_at) }}</td>
-                    <td>{{ formatDate(member.last_access_at) }}</td>
+                    <td>{{ formatDate(member.last_activity_at) }}</td>
                     <td>
                       <span v-if="member.is_owner" class="badge-muted">владелец</span>
                       <span v-else-if="member.is_admin" class="badge-muted">админ</span>
