@@ -11,6 +11,11 @@ QWEN_NO_TEXT_NEGATIVE = (
     "text, letters, words, numbers, typography, caption, headline, title, subtitle, "
     "label, watermark, logo, banner, sign, poster with writing, speech bubble, "
     "channel name, app icon, telegram logo, science-pop, audience, "
+    # Запрет UI-рамки/карточки по центру (модель рисует их из-за слова thumbnail).
+    "frame, border, rounded rectangle, rounded square, card, UI card, "
+    "thumbnail frame, thumbnail card, picture-in-picture, inset panel, "
+    "framed image, image inside a frame, translucent overlay, glass panel, "
+    "floating window, glassmorphism panel, vignette box, "
     "Cyrillic, Latin alphabet, Chinese characters, gibberish text, "
     "low resolution, low quality, distorted limbs, malformed fingers, "
     "oversaturated colors, blurry."
