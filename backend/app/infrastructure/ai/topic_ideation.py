@@ -66,6 +66,11 @@ class TopicIdeationService:
         """
         blocked = list(recent_topics)
         last_plan: ArticleTopicPlan | None = None
+        # Для devtools/trending-каналов дедуп идёт по РЕПОЗИТОРИЮ (кандидаты
+        # уже отфильтрованы от опубликованных по github-ссылке). Словесная
+        # похожесть заголовков тут ложно режет РАЗНЫЕ репозитории с общими
+        # тех-словами (design/ai/альтернатива) — поэтому её не применяем.
+        repo_mode = bool(candidate_repos)
 
         for attempt in range(1, _MAX_IDEATION_ATTEMPTS + 1):
             plan = await self._request_topic(
@@ -75,6 +80,8 @@ class TopicIdeationService:
                 candidate_repos=candidate_repos,
             )
             last_plan = plan
+            if repo_mode:
+                return plan
             if not is_topic_too_similar(plan.topic, blocked) and not is_topic_too_similar(
                 f"{plan.topic} {plan.angle}", blocked
             ):

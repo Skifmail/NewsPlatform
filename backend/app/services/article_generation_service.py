@@ -163,7 +163,10 @@ class ArticleGenerationService:
                 recent_hooks=recent_hooks,
             )
 
-            if not is_topic_too_similar(draft.title, recent):
+            # Для devtools/trending-каналов дедуп по репозиторию уже выполнен
+            # (кандидаты отфильтрованы от опубликованных) — словесную похожесть
+            # заголовка не применяем, иначе разные репо ложно отвергаются.
+            if candidate_repos or not is_topic_too_similar(draft.title, recent):
                 break
 
             logger.warning(
