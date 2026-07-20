@@ -132,10 +132,22 @@ class TopicIdeationService:
         if is_devtools_article_channel(channel.topic, channel.name):
             prompt = (
                 f"{prompt}\n\n"
-                "Канал — подборка open-source утилит с GitHub. "
-                "Тема = один конкретный репозиторий (не обзор «топ-10»). "
-                "В search_queries обязательно: "
-                '"site:github.com <repo>", "<repo> github stars language".'
+                "Канал — подборка находок с GitHub. "
+                "Тема = один конкретный репозиторий (не обзор «топ-10»).\n"
+                "Отбирай только то, что зацепит широкую техно-аудиторию и что "
+                "хочется переслать. Приоритет:\n"
+                "- популярные или трендовые репозитории (тысячи звёзд или бурный "
+                "рост в последние недели);\n"
+                "- ИИ/LLM/агенты, кодинг-ассистенты, интеграции с Claude Code / "
+                "Cursor / Codex;\n"
+                "- потребительские open-source приложения и «бесплатная "
+                "альтернатива <известному продукту>» (CapCut, Notion, Postman и т.п.).\n"
+                "Избегай узких CLI-утилит без явного вау и безвестных обёрток — "
+                "из двух проектов выбирай более популярный и понятный.\n"
+                "В search_queries обязательно добавь запросы, подтверждающие "
+                "актуальность и популярность, например: "
+                '"<repo> github stars", "<repo> github trending 2026", '
+                '"<repo> open source alternative".'
             )
         elif is_paragraph_article_channel(channel.name):
             prompt = f"{prompt}\n\n{_paragraph_ideation_extra()}"
