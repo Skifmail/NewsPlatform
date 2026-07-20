@@ -93,6 +93,27 @@ def platform_scheduler_tick() -> dict[str, int | bool]:
                         interval_minutes=ps.analytics_interval_minutes,
                     )
 
+            # Ежечасный снимок баланса DeepSeek для истории расходов.
+            from app.repositories.setting_repository import SettingRepository
+            from app.services.ai_usage_service import AiUsageService
+
+            setting_repo = SettingRepository(session)
+            last_bal_raw = (await setting_repo.get("scheduler_last_balance_at", "")).strip()
+            bal_due = True
+            if last_bal_raw:
+                try:
+                    last_bal_at = datetime.fromisoformat(last_bal_raw)
+                    bal_due = now - last_bal_at >= timedelta(minutes=60)
+                except ValueError:
+                    bal_due = True
+            if bal_due:
+                try:
+                    await AiUsageService(session).snapshot_deepseek_balance()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("AI balance snapshot failed", error=str(exc))
+                await setting_repo.set("scheduler_last_balance_at", now.isoformat())
+                result["balance_snapshot"] = True
+
             if ps.schedule_retention_enabled:
                 if (
                     now.hour == ps.retention_hour_utc

@@ -14,13 +14,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.ai_usage import (
     AiUsageResponse,
+    BalancePoint,
     DeepSeekUsage,
     LocalUsageStats,
     OpenAIUsage,
     QwenImageUsage,
     QwenModelChainItem,
+    SpendHistory,
     TavilyKeyUsage,
     TavilyUsage,
+)
+from app.domain.ai_spend import compute_spend
+from app.repositories.ai_balance_snapshot_repository import (
+    AiBalanceSnapshotRepository,
 )
 from app.core.config import get_settings
 from app.domain.enums import ImageSource, JobType
@@ -49,6 +55,16 @@ _TAVILY_USAGE_URL = "https://api.tavily.com/usage"
 
 def _redis_client() -> redis.Redis:
     return redis.from_url(get_settings().redis_url)
+
+
+def _parse_money(value: str | None) -> float | None:
+    """Парсит денежную строку («1.63») во float или None."""
+    if value is None:
+        return None
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def _is_configured(key: str) -> bool:
@@ -460,11 +476,13 @@ class AiUsageService:
                 return cached.model_copy(update={"from_cache": True})
 
         fetched_at = datetime.now(UTC).isoformat()
+        deepseek = await _fetch_deepseek()
+        await self._attach_deepseek_history(deepseek)
         payload = AiUsageResponse(
             fetched_at=fetched_at,
             cache_ttl_seconds=_CACHE_TTL_SECONDS,
             from_cache=False,
-            deepseek=await _fetch_deepseek(),
+            deepseek=deepseek,
             tavily=await _fetch_tavily(self._session),
             qwen_image=await _fetch_qwen_image(self._session),
             openai=_fetch_openai(),
@@ -472,6 +490,50 @@ class AiUsageService:
         )
         self._write_cache(payload)
         return payload
+
+    async def snapshot_deepseek_balance(self) -> bool:
+        """Снимает баланс DeepSeek для истории (для фонового планировщика).
+
+        Returns:
+            bool: True если запрос к провайдеру выполнен.
+        """
+        deepseek = await _fetch_deepseek()
+        await self._attach_deepseek_history(deepseek)
+        return deepseek.configured and not deepseek.error
+
+    async def _attach_deepseek_history(self, deepseek: DeepSeekUsage) -> None:
+        """Записывает снимок баланса DeepSeek и прикрепляет историю расходов.
+
+        При ошибке (нет баланса/сбой БД) история остаётся None — панель
+        деградирует мягко, показывая только текущий баланс.
+        """
+        total = _parse_money(deepseek.total_balance)
+        if not deepseek.configured or deepseek.error or total is None:
+            return
+        try:
+            repo = AiBalanceSnapshotRepository(self._session)
+            await repo.record_if_changed(
+                "deepseek",
+                currency=deepseek.currency,
+                total_balance=total,
+                granted_balance=_parse_money(deepseek.granted_balance),
+                topped_up_balance=_parse_money(deepseek.topped_up_balance),
+            )
+            await self._session.commit()
+            series = await repo.series_since("deepseek", days=30)
+            summary = compute_spend(series, datetime.now(UTC))
+            deepseek.history = SpendHistory(
+                spent_24h=summary.spent_24h,
+                spent_7d=summary.spent_7d,
+                spent_30d=summary.spent_30d,
+                topped_up_30d=summary.topped_up_30d,
+                points=[
+                    BalancePoint(captured_at=ts, balance=val)
+                    for ts, val in summary.points
+                ],
+            )
+        except Exception as exc:  # noqa: BLE001 — история не критична
+            logger.warning("DeepSeek spend history failed", error=str(exc))
 
     def _read_cache(self) -> AiUsageResponse | None:
         try:

@@ -61,6 +61,38 @@
             <p v-if="aiUsage.deepseek.models?.length" class="ai-usage-models">
               {{ aiUsage.deepseek.models.join(', ') }}
             </p>
+
+            <div v-if="aiUsage.deepseek.history" class="ai-spend">
+              <p class="ai-spend-title">Расходы</p>
+              <div class="ai-spend-row">
+                <span class="ai-spend-item">
+                  <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_24h) }}</span>
+                  <span class="ai-spend-label">24 ч</span>
+                </span>
+                <span class="ai-spend-item">
+                  <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_7d) }}</span>
+                  <span class="ai-spend-label">7 дней</span>
+                </span>
+                <span class="ai-spend-item">
+                  <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_30d) }}</span>
+                  <span class="ai-spend-label">30 дней</span>
+                </span>
+              </div>
+              <p
+                v-if="aiUsage.deepseek.history.topped_up_30d > 0"
+                class="ai-usage-muted"
+              >
+                Пополнено за 30 дней: +{{ fmtSpend(aiUsage.deepseek.history.topped_up_30d) }} {{ aiUsage.deepseek.currency }}
+              </p>
+              <Sparkline
+                v-if="deepseekSpark.length > 1"
+                :points="deepseekSpark"
+                class="ai-spend-spark"
+              />
+              <p v-else class="ai-usage-muted ai-spend-hint">
+                История копится с каждым замером баланса (примерно раз в час) — точки появятся позже.
+              </p>
+            </div>
           </template>
         </article>
 
@@ -608,6 +640,7 @@
 import { ref, computed, onMounted, onUnmounted, defineComponent, h } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import PageHeader from '../components/layout/PageHeader.vue'
+import Sparkline from '../components/analytics/Sparkline.vue'
 import { settingsApi, aiUsageApi } from '../api/index.js'
 import { useDialogStore } from '../stores/dialogStore'
 
@@ -669,6 +702,19 @@ const savedSnapshot = ref('')
 const aiUsage = ref(null)
 const aiUsageLoading = ref(false)
 const aiUsageError = ref('')
+
+const deepseekSpark = computed(() => {
+  const pts = aiUsage.value?.deepseek?.history?.points || []
+  return pts.map((p) => Number(p.balance)).filter((n) => !Number.isNaN(n))
+})
+
+function fmtSpend(n) {
+  if (n == null) return '—'
+  const num = Number(n)
+  if (Number.isNaN(num)) return '—'
+  if (num === 0) return '0'
+  return num < 0.01 ? num.toFixed(4) : num.toFixed(2)
+}
 const tavilyKeys = ref([])
 const tavilyActiveKeyId = ref('')
 const tavilyAutoSwitch = ref(true)
@@ -1195,6 +1241,38 @@ async function save({ silent = false } = {}) {
 
 .ai-usage-models {
   @apply text-[10px] font-mono text-[var(--text-secondary)] break-all;
+}
+
+.ai-spend {
+  @apply mt-3 pt-3 border-t border-panel-border;
+}
+
+.ai-spend-title {
+  @apply text-[11px] uppercase tracking-wide text-[var(--text-secondary)] mb-1;
+}
+
+.ai-spend-row {
+  @apply flex gap-4;
+}
+
+.ai-spend-item {
+  @apply flex flex-col;
+}
+
+.ai-spend-val {
+  @apply text-sm font-semibold text-accent;
+}
+
+.ai-spend-label {
+  @apply text-[10px] text-[var(--text-secondary)];
+}
+
+.ai-spend-spark {
+  @apply mt-2 w-full;
+}
+
+.ai-spend-hint {
+  @apply mt-2;
 }
 
 .ai-usage-error,

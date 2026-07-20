@@ -11,6 +11,23 @@ class QwenModelChainItem(BaseModel):
     ttl_seconds: int | None = None
 
 
+class BalancePoint(BaseModel):
+    """Точка истории баланса."""
+
+    captured_at: str
+    balance: float
+
+
+class SpendHistory(BaseModel):
+    """История расходов провайдера из снимков баланса."""
+
+    spent_24h: float = 0.0
+    spent_7d: float = 0.0
+    spent_30d: float = 0.0
+    topped_up_30d: float = 0.0
+    points: list[BalancePoint] = Field(default_factory=list)
+
+
 class DeepSeekUsage(BaseModel):
     """Баланс DeepSeek."""
 
@@ -22,6 +39,7 @@ class DeepSeekUsage(BaseModel):
     topped_up_balance: str | None = None
     models: list[str] = Field(default_factory=list)
     error: str | None = None
+    history: SpendHistory | None = None
 
 
 class TavilyKeyUsage(BaseModel):
