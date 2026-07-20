@@ -7,7 +7,12 @@ import pytest
 
 from app.infrastructure.models.max_member import MaxMember
 from app.infrastructure.stats.base import MemberDTO
-from app.infrastructure.stats.max_stats import _ms_to_dt, parse_max_member
+from app.infrastructure.stats.max_stats import (
+    _MESSAGE_IDS_BATCH,
+    MaxStatsCollector,
+    _ms_to_dt,
+    parse_max_member,
+)
 from app.repositories.max_member_repository import MaxMemberRepository
 
 
@@ -62,6 +67,41 @@ def test_parse_max_member_admin_permissions() -> None:
 
 def test_parse_max_member_without_user_id() -> None:
     assert parse_max_member({"name": "no id"}) is None
+
+
+@pytest.mark.asyncio
+async def test_post_metrics_batches_within_max_url_limit() -> None:
+    """GET /messages режется на батчи ≤ лимита (иначе MAX даёт HTTP 400)."""
+    # MAX отвечает 400 на слишком длинный URL (~90+ длинных mid).
+    assert _MESSAGE_IDS_BATCH <= 50
+
+    calls: list[list[str]] = []
+
+    class _Resp:
+        status = 200
+
+        async def json(self) -> dict:
+            return {"messages": []}
+
+        async def __aenter__(self) -> "_Resp":
+            return self
+
+        async def __aexit__(self, *_: object) -> bool:
+            return False
+
+    def _get(_url: str, *, headers=None, params=None) -> "_Resp":
+        calls.append(params["message_ids"].split(","))
+        return _Resp()
+
+    session = MagicMock()
+    session.get = _get
+
+    ids = [f"mid.{i:032x}" for i in range(97)]
+    await MaxStatsCollector()._fetch_post_metrics(session, "tok", ids)
+
+    assert calls, "должен быть хотя бы один запрос"
+    assert all(len(chunk) <= _MESSAGE_IDS_BATCH for chunk in calls)
+    assert sum(len(chunk) for chunk in calls) == 97
 
 
 def _mock_session(existing: list[MaxMember]) -> tuple[MagicMock, list]:

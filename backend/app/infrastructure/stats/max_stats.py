@@ -26,7 +26,10 @@ from app.utils.max_api import get_max_api_base, max_client_session
 
 _NUMERIC_CHAT_ID_RE = re.compile(r"^-?\d+$")
 
-_MESSAGE_IDS_BATCH = 100
+# message_id у MAX длинные (~37 символов: "mid." + 32 hex). Запрос GET /messages
+# передаёт их в query-строке; при ~90+ id URL превышает лимит длины MAX и он
+# отвечает HTTP 400 "Invalid HTTP request". 40 (~1500 символов) — с запасом.
+_MESSAGE_IDS_BATCH = 40
 _MEMBERS_PAGE = 100
 _MEMBERS_MAX_PAGES = 200
 
