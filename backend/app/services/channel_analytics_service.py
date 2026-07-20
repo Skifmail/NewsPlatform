@@ -12,6 +12,7 @@ from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.channel_stats_snapshot import ChannelStatsSnapshot
 from app.infrastructure.models.max_member import MaxMember
 from app.infrastructure.models.post_metric import PostMetric
+from app.infrastructure.models.telegram_broadcast_stats import TelegramBroadcastStats
 from app.infrastructure.stats.base import ChannelStatsDTO, PostMetricDTO
 from app.infrastructure.stats.factory import get_stats_collector
 from app.repositories.ad_integration_repository import AdIntegrationRepository
@@ -20,6 +21,9 @@ from app.repositories.channel_stats_repository import ChannelStatsRepository
 from app.repositories.max_member_repository import MaxMemberRepository
 from app.repositories.post_metrics_repository import PostMetricsRepository
 from app.repositories.publish_log_repository import PublishLogRepository
+from app.repositories.telegram_broadcast_stats_repository import (
+    TelegramBroadcastStatsRepository,
+)
 from app.services.chart_history import (
     build_chart_history,
     period_bounds,
@@ -267,6 +271,7 @@ class ChannelAnalyticsService:
         self._publish_logs = PublishLogRepository(session)
         self._ads = AdIntegrationRepository(session)
         self._max_members = MaxMemberRepository(session)
+        self._broadcast_stats = TelegramBroadcastStatsRepository(session)
 
     @property
     def channels(self) -> ChannelRepository:
@@ -327,6 +332,16 @@ class ChannelAnalyticsService:
                 total=sync.total_seen,
                 new=sync.new_members,
                 left=sync.left_members,
+            )
+
+        if stats.broadcast_stats is not None:
+            await self._broadcast_stats.add_snapshot(
+                channel_id, stats.broadcast_stats
+            )
+            logger.info(
+                "Telegram broadcast stats stored",
+                channel_id=channel_id,
+                followers=stats.broadcast_stats.followers,
             )
 
         subscribers = stats.subscribers
@@ -559,6 +574,25 @@ class ChannelAnalyticsService:
             joins_by_day=await repo.joins_by_day(channel_id, month),
             recent_members=await repo.list_members(channel_id, limit=50),
         )
+
+    async def get_broadcast_stats(self, channel_id: int) -> TelegramBroadcastStats | None:
+        """Последний снимок нативной статистики Telegram-канала.
+
+        Args:
+            channel_id: ID канала.
+
+        Returns:
+            TelegramBroadcastStats | None: снимок или None, если статистика
+            ещё не собиралась (канал мал / не Telegram / нет прав).
+
+        Raises:
+            ValueError: канал не найден.
+        """
+        channel = await self._channels.get_by_id(channel_id)
+        if not channel:
+            msg = f"Channel {channel_id} not found"
+            raise ValueError(msg)
+        return await self._broadcast_stats.latest_for_channel(channel_id)
 
     async def list_channel_overviews(self) -> list[ChannelAnalyticsOverview]:
         """Сводки по всем каналам.

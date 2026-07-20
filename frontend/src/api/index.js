@@ -103,6 +103,7 @@ export const analyticsApi = {
   channelGrowth: (id, params) => api.get(`/analytics/channels/${id}/growth`, { params }),
   channelPosts: (id, params) => api.get(`/analytics/channels/${id}/posts`, { params }),
   channelMembers: (id) => api.get(`/analytics/channels/${id}/members`),
+  channelTelegramStats: (id) => api.get(`/analytics/channels/${id}/telegram-stats`),
   refreshChannel: (id) => api.post(`/analytics/channels/${id}/refresh`),
   refreshAll: () => api.post('/analytics/refresh-all'),
   refreshProgress: (jobId) => api.get(`/analytics/refresh-progress/${jobId}`),

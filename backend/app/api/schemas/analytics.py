@@ -64,6 +64,23 @@ class MemberJoinsPoint(BaseModel):
     count: int
 
 
+class TelegramBroadcastStatsResponse(OrmSchema):
+    """Нативная статистика Telegram-канала (stats.getBroadcastStats)."""
+
+    followers: int | None
+    followers_prev: int | None
+    views_per_post: float | None
+    views_per_post_prev: float | None
+    shares_per_post: float | None
+    shares_per_post_prev: float | None
+    reactions_per_post: float | None
+    reactions_per_post_prev: float | None
+    enabled_notifications_pct: float | None
+    period_min: datetime | None
+    period_max: datetime | None
+    collected_at: datetime
+
+
 class MaxMemberAnalyticsResponse(BaseModel):
     """Аналитика подписчиков MAX-канала."""
 

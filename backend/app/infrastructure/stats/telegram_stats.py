@@ -5,11 +5,12 @@
 Telethon, если заданы ``TELEGRAM_API_ID``/``TELEGRAM_API_HASH``.
 """
 
-from datetime import UTC
+from datetime import UTC, datetime
 
 import aiohttp
 from loguru import logger
 from telethon import TelegramClient
+from telethon.tl.functions.stats import GetBroadcastStatsRequest
 from telethon.tl.types import Message
 
 from app.core.config import get_settings
@@ -18,9 +19,97 @@ from app.infrastructure.parsers.telegram_parser import SESSION_PATH
 from app.infrastructure.stats.telethon_lock import TelethonSessionBusyError, telethon_session_lock
 from app.infrastructure.stats.base import (
     BaseStatsCollector,
+    BroadcastStatsDTO,
     ChannelStatsDTO,
     PostMetricDTO,
 )
+
+
+def _abs_pair(value: object) -> tuple[float | None, float | None]:
+    """Достаёт (current, previous) из StatsAbsValueAndPrev.
+
+    Args:
+        value: объект StatsAbsValueAndPrev или None.
+
+    Returns:
+        tuple[float | None, float | None]: текущее и предыдущее значения.
+    """
+    if value is None:
+        return None, None
+    cur = getattr(value, "current", None)
+    prev = getattr(value, "previous", None)
+    return (
+        float(cur) if cur is not None else None,
+        float(prev) if prev is not None else None,
+    )
+
+
+def _percent(value: object) -> float | None:
+    """Считает процент из StatsPercentValue (part/total × 100).
+
+    Args:
+        value: объект StatsPercentValue или None.
+
+    Returns:
+        float | None: процент или None.
+    """
+    if value is None:
+        return None
+    part = getattr(value, "part", None)
+    total = getattr(value, "total", None)
+    if not total:
+        return None
+    return round(float(part) / float(total) * 100, 2)
+
+
+def _period_dt(period: object, attr: str) -> datetime | None:
+    """Извлекает границу периода (Unix-сек) из StatsDateRangeDays.
+
+    Args:
+        period: объект period или None.
+        attr: min_date | max_date.
+
+    Returns:
+        datetime | None: момент UTC.
+    """
+    raw = getattr(period, attr, None)
+    if not raw:
+        return None
+    try:
+        return datetime.fromtimestamp(int(raw), tz=UTC)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def parse_broadcast_stats(stats: object) -> BroadcastStatsDTO:
+    """Преобразует объект BroadcastStats Telethon в DTO (защищённо, getattr).
+
+    Args:
+        stats: результат GetBroadcastStatsRequest.
+
+    Returns:
+        BroadcastStatsDTO: скалярные показатели статистики канала.
+    """
+    followers, followers_prev = _abs_pair(getattr(stats, "followers", None))
+    vpp, vpp_prev = _abs_pair(getattr(stats, "views_per_post", None))
+    spp, spp_prev = _abs_pair(getattr(stats, "shares_per_post", None))
+    rpp, rpp_prev = _abs_pair(getattr(stats, "reactions_per_post", None))
+    period = getattr(stats, "period", None)
+    return BroadcastStatsDTO(
+        followers=followers,
+        followers_prev=followers_prev,
+        views_per_post=vpp,
+        views_per_post_prev=vpp_prev,
+        shares_per_post=spp,
+        shares_per_post_prev=spp_prev,
+        reactions_per_post=rpp,
+        reactions_per_post_prev=rpp_prev,
+        enabled_notifications_pct=_percent(
+            getattr(stats, "enabled_notifications", None)
+        ),
+        period_min=_period_dt(period, "min_date"),
+        period_max=_period_dt(period, "max_date"),
+    )
 
 _MAX_MESSAGES = 50
 _TELEGRAM_BOT_API = "https://api.telegram.org"
@@ -129,6 +218,7 @@ class TelegramStatsCollector(BaseStatsCollector):
             posts_count=telethon_stats.posts_count,
             total_views=telethon_stats.total_views,
             post_metrics=telethon_stats.post_metrics,
+            broadcast_stats=telethon_stats.broadcast_stats,
         )
 
     async def _fetch_subscribers_bot_api(
@@ -250,12 +340,15 @@ class TelegramStatsCollector(BaseStatsCollector):
                 if isinstance(message, Message):
                     _append(message)
 
+            broadcast_stats = await self._fetch_broadcast_stats(client, entity, channel)
+
             total_views = sum(m.views or 0 for m in post_metrics if m.views)
             return ChannelStatsDTO(
                 subscribers=subscribers,
                 posts_count=len(post_metrics) if post_metrics else None,
                 total_views=total_views or None,
                 post_metrics=post_metrics,
+                broadcast_stats=broadcast_stats,
             )
         except Exception as exc:
             logger.warning(
@@ -266,3 +359,44 @@ class TelegramStatsCollector(BaseStatsCollector):
             return ChannelStatsDTO()
         finally:
             await client.disconnect()
+
+    async def _fetch_broadcast_stats(
+        self, client: TelegramClient, entity: object, channel: Channel
+    ) -> BroadcastStatsDTO | None:
+        """Собирает нативную статистику канала (stats.getBroadcastStats).
+
+        Защищённо: статистика доступна лишь для достаточно крупных каналов и
+        при user-аккаунте-администраторе. Для мелких/новых каналов Telegram
+        отвечает ошибкой — тогда тихо возвращаем None (сбор не ломается).
+        Как только канал дорастёт до порога, статистика начнёт наполняться
+        автоматически. Данные могут жить на другом DC — обрабатываем
+        StatsMigrateError через отдельный sender.
+
+        Args:
+            client: подключённый Telethon-клиент (user-сессия).
+            entity: сущность канала.
+            channel: канал (для логов).
+
+        Returns:
+            BroadcastStatsDTO | None: показатели или None, если недоступно.
+        """
+        from telethon.errors import StatsMigrateError
+
+        request = GetBroadcastStatsRequest(channel=entity, dark=False)
+        try:
+            try:
+                result = await client(request)
+            except StatsMigrateError as migrate:
+                sender = await client._borrow_exported_sender(migrate.dc)
+                try:
+                    result = await sender.send(request)
+                finally:
+                    await client._return_exported_sender(sender)
+            return parse_broadcast_stats(result)
+        except Exception as exc:
+            logger.debug(
+                "Telegram broadcast stats unavailable (channel likely too small)",
+                channel_id=channel.id,
+                error=str(exc),
+            )
+            return None

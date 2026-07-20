@@ -16,6 +16,7 @@ from app.api.schemas.analytics import (
     MaxMemberResponse,
     MemberJoinsPoint,
     PostMetricResponse,
+    TelegramBroadcastStatsResponse,
     RefreshJobResponse,
     RefreshProgressResponse,
 )
@@ -155,6 +156,23 @@ async def get_channel_member_analytics(
             MaxMemberResponse.model_validate(m) for m in data.recent_members
         ],
     )
+
+
+@router.get(
+    "/channels/{channel_id}/telegram-stats",
+    response_model=TelegramBroadcastStatsResponse | None,
+)
+async def get_channel_telegram_stats(
+    channel_id: int, session: DbSession, _: AuthDep
+) -> TelegramBroadcastStatsResponse | None:
+    """Нативная статистика Telegram-канала; None, если ещё недоступна."""
+    try:
+        row = await ChannelAnalyticsService(session).get_broadcast_stats(channel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if row is None:
+        return None
+    return TelegramBroadcastStatsResponse.model_validate(row)
 
 
 @router.get("/channels/{channel_id}/posts", response_model=list[PostMetricResponse])

@@ -57,3 +57,8 @@ class Channel(Base):
         back_populates="channel",
         passive_deletes=True,
     )
+    broadcast_stats: Mapped[list["TelegramBroadcastStats"]] = relationship(
+        "TelegramBroadcastStats",
+        back_populates="channel",
+        passive_deletes=True,
+    )

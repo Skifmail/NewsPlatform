@@ -45,6 +45,27 @@ class MemberDTO:
 
 
 @dataclass(frozen=True)
+class BroadcastStatsDTO:
+    """Нативная статистика Telegram-канала (stats.getBroadcastStats).
+
+    Доступна только для достаточно крупных каналов и при user-аккаунте-админе.
+    Для мелких каналов остаётся None (сбор тихо пропускается).
+    """
+
+    followers: float | None = None
+    followers_prev: float | None = None
+    views_per_post: float | None = None
+    views_per_post_prev: float | None = None
+    shares_per_post: float | None = None
+    shares_per_post_prev: float | None = None
+    reactions_per_post: float | None = None
+    reactions_per_post_prev: float | None = None
+    enabled_notifications_pct: float | None = None
+    period_min: datetime | None = None
+    period_max: datetime | None = None
+
+
+@dataclass(frozen=True)
 class ChannelStatsDTO:
     """Агрегированная статистика канала с платформы."""
 
@@ -53,6 +74,7 @@ class ChannelStatsDTO:
     total_views: int | None = None
     post_metrics: list[PostMetricDTO] = field(default_factory=list)
     members: list[MemberDTO] = field(default_factory=list)
+    broadcast_stats: BroadcastStatsDTO | None = None
 
 
 class BaseStatsCollector(ABC):

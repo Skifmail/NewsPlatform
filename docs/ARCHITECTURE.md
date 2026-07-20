@@ -89,6 +89,13 @@
   между соседними снимками (не повторный подсчёт абсолютных значений).
 - ER в сводке канала: `views_24h / subscribers × 100`.
 - MAX/Telegram не отдают охват через Bot API; охват доступен в основном для VK.
+- **Нативная статистика Telegram** (`stats.getBroadcastStats` через user-сессию Telethon):
+  подписчики, просмотры/репосты/реакции на пост, % с уведомлениями. Собирается
+  защищённо (`TelegramStatsCollector._fetch_broadcast_stats`): для мелких каналов
+  или без прав админа Telegram отвечает ошибкой → тихо пропускаем, снимок не
+  создаётся. Доступно только когда канал дорастёт до порога и user-аккаунт —
+  админ. Хранится в `telegram_broadcast_stats`, API `GET /analytics/channels/{id}/telegram-stats`.
+  Учитывается миграция DC (`StatsMigrateError`).
 - **Участники MAX** (`GET /chats/{id}/members`, бот-админ): полный список подписчиков
   с `join_time`/`last_access_time`/`last_activity_time`/правами сохраняется в
   `max_members` (`MaxMemberRepository.sync_channel_members` — upsert + детекция отписок

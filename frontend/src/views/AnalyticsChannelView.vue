@@ -242,6 +242,56 @@
         </template>
       </section>
 
+      <section v-if="overview.channel.platform === 'telegram'" class="detail-block">
+        <h2 class="section-title">Статистика Telegram</h2>
+        <div v-if="!telegramStats" class="empty-state panel-card p-6">
+          Нативная статистика Telegram появится, когда канал дорастёт до порога
+          (несколько сотен подписчиков) и user-аккаунт будет админом. Пока
+          недоступна — раздел наполнится автоматически.
+        </div>
+        <div v-else class="kpi-grid">
+          <div class="kpi-card panel-card">
+            <span class="kpi-label">Подписчики</span>
+            <span class="kpi-value text-accent">{{ formatNum(telegramStats.followers) }}</span>
+            <span
+              v-if="formatDelta1(telegramStats.followers, telegramStats.followers_prev) != null"
+              :class="deltaClass(formatDelta1(telegramStats.followers, telegramStats.followers_prev))"
+              class="kpi-delta"
+            >
+              {{ formatDelta(formatDelta1(telegramStats.followers, telegramStats.followers_prev)) }} за период
+            </span>
+          </div>
+          <div class="kpi-card panel-card">
+            <span class="kpi-label">Просмотров / пост</span>
+            <span class="kpi-value">{{ fmtAvg(telegramStats.views_per_post, 0) }}</span>
+            <span class="kpi-delta text-[var(--text-secondary)]">
+              было {{ fmtAvg(telegramStats.views_per_post_prev, 0) }}
+            </span>
+          </div>
+          <div class="kpi-card panel-card">
+            <span class="kpi-label">Репостов / пост</span>
+            <span class="kpi-value">{{ fmtAvg(telegramStats.shares_per_post) }}</span>
+            <span class="kpi-delta text-[var(--text-secondary)]">
+              было {{ fmtAvg(telegramStats.shares_per_post_prev) }}
+            </span>
+          </div>
+          <div class="kpi-card panel-card">
+            <span class="kpi-label">Реакций / пост</span>
+            <span class="kpi-value">{{ fmtAvg(telegramStats.reactions_per_post) }}</span>
+            <span class="kpi-delta text-[var(--text-secondary)]">
+              было {{ fmtAvg(telegramStats.reactions_per_post_prev) }}
+            </span>
+          </div>
+          <div class="kpi-card panel-card">
+            <span class="kpi-label">С уведомлениями</span>
+            <span class="kpi-value">
+              {{ telegramStats.enabled_notifications_pct != null ? `${telegramStats.enabled_notifications_pct}%` : '—' }}
+            </span>
+            <span class="kpi-delta text-[var(--text-secondary)]">включили оповещения</span>
+          </div>
+        </div>
+      </section>
+
       <section class="detail-block">
         <h2 class="section-title">Метрики постов</h2>
         <div v-if="!posts.length" class="empty-state panel-card p-6">
@@ -501,6 +551,7 @@ const postsLoading = ref(false)
 const memberAnalytics = ref(null)
 const membersLoading = ref(false)
 const membersExpanded = ref(false)
+const telegramStats = ref(null)
 const ads = ref([])
 const loading = ref(false)
 const refreshing = ref(false)
@@ -739,6 +790,7 @@ async function load() {
     ads.value = adsRes.data
     await loadPosts()
     await loadMembers()
+    await loadTelegramStats()
   } catch (e) {
     error.value = e.response?.data?.detail || e.message
   } finally {
@@ -783,6 +835,29 @@ function formatJoinsFull(day) {
 
 function memberName(member) {
   return member.name || [member.first_name, member.last_name].filter(Boolean).join(' ') || `#${member.user_id}`
+}
+
+async function loadTelegramStats() {
+  if (overview.value?.channel?.platform !== 'telegram') {
+    telegramStats.value = null
+    return
+  }
+  try {
+    const res = await analyticsApi.channelTelegramStats(channelId.value)
+    telegramStats.value = res.data
+  } catch {
+    telegramStats.value = null
+  }
+}
+
+function formatDelta1(cur, prev) {
+  if (cur == null || prev == null) return null
+  return cur - prev
+}
+
+function fmtAvg(n, digits = 1) {
+  if (n == null) return '—'
+  return Number(n).toFixed(digits)
 }
 
 function closeRefreshModal() {
