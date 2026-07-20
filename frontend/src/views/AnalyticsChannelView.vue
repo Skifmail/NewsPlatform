@@ -203,8 +203,17 @@
           </div>
 
           <div v-if="memberAnalytics.recent_members?.length" class="mt-4">
-            <h3 class="section-title">Последние подписчики</h3>
-            <div class="table-wrap panel-card overflow-hidden mt-2">
+            <button
+              type="button"
+              class="members-toggle"
+              :aria-expanded="membersExpanded"
+              @click="membersExpanded = !membersExpanded"
+            >
+              <span class="members-toggle-caret" :class="{ 'members-toggle-caret-open': membersExpanded }">▸</span>
+              <span class="section-title">Последние подписчики</span>
+              <span class="members-toggle-count">{{ memberAnalytics.recent_members.length }}</span>
+            </button>
+            <div v-if="membersExpanded" class="table-wrap panel-card overflow-hidden mt-2">
               <table class="table-panel">
                 <thead>
                   <tr>
@@ -491,6 +500,7 @@ const postsSortOrder = ref('desc')
 const postsLoading = ref(false)
 const memberAnalytics = ref(null)
 const membersLoading = ref(false)
+const membersExpanded = ref(false)
 const ads = ref([])
 const loading = ref(false)
 const refreshing = ref(false)
@@ -1043,5 +1053,21 @@ watch(channelId, () => {
 
 .sort-indicator {
   @apply font-mono text-[10px] text-accent;
+}
+
+.members-toggle {
+  @apply flex items-center gap-2 w-full text-left;
+}
+
+.members-toggle-caret {
+  @apply inline-block text-[var(--text-secondary)] text-xs transition-transform;
+}
+
+.members-toggle-caret-open {
+  @apply rotate-90;
+}
+
+.members-toggle-count {
+  @apply text-xs text-[var(--text-secondary)] font-mono;
 }
 </style>
