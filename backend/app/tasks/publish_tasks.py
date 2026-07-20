@@ -22,11 +22,14 @@ from app.tasks.celery_app import celery_app
     retry_backoff=True,
     retry_backoff_max=600,
 )
-def publish_post_task(self, processed_post_id: int) -> int:
+def publish_post_task(
+    self, processed_post_id: int, bypass_daily_limit: bool = False
+) -> int:
     """Публикует пост.
 
     Args:
         processed_post_id: ID processed_post.
+        bypass_daily_limit: не проверять дневной лимит канала (умная публикация).
 
     Returns:
         int: ID publish_log.
@@ -50,6 +53,7 @@ def publish_post_task(self, processed_post_id: int) -> int:
             log = await PublishService(session).publish_post(
                 processed_post_id,
                 celery_task_id=task_id,
+                bypass_daily_limit=bypass_daily_limit,
             )
             return log.id
 

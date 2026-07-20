@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.enums import PostStatus, PublishStatus
 from app.domain.publish import PublishPermanentError
 from app.infrastructure.ai.image_service import ImageService
+from app.infrastructure.models.processed_post import ProcessedPost
 from app.infrastructure.models.publish_log import PublishLog
 from app.infrastructure.publishers.publisher_factory import get_publisher
 from app.repositories.channel_repository import ChannelRepository
@@ -30,20 +31,40 @@ class PublishService:
         self._logs = PublishLogRepository(session)
         self._images = ImageService()
 
+    async def _reject(self, post: ProcessedPost, reason: str) -> None:
+        """Отклоняет пост, чтобы он не завис в «Одобренных» после провала проверки.
+
+        Args:
+            post: пост, не прошедший проверку перед публикацией.
+            reason: причина отклонения.
+        """
+        post.status = PostStatus.REJECTED.value
+        post.rejection_reason = reason
+        await self._processed.update(post)
+        await self._session.commit()
+
     async def publish_post(
-        self, post_id: int, *, celery_task_id: str | None = None
+        self,
+        post_id: int,
+        *,
+        celery_task_id: str | None = None,
+        bypass_daily_limit: bool = False,
     ) -> PublishLog:
         """Публикует пост на платформу канала.
 
         Args:
             post_id: ID processed_post.
             celery_task_id: ID Celery-задачи для поэтапных уведомлений UI.
+            bypass_daily_limit: не проверять дневной лимит канала — используется
+                умной публикацией, где за интервал и так выбирается 1 материал
+                на тему.
 
         Returns:
             PublishLog: запись лога.
 
         Raises:
-            ValueError: пост не найден или лимит исчерпан.
+            ValueError: пост не найден, лимит исчерпан или дубликат.
+            PublishPermanentError: рерайт не прошёл проверку формата.
             RuntimeError: ошибка публикации.
         """
         await report_job_stage(celery_task_id, "Подготовка публикации…", 25)
@@ -68,17 +89,22 @@ class PublishService:
             msg = f"Channel {post.channel_id} not found"
             raise ValueError(msg)
 
-        posts_per_day = int(await self._settings.get("posts_per_day", "10"))
-        published_today = await self._processed.count_published_today(channel.id)
-        if published_today >= posts_per_day:
-            msg = f"Daily limit reached for channel {channel.id}"
-            raise ValueError(msg)
+        if not bypass_daily_limit:
+            posts_per_day = int(await self._settings.get("posts_per_day", "10"))
+            published_today = await self._processed.count_published_today(channel.id)
+            if published_today >= posts_per_day:
+                msg = f"Daily limit reached for channel {channel.id}"
+                await self._reject(post, f"Дневной лимит канала «{channel.name}» исчерпан")
+                raise ValueError(msg)
 
         if not post.article_body and not is_publishable_rewrite(post.rewritten_text):
             msg = (
                 f"Post {post_id} blocked: rewrite looks like model reasoning, not HTML"
             )
             logger.error(msg, channel_id=channel.id, preview=post.rewritten_text[:200])
+            await self._reject(
+                post, "Рерайт не прошёл проверку формата (похоже на рассуждения модели)"
+            )
             raise PublishPermanentError(msg)
 
         text_hash = content_hash(
@@ -86,6 +112,7 @@ class PublishService:
         )
         if await self._processed.exists_by_hash(channel.id, text_hash):
             msg = "Duplicate content already published"
+            await self._reject(post, "Дубликат: такой текст уже публиковался в этом канале")
             raise ValueError(msg)
 
         image_bytes = None

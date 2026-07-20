@@ -182,6 +182,6 @@ class ProcessService:
                     await self._processed.update(post)
             await self._session.commit()
             for pid in created_ids:
-                publish_post_task.delay(pid)
+                publish_post_task.delay(pid, bypass_daily_limit=curated)
 
         return ProcessResult(created_ids, raw_post.topic)
