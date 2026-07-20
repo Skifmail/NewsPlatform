@@ -2,10 +2,19 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.schemas.common import OrmSchema
+from app.domain.article_schedule import format_publish_times, parse_publish_times
 from app.domain.topics import TOPIC_PATTERN
+
+
+def _normalize_publish_times(value: str | None) -> str | None:
+    """Нормализует строку времён «HH:MM,HH:MM» (МСК); пустое → None."""
+    if value is None:
+        return None
+    normalized = format_publish_times(parse_publish_times(value))
+    return normalized or None
 
 
 class ChannelCreate(BaseModel):
@@ -25,6 +34,11 @@ class ChannelCreate(BaseModel):
     publish_interval_minutes: int = Field(60, ge=1, le=1440)
     publish_window_start: str = Field("08:00", pattern=r"^\d{2}:\d{2}$")
     publish_window_end: str = Field("22:00", pattern=r"^\d{2}:\d{2}$")
+    publish_times: str | None = Field(None, max_length=255)
+
+    _norm_times = field_validator("publish_times")(
+        staticmethod(_normalize_publish_times)
+    )
 
 
 class ChannelUpdate(BaseModel):
@@ -44,6 +58,11 @@ class ChannelUpdate(BaseModel):
     publish_interval_minutes: int | None = Field(None, ge=1, le=1440)
     publish_window_start: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
     publish_window_end: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    publish_times: str | None = Field(None, max_length=255)
+
+    _norm_times = field_validator("publish_times")(
+        staticmethod(_normalize_publish_times)
+    )
 
 
 class ChannelResponse(OrmSchema):
@@ -64,4 +83,5 @@ class ChannelResponse(OrmSchema):
     publish_interval_minutes: int
     publish_window_start: str
     publish_window_end: str
+    publish_times: str | None
     created_at: datetime

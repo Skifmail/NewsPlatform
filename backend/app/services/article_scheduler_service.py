@@ -6,6 +6,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.article import article_scheduler_key
+from app.domain.article_schedule import due_slot, parse_publish_times
 from app.domain.enums import ContentMode
 from app.repositories.channel_repository import ChannelRepository
 from app.repositories.processed_post_repository import ProcessedPostRepository
@@ -72,30 +73,43 @@ class ArticleSchedulerService:
         if not isinstance(channel, Channel):
             return None
 
-        if not self._scheduling._in_publish_window(now, channel):
-            return None
+        last_key = article_scheduler_key(channel.id)
+        last_raw = (await self._settings.get(last_key, "")).strip()
+        last_at: datetime | None = None
+        if last_raw:
+            try:
+                last_at = datetime.fromisoformat(last_raw)
+            except ValueError:
+                last_at = None
+
+        times_raw = (channel.publish_times or "").strip()
+        if times_raw:
+            # Режим конкретных времён (МСК): слот наступил и ещё не отрабатывал.
+            if due_slot(now, times_raw, last_at) is None:
+                return None
+            # Явно заданные времена определяют дневной лимит (не режем их
+            # глобальным posts_per_day).
+            daily_cap = max(len(parse_publish_times(times_raw)), 1)
+        else:
+            # Легаси-режим: окно публикации + интервал между генерациями.
+            if not self._scheduling._in_publish_window(now, channel):
+                return None
+            interval = max(1, channel.publish_interval_minutes)
+            if last_at is not None and now - last_at < timedelta(minutes=interval):
+                return None
+            daily_cap = posts_per_day
 
         published_today = await self._processed.count_published_today(channel.id)
         created_today = await self._processed.count_articles_created_today(channel.id)
-        if published_today >= posts_per_day or created_today >= posts_per_day:
+        if published_today >= daily_cap or created_today >= daily_cap:
             logger.info(
                 "Article skipped: daily limit",
                 channel_id=channel.id,
                 published_today=published_today,
                 created_today=created_today,
+                daily_cap=daily_cap,
             )
             return None
-
-        interval = max(1, channel.publish_interval_minutes)
-        last_key = article_scheduler_key(channel.id)
-        last_raw = (await self._settings.get(last_key, "")).strip()
-        if last_raw:
-            try:
-                last_at = datetime.fromisoformat(last_raw)
-                if now - last_at < timedelta(minutes=interval):
-                    return None
-            except ValueError:
-                pass
 
         celery_result = generate_article_task.delay(channel.id)
         await self._jobs.enqueue_article(

@@ -195,38 +195,56 @@
           class="article-schedule mt-5 pt-4 border-t border-panel-border"
         >
           <h4 class="schedule-title">Расписание генерации статей</h4>
-          <p class="field-hint mb-3">
-            Интервал и окно публикации (UTC). Автозапуск — в «Настройки» → «Автогенерация статей».
-            Расписание публикации готовых постов — в разделе «Одобренные».
+          <label class="field-mini w-full">
+            <span>Времена выхода по МСК</span>
+            <input
+              v-model="editForms[ch.id].publish_times"
+              type="text"
+              inputmode="numeric"
+              placeholder="09:00, 18:00"
+              class="input input-sm"
+            />
+          </label>
+          <p class="field-hint mt-1 mb-3">
+            Посты выходят точно в эти времена по Москве (через запятую). Если поле
+            заполнено — окно и интервал ниже игнорируются. Автозапуск включается в
+            «Настройки» → «Автогенерация статей».
           </p>
-          <div class="schedule-fields">
-            <label class="field-mini">
-              <span>Интервал (мин)</span>
-              <input
-                v-model.number="editForms[ch.id].publish_interval_minutes"
-                type="number"
-                min="1"
-                max="1440"
-                class="input input-sm"
-              />
-            </label>
-            <label class="field-mini">
-              <span>Окно с (UTC)</span>
-              <input
-                v-model="editForms[ch.id].publish_window_start"
-                type="time"
-                class="input input-sm"
-              />
-            </label>
-            <label class="field-mini">
-              <span>Окно до (UTC)</span>
-              <input
-                v-model="editForms[ch.id].publish_window_end"
-                type="time"
-                class="input input-sm"
-              />
-            </label>
-          </div>
+
+          <details class="schedule-fallback">
+            <summary>Запасной режим: окно + интервал (UTC)</summary>
+            <p class="field-hint mt-2 mb-2">
+              Используется, только если «Времена выхода» выше пусты. Время — в UTC.
+            </p>
+            <div class="schedule-fields">
+              <label class="field-mini">
+                <span>Интервал (мин)</span>
+                <input
+                  v-model.number="editForms[ch.id].publish_interval_minutes"
+                  type="number"
+                  min="1"
+                  max="1440"
+                  class="input input-sm"
+                />
+              </label>
+              <label class="field-mini">
+                <span>Окно с (UTC)</span>
+                <input
+                  v-model="editForms[ch.id].publish_window_start"
+                  type="time"
+                  class="input input-sm"
+                />
+              </label>
+              <label class="field-mini">
+                <span>Окно до (UTC)</span>
+                <input
+                  v-model="editForms[ch.id].publish_window_end"
+                  type="time"
+                  class="input input-sm"
+                />
+              </label>
+            </div>
+          </details>
         </div>
 
         <div class="channel-actions">
@@ -320,6 +338,7 @@ function buildEditForm(ch) {
     publish_interval_minutes: ch.publish_interval_minutes ?? 60,
     publish_window_start: hhmmFromChannel(ch.publish_window_start),
     publish_window_end: hhmmFromChannel(ch.publish_window_end),
+    publish_times: ch.publish_times || '',
   }
 }
 
@@ -374,6 +393,7 @@ async function saveChannel(id) {
           publish_interval_minutes: payload.publish_interval_minutes,
           publish_window_start: timeInputToApi(payload.publish_window_start),
           publish_window_end: timeInputToApi(payload.publish_window_end),
+          publish_times: payload.publish_times?.trim() || null,
         }
       : {}),
   })

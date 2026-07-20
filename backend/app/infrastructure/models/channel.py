@@ -28,6 +28,9 @@ class Channel(Base):
     publish_interval_minutes: Mapped[int] = mapped_column(default=60)
     publish_window_start: Mapped[str] = mapped_column(String(5), default="08:00")
     publish_window_end: Mapped[str] = mapped_column(String(5), default="22:00")
+    # Конкретные времена выхода статей по МСК ("09:00,18:00"). Если задано —
+    # у article-канала имеет приоритет над окном+интервалом.
+    publish_times: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
