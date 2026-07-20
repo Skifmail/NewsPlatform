@@ -89,6 +89,12 @@
   между соседними снимками (не повторный подсчёт абсолютных значений).
 - ER в сводке канала: `views_24h / subscribers × 100`.
 - MAX/Telegram не отдают охват через Bot API; охват доступен в основном для VK.
+- **Участники MAX** (`GET /chats/{id}/members`, бот-админ): полный список подписчиков
+  с `join_time`/`last_access_time`/`last_activity_time`/правами сохраняется в
+  `max_members` (`MaxMemberRepository.sync_channel_members` — upsert + детекция отписок
+  через `is_present`/`left_at`). Даёт реальную кривую роста (вступления по дням),
+  отток и активную аудиторию — метрики, которых нет у Telegram. API:
+  `GET /analytics/channels/{id}/members`.
 
 ## Дедупликация
 

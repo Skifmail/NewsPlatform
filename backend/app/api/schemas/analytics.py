@@ -37,6 +37,49 @@ class GrowthHistoryResponse(BaseModel):
     subscribers_unsubscribed: int | None = None
 
 
+class MaxMemberResponse(OrmSchema):
+    """Участник MAX-канала для API."""
+
+    user_id: int
+    first_name: str | None
+    last_name: str | None
+    name: str | None
+    username: str | None
+    avatar_url: str | None
+    is_bot: bool
+    is_admin: bool
+    is_owner: bool
+    permissions: str | None
+    join_at: datetime | None
+    last_access_at: datetime | None
+    last_activity_at: datetime | None
+    is_present: bool
+    left_at: datetime | None
+
+
+class MemberJoinsPoint(BaseModel):
+    """Вступления за один день."""
+
+    day: str
+    count: int
+
+
+class MaxMemberAnalyticsResponse(BaseModel):
+    """Аналитика подписчиков MAX-канала."""
+
+    members_present: int
+    joined_24h: int
+    joined_7d: int
+    joined_30d: int
+    left_7d: int
+    left_30d: int
+    active_access_7d: int
+    active_activity_24h: int
+    admins_count: int
+    joins_by_day: list[MemberJoinsPoint]
+    recent_members: list[MaxMemberResponse]
+
+
 class AnalyticsSummaryResponse(BaseModel):
     """Общая сводка dashboard."""
 

@@ -52,3 +52,8 @@ class Channel(Base):
         back_populates="channel",
         passive_deletes=True,
     )
+    max_members: Mapped[list["MaxMember"]] = relationship(
+        "MaxMember",
+        back_populates="channel",
+        passive_deletes=True,
+    )

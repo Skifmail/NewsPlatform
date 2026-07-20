@@ -19,6 +19,7 @@ from app.infrastructure.models.channel import Channel
 from app.infrastructure.stats.base import (
     BaseStatsCollector,
     ChannelStatsDTO,
+    MemberDTO,
     PostMetricDTO,
 )
 from app.utils.max_api import get_max_api_base, max_client_session
@@ -26,6 +27,55 @@ from app.utils.max_api import get_max_api_base, max_client_session
 _NUMERIC_CHAT_ID_RE = re.compile(r"^-?\d+$")
 
 _MESSAGE_IDS_BATCH = 100
+_MEMBERS_PAGE = 100
+_MEMBERS_MAX_PAGES = 200
+
+
+def _ms_to_dt(value: object) -> datetime | None:
+    """Преобразует Unix-time в миллисекундах в datetime UTC.
+
+    Args:
+        value: метка времени в мс (0 и None трактуются как «нет данных»).
+
+    Returns:
+        datetime | None: момент времени или None.
+    """
+    if not value:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value) / 1000, tz=UTC)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def parse_max_member(raw: dict[str, Any]) -> MemberDTO | None:
+    """Извлекает участника канала из объекта ChatMember MAX.
+
+    Args:
+        raw: элемент массива ``members`` ответа GET /chats/{id}/members.
+
+    Returns:
+        MemberDTO | None: участник или None, если нет user_id.
+    """
+    user_id = raw.get("user_id")
+    if user_id is None:
+        return None
+    permissions = raw.get("permissions")
+    return MemberDTO(
+        user_id=int(user_id),
+        first_name=raw.get("first_name") or None,
+        last_name=raw.get("last_name") or None,
+        name=raw.get("name") or None,
+        username=raw.get("username") or None,
+        avatar_url=raw.get("avatar_url") or raw.get("full_avatar_url") or None,
+        is_bot=bool(raw.get("is_bot", False)),
+        is_admin=bool(raw.get("is_admin", False)),
+        is_owner=bool(raw.get("is_owner", False)),
+        permissions=[str(p) for p in permissions] if isinstance(permissions, list) else None,
+        join_at=_ms_to_dt(raw.get("join_time")),
+        last_access_at=_ms_to_dt(raw.get("last_access_time")),
+        last_activity_at=_ms_to_dt(raw.get("last_activity_time")),
+    )
 
 
 def parse_max_chat_info(payload: dict[str, Any]) -> tuple[int | None, int | None]:
@@ -171,6 +221,9 @@ class MaxStatsCollector(BaseStatsCollector):
             post_metrics = await self._fetch_post_metrics(
                 session, settings.max_bot_token, known_post_ids or []
             )
+            members = await self._fetch_all_members(
+                session, settings.max_bot_token, channel.platform_id
+            )
 
         subscribers, messages_count = parse_max_chat_info(payload)
         total_views = sum(m.views or 0 for m in post_metrics if m.views)
@@ -179,7 +232,65 @@ class MaxStatsCollector(BaseStatsCollector):
             posts_count=messages_count,
             total_views=total_views or None,
             post_metrics=post_metrics,
+            members=members,
         )
+
+    async def _fetch_all_members(
+        self,
+        session: aiohttp.ClientSession,
+        token: str,
+        platform_id: str,
+    ) -> list[MemberDTO]:
+        """Собирает всех участников канала с пагинацией по ``marker``.
+
+        Требует у бота права администратора канала. Недоступность
+        (нет прав / приватный чат) логируется и не прерывает сбор
+        остальных метрик.
+
+        Args:
+            session: HTTP-сессия с доверием к CA Минцифры.
+            token: токен бота.
+            platform_id: chat_id или ссылка канала.
+
+        Returns:
+            list[MemberDTO]: все участники (включая ботов и админов).
+        """
+        raw = platform_id.strip()
+        chat_ref = raw if _NUMERIC_CHAT_ID_RE.fullmatch(raw) else normalize_max_chat_link(raw)
+        url = f"{get_max_api_base()}/chats/{chat_ref}/members"
+        headers = {"Authorization": token}
+        members: list[MemberDTO] = []
+        marker: str | int | None = None
+        for _ in range(_MEMBERS_MAX_PAGES):
+            params: dict[str, str | int] = {"count": _MEMBERS_PAGE}
+            if marker is not None:
+                params["marker"] = marker
+            try:
+                async with session.get(url, headers=headers, params=params) as resp:
+                    if resp.status >= 400:
+                        body = await resp.text()
+                        logger.warning(
+                            "MAX members fetch failed",
+                            status=resp.status,
+                            body=body[:200],
+                        )
+                        break
+                    data = await resp.json()
+            except Exception as exc:
+                logger.warning("MAX members collection failed", error=str(exc))
+                break
+            if not isinstance(data, dict):
+                break
+            batch = data.get("members")
+            if not isinstance(batch, list) or not batch:
+                break
+            for item in batch:
+                if isinstance(item, dict) and (parsed := parse_max_member(item)):
+                    members.append(parsed)
+            marker = data.get("marker")
+            if not marker:
+                break
+        return members
 
     async def _fetch_post_metrics(
         self,

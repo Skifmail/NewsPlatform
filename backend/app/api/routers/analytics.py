@@ -12,6 +12,9 @@ from app.api.schemas.analytics import (
     GrowthHistoryResponse,
     GrowthPoint,
     ChartGrowthPoint,
+    MaxMemberAnalyticsResponse,
+    MaxMemberResponse,
+    MemberJoinsPoint,
     PostMetricResponse,
     RefreshJobResponse,
     RefreshProgressResponse,
@@ -120,6 +123,37 @@ async def get_channel_growth(
         period_delta_percent=history.period_delta_percent,
         previous_period_label=history.previous_period_label,
         subscribers_unsubscribed=history.subscribers_unsubscribed,
+    )
+
+
+@router.get(
+    "/channels/{channel_id}/members",
+    response_model=MaxMemberAnalyticsResponse,
+)
+async def get_channel_member_analytics(
+    channel_id: int, session: DbSession, _: AuthDep
+) -> MaxMemberAnalyticsResponse:
+    """Аналитика подписчиков MAX-канала: рост, отток, активность, список."""
+    try:
+        data = await ChannelAnalyticsService(session).get_member_analytics(channel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return MaxMemberAnalyticsResponse(
+        members_present=data.members_present,
+        joined_24h=data.joined_24h,
+        joined_7d=data.joined_7d,
+        joined_30d=data.joined_30d,
+        left_7d=data.left_7d,
+        left_30d=data.left_30d,
+        active_access_7d=data.active_access_7d,
+        active_activity_24h=data.active_activity_24h,
+        admins_count=data.admins_count,
+        joins_by_day=[
+            MemberJoinsPoint(day=day, count=count) for day, count in data.joins_by_day
+        ],
+        recent_members=[
+            MaxMemberResponse.model_validate(m) for m in data.recent_members
+        ],
     )
 
 

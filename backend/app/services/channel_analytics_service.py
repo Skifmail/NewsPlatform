@@ -10,12 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.models.ad_integration import AdIntegration
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.channel_stats_snapshot import ChannelStatsSnapshot
+from app.infrastructure.models.max_member import MaxMember
 from app.infrastructure.models.post_metric import PostMetric
 from app.infrastructure.stats.base import ChannelStatsDTO, PostMetricDTO
 from app.infrastructure.stats.factory import get_stats_collector
 from app.repositories.ad_integration_repository import AdIntegrationRepository
 from app.repositories.channel_repository import ChannelRepository
 from app.repositories.channel_stats_repository import ChannelStatsRepository
+from app.repositories.max_member_repository import MaxMemberRepository
 from app.repositories.post_metrics_repository import PostMetricsRepository
 from app.repositories.publish_log_repository import PublishLogRepository
 from app.services.chart_history import (
@@ -225,6 +227,23 @@ class ChannelAnalyticsOverview:
 
 
 @dataclass(frozen=True)
+class MaxMemberAnalytics:
+    """Аналитика подписчиков MAX-канала на основе списка участников."""
+
+    members_present: int
+    joined_24h: int
+    joined_7d: int
+    joined_30d: int
+    left_7d: int
+    left_30d: int
+    active_access_7d: int
+    active_activity_24h: int
+    admins_count: int
+    joins_by_day: list[tuple[str, int]]
+    recent_members: list["MaxMember"]
+
+
+@dataclass(frozen=True)
 class AnalyticsSummary:
     """Общая сводка по всем каналам."""
 
@@ -247,6 +266,7 @@ class ChannelAnalyticsService:
         self._post_metrics = PostMetricsRepository(session)
         self._publish_logs = PublishLogRepository(session)
         self._ads = AdIntegrationRepository(session)
+        self._max_members = MaxMemberRepository(session)
 
     @property
     def channels(self) -> ChannelRepository:
@@ -296,6 +316,18 @@ class ChannelAnalyticsService:
         now = datetime.now(UTC)
         for dto in stats.post_metrics:
             await self._upsert_post_metric(channel, dto, log_by_post_id, now)
+
+        if stats.members:
+            sync = await self._max_members.sync_channel_members(
+                channel_id, stats.members
+            )
+            logger.info(
+                "MAX members synced",
+                channel_id=channel_id,
+                total=sync.total_seen,
+                new=sync.new_members,
+                left=sync.left_members,
+            )
 
         subscribers = stats.subscribers
         if subscribers is None:
@@ -478,6 +510,54 @@ class ChannelAnalyticsService:
             ad_revenue_total=round(ad_revenue, 2),
             growth_points=growth_points,
             last_collected_at=latest.captured_at if latest else None,
+        )
+
+    async def get_member_analytics(self, channel_id: int) -> MaxMemberAnalytics:
+        """Аналитика подписчиков MAX-канала из сохранённого списка участников.
+
+        Args:
+            channel_id: ID канала.
+
+        Returns:
+            MaxMemberAnalytics: агрегаты роста, оттока, активности и список.
+
+        Raises:
+            ValueError: канал не найден или не является MAX-каналом.
+        """
+        channel = await self._channels.get_by_id(channel_id)
+        if not channel:
+            msg = f"Channel {channel_id} not found"
+            raise ValueError(msg)
+        if channel.platform != "max":
+            msg = "Member analytics available only for MAX channels"
+            raise ValueError(msg)
+
+        now = datetime.now(UTC)
+        day = now - timedelta(days=1)
+        week = now - timedelta(days=7)
+        month = now - timedelta(days=30)
+        repo = self._max_members
+
+        return MaxMemberAnalytics(
+            members_present=await repo.count_present(channel_id),
+            joined_24h=await repo.count_joined_since(channel_id, day),
+            joined_7d=await repo.count_joined_since(channel_id, week),
+            joined_30d=await repo.count_joined_since(channel_id, month),
+            left_7d=await repo.count_left_since(channel_id, week),
+            left_30d=await repo.count_left_since(channel_id, month),
+            active_access_7d=await repo.count_active_since(channel_id, week, by="access"),
+            active_activity_24h=await repo.count_active_since(
+                channel_id, day, by="activity"
+            ),
+            admins_count=sum(
+                1
+                for m in await repo.list_members(
+                    channel_id, present_only=True, include_bots=True, limit=1000
+                )
+                if m.is_admin
+            ),
+            joins_by_day=await repo.joins_by_day(channel_id, month),
+            recent_members=await repo.list_members(channel_id, limit=50),
         )
 
     async def list_channel_overviews(self) -> list[ChannelAnalyticsOverview]:

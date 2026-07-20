@@ -22,6 +22,29 @@ class PostMetricDTO:
 
 
 @dataclass(frozen=True)
+class MemberDTO:
+    """Участник канала со всей доступной от платформы информацией.
+
+    Заполняется платформами, отдающими список участников (MAX). Для
+    остальных остаётся пустым.
+    """
+
+    user_id: int
+    first_name: str | None = None
+    last_name: str | None = None
+    name: str | None = None
+    username: str | None = None
+    avatar_url: str | None = None
+    is_bot: bool = False
+    is_admin: bool = False
+    is_owner: bool = False
+    permissions: list[str] | None = None
+    join_at: datetime | None = None
+    last_access_at: datetime | None = None
+    last_activity_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class ChannelStatsDTO:
     """Агрегированная статистика канала с платформы."""
 
@@ -29,6 +52,7 @@ class ChannelStatsDTO:
     posts_count: int | None = None
     total_views: int | None = None
     post_metrics: list[PostMetricDTO] = field(default_factory=list)
+    members: list[MemberDTO] = field(default_factory=list)
 
 
 class BaseStatsCollector(ABC):
