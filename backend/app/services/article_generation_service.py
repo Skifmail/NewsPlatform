@@ -13,6 +13,7 @@ from app.domain.article import (
     serialize_topic_history,
 )
 from app.domain.topic_dedup import is_topic_too_similar, merge_topic_lists
+from app.domain.tool_category import is_ai_tool
 from app.domain.enums import ContentMode, PostStatus
 from app.infrastructure.ai.article_writer import ArticleWriter
 from app.infrastructure.ai.devtools_teaser_formatter import (
@@ -124,7 +125,15 @@ class ArticleGenerationService:
                 for teaser in teasers
                 if (hook := extract_devtools_hook(teaser))
             ][:8] or None
-            candidate_repos = await self._load_trending_candidates(channel_id)
+            # Правило «≤1 AI-инструмента из 3 подряд»: если хотя бы один из
+            # последних 2 постов — AI/LLM, новый пост должен быть не-AI.
+            last_titles = await self._processed.list_recent_article_titles(
+                channel_id, limit=2
+            )
+            exclude_ai = any(is_ai_tool(title) for title in last_titles)
+            candidate_repos = await self._load_trending_candidates(
+                channel_id, exclude_ai=exclude_ai
+            )
 
         draft = None
         plan = None
@@ -251,13 +260,14 @@ class ArticleGenerationService:
         return saved.id
 
     async def _load_trending_candidates(
-        self, channel_id: int, *, limit: int = 25
+        self, channel_id: int, *, limit: int = 25, exclude_ai: bool = False
     ) -> list[str] | None:
         """Готовит живой список трендовых репозиториев без уже опубликованных.
 
         Args:
             channel_id: ID devtools-канала.
             limit: максимум кандидатов для промпта идеации.
+            exclude_ai: убрать AI/LLM-репозитории (правило «≤1 AI из 3 подряд»).
 
         Returns:
             list[str] | None: строки-описания репозиториев или None, если
@@ -279,13 +289,25 @@ class ArticleGenerationService:
             )
             return None
 
+        selected = fresh
+        if exclude_ai:
+            non_ai = [
+                repo
+                for repo in fresh
+                if not is_ai_tool(f"{repo.full_name} {repo.description}")
+            ]
+            # Если после фильтра пусто — не ломаем генерацию, берём как есть.
+            selected = non_ai or fresh
+
         logger.info(
             "Trending candidates prepared",
             channel_id=channel_id,
             total=len(trending),
             after_dedup=len(fresh),
+            exclude_ai=exclude_ai,
+            after_ai_filter=len(selected),
         )
-        return [repo.as_candidate_line() for repo in fresh[:limit]]
+        return [repo.as_candidate_line() for repo in selected[:limit]]
 
     async def _posted_repo_full_names(self, channel_id: int) -> set[str]:
         """Собирает owner/repo из недавних статей канала для дедупа.
