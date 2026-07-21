@@ -52,3 +52,16 @@ def test_build_devtools_teaser() -> None:
     assert "<b>croc</b>" in teaser
     assert "🎬 Передача файлов" in teaser
     assert "GitHub" in teaser
+
+
+def test_writing_instructions_suppress_engagement_question() -> None:
+    """Для Github-находок инструкция запрещает вопрос-вовлечение и 👇."""
+    from app.infrastructure.ai.devtools_teaser_formatter import (
+        devtools_writing_instructions,
+    )
+
+    text = devtools_writing_instructions(900)
+    low = text.lower()
+    assert "не добавляй" in low
+    assert "вопрос-вовлечение" in low
+    assert "👇" in text
