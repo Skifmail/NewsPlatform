@@ -32,6 +32,24 @@ from app.infrastructure.parsers.image_extract import (
 _USER_AGENT = "Mozilla/5.0 (compatible; NewsPlatform/1.0)"
 _PAGE_FETCH_TIMEOUT = 20.0
 
+# Не-растровые/непригодные для Telegram и Pillow форматы. SVG особенно важен:
+# CNews отдаёт на каждую статью placeholder-SVG, Pillow его не открывает →
+# пост уходил без фото. Такой «оригинал» игнорируем и генерируем обложку.
+_NON_RASTER_SUFFIXES = (".svg", ".pdf", ".doc", ".docx", ".ppt", ".pptx")
+
+
+def _is_raster_image_url(url: str) -> bool:
+    """URL ведёт на растровое изображение, пригодное для Pillow/Telegram.
+
+    Args:
+        url: ссылка на изображение.
+
+    Returns:
+        bool: False для SVG/документов (по расширению без query).
+    """
+    path = url.lower().split("?", 1)[0].split("#", 1)[0]
+    return not path.endswith(_NON_RASTER_SUFFIXES)
+
 
 class ImageService:
     """Определяет изображение для публикации."""
@@ -85,19 +103,30 @@ class ImageService:
             tuple[str | None, str]: URL и image_source.
         """
         stored = raw_post.image_url
-        if stored and not stored.startswith("telegram://"):
-            if not is_social_preview_image(stored):
-                return stored, ImageSource.ORIGINAL.value
-            if raw_post.url:
-                page_image = await self._fetch_page_image(raw_post.url)
-                if page_image and not is_social_preview_image(page_image):
-                    return page_image, ImageSource.ORIGINAL.value
+        # Растровый оригинал (не SVG/документ и не telegram://).
+        stored_ok = bool(
+            stored
+            and not stored.startswith("telegram://")
+            and _is_raster_image_url(stored)
+        )
+
+        if stored_ok and not is_social_preview_image(stored):
             return stored, ImageSource.ORIGINAL.value
 
+        # Оригинал негоден (SVG-заглушка cnews) или это соцпревью — пробуем
+        # og:image со страницы статьи.
         if raw_post.url:
             page_image = await self._fetch_page_image(raw_post.url)
-            if page_image:
+            if (
+                page_image
+                and _is_raster_image_url(page_image)
+                and not is_social_preview_image(page_image)
+            ):
                 return page_image, ImageSource.ORIGINAL.value
+
+        # Растровое соцпревью — лучше, чем ничего (но SVG сюда не попадёт).
+        if stored_ok:
+            return stored, ImageSource.ORIGINAL.value
 
         if generate_if_missing:
             generated = await self._generate_for_post(raw_post, channel)
@@ -407,6 +436,10 @@ class ImageService:
                     url=image_url,
                     content_type=content_type,
                 )
+                return None
+            # SVG проходит startswith("image/"), но Pillow его не откроет.
+            if "svg" in content_type:
+                logger.debug("Image skipped: SVG not supported", url=image_url)
                 return None
             img = Image.open(BytesIO(resp.content))
             img = img.convert("RGB")
