@@ -77,18 +77,20 @@ def test_sanitize_scene_removes_text_triggers() -> None:
     assert "russian" not in lowered
 
 
-def test_logo_edit_prompt_is_separate_and_clean() -> None:
-    """Промпт логотипа: сохраняет логотип, без тех-клише, с метафорой сцены."""
+def test_logo_edit_prompt_is_affirmative_with_scene() -> None:
+    """Промпт логотипа: утвердительный (без «no»), с метафорой сцены."""
     prompt = ImagePromptBuilder.build_logo_edit(
         _channel(),
-        scene="a justfile running deploy and test commands",
-        tool_name="just",
+        scene="a folder tree with a magnifier",
+        tool_name="broot",
     )
     low = prompt.lower()
-    assert "logo" in low and "recognizable" in low
-    assert "no circuit boards" in low
-    assert "justfile" in low  # метафора сцены попала в промпт
+    assert "logo" in low and "unchanged" in low
+    assert "folder tree" in low  # метафора сцены попала в промпт
     assert "{scene}" not in prompt  # плейсхолдер подставлен
+    # Никаких отрицаний — Qwen рисует упомянутое после «no».
+    assert " no " not in f" {low} "
+    assert "circuit" not in low
 
 
 def test_negatives_ban_circuit_clichE() -> None:

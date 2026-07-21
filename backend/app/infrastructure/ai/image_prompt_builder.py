@@ -49,26 +49,25 @@ QWEN_LOGO_EDIT_NEGATIVE = (
 )
 
 _WRITER_IMAGE_FIELD_HINT = (
-    "Поле image_prompt: одно предложение на английском — только визуальная сцена "
-    "(предмет, символ, среда). Без слов, надписей и текста на картинке."
+    "Поле image_prompt: одно предложение на английском — ОДИН конкретный "
+    "осязаемый объект или сцена как визуальная метафора работы инструмента "
+    "(например, для файлового менеджера — папка-дерево с лупой). Только "
+    "физические предметы и формы. НЕ упоминай файлы с текстом, код, команды, "
+    "терминал, интерфейс, экраны, надписи и названия — Qwen рисует их буквально "
+    "текстом на картинке."
 )
 
 # Промпт стилизации НАЙДЕННОГО логотипа репозитория (Qwen Image Edit).
-# Задача: сохранить сам логотип, красиво его подать и построить композицию,
-# намекающую на работу инструмента. Без тех-клише (микросхемы и т.п.).
+# ВАЖНО: только УТВЕРДИТЕЛЬНЫЕ формулировки. Отрицания («no circuit boards»)
+# давать НЕЛЬЗЯ — Qwen игнорирует «no» и рисует упомянутый объект (микросхемы,
+# текст). Всё нежелательное — только в negative_prompt (QWEN_LOGO_EDIT_NEGATIVE).
+# Проверено генерацией: этот стиль даёт чистую премиальную обложку без клише.
 LOGO_EDIT_TEMPLATE = (
-    "Keep the provided logo of the developer tool as the clear central hero — "
-    "do not distort, redraw or replace it, keep it sharp and fully recognizable. "
-    "Restyle it into a premium, minimal, modern cover: elegant studio lighting, "
-    "soft shadows, tasteful depth, generous empty space and balanced composition. "
-    "Around the logo add subtle, clean design elements that visually hint at what "
-    "the tool does — {scene} — but keep them minimal and secondary to the logo. "
-    "Background: a clean solid or smooth gradient in dark neutral tones (deep "
-    "charcoal or navy) with a single subtle accent color. "
-    "Absolutely no circuit boards, no PCB traces, no glowing tech grids, no matrix "
-    "code, no cyberpunk, no neon wires, no busy techy background — keep it clean "
-    "and uncluttered. No extra text or letters beyond what is already in the logo. "
-    "Full-bleed image filling the whole canvas, no frame, no card, no border."
+    "Place this logo as the clear centered hero on a smooth dark navy background "
+    "with soft studio lighting and a subtle glow. Around it arrange a few small "
+    "elegant minimalist 3D shapes suggesting {scene}, kept subtle and secondary "
+    "to the logo. Premium modern product render, generous empty space, tasteful, "
+    "keep the logo clean, sharp and unchanged."
 )
 
 
