@@ -75,3 +75,28 @@ def test_sanitize_scene_removes_text_triggers() -> None:
     assert "science-pop" not in lowered
     assert "audience" not in lowered
     assert "russian" not in lowered
+
+
+def test_logo_edit_prompt_is_separate_and_clean() -> None:
+    """Промпт логотипа: сохраняет логотип, без тех-клише, с метафорой сцены."""
+    prompt = ImagePromptBuilder.build_logo_edit(
+        _channel(),
+        scene="a justfile running deploy and test commands",
+        tool_name="just",
+    )
+    low = prompt.lower()
+    assert "logo" in low and "recognizable" in low
+    assert "no circuit boards" in low
+    assert "justfile" in low  # метафора сцены попала в промпт
+    assert "{scene}" not in prompt  # плейсхолдер подставлен
+
+
+def test_negatives_ban_circuit_clichE() -> None:
+    from app.infrastructure.ai.image_prompt_builder import (
+        QWEN_LOGO_EDIT_NEGATIVE,
+        QWEN_NO_TEXT_NEGATIVE,
+    )
+
+    for neg in (QWEN_LOGO_EDIT_NEGATIVE, QWEN_NO_TEXT_NEGATIVE):
+        assert "circuit board" in neg
+        assert "matrix code" in neg

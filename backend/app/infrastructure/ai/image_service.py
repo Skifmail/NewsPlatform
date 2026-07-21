@@ -176,11 +176,9 @@ class ImageService:
         ):
             logo_url = await self._github_logos.fetch_logo_url(repo_url)
             if logo_url:
-                edit_prompt = ImagePromptBuilder.build_for_channel(
+                edit_prompt = ImagePromptBuilder.build_logo_edit(
                     channel,
                     scene=image_prompt or tool_name,
-                    title=article_title,
-                    topic=topic,
                     tool_name=tool_name,
                 )
                 if edit_prompt:

@@ -6,6 +6,15 @@ from loguru import logger
 
 from app.infrastructure.models.channel import Channel
 
+# Тех-клише, которые Qwen любит пихать в обложки dev-инструментов
+# (источник «дорожек микросхем» на фоне).
+_NO_TECH_CLICHE = (
+    "circuit board, PCB, circuit traces, printed circuit, motherboard, "
+    "microchip pattern, chip traces, tech grid, glowing wires, data streams, "
+    "matrix code rain, cyberpunk, neon grid, hologram, holographic HUD, "
+    "sci-fi interface, futuristic dashboard, busy techy background"
+)
+
 # Общий негативный промпт Qwen — усиленный запрет текста.
 QWEN_NO_TEXT_NEGATIVE = (
     "text, letters, words, numbers, typography, caption, headline, title, subtitle, "
@@ -16,6 +25,8 @@ QWEN_NO_TEXT_NEGATIVE = (
     "thumbnail frame, thumbnail card, picture-in-picture, inset panel, "
     "framed image, image inside a frame, translucent overlay, glass panel, "
     "floating window, glassmorphism panel, vignette box, "
+    # Тех-клише (микросхемы/матрица/киберпанк) — источник «дорожек» на фоне.
+    f"{_NO_TECH_CLICHE}, "
     "Cyrillic, Latin alphabet, Chinese characters, gibberish text, "
     "low resolution, low quality, distorted limbs, malformed fingers, "
     "oversaturated colors, blurry."
@@ -31,12 +42,33 @@ QWEN_NEWS_NEGATIVE = (
 QWEN_LOGO_EDIT_NEGATIVE = (
     "blurry, low quality, distorted logo, unrecognizable brand, "
     "cluttered background, extra watermark, random gibberish text, "
-    "multiple competing logos, meme style, oversaturated, ugly composition."
+    "multiple competing logos, meme style, oversaturated, ugly composition, "
+    f"{_NO_TECH_CLICHE}, "
+    "frame, border, rounded rectangle, card, thumbnail frame, "
+    "picture-in-picture, translucent overlay."
 )
 
 _WRITER_IMAGE_FIELD_HINT = (
     "Поле image_prompt: одно предложение на английском — только визуальная сцена "
     "(предмет, символ, среда). Без слов, надписей и текста на картинке."
+)
+
+# Промпт стилизации НАЙДЕННОГО логотипа репозитория (Qwen Image Edit).
+# Задача: сохранить сам логотип, красиво его подать и построить композицию,
+# намекающую на работу инструмента. Без тех-клише (микросхемы и т.п.).
+LOGO_EDIT_TEMPLATE = (
+    "Keep the provided logo of the developer tool as the clear central hero — "
+    "do not distort, redraw or replace it, keep it sharp and fully recognizable. "
+    "Restyle it into a premium, minimal, modern cover: elegant studio lighting, "
+    "soft shadows, tasteful depth, generous empty space and balanced composition. "
+    "Around the logo add subtle, clean design elements that visually hint at what "
+    "the tool does — {scene} — but keep them minimal and secondary to the logo. "
+    "Background: a clean solid or smooth gradient in dark neutral tones (deep "
+    "charcoal or navy) with a single subtle accent color. "
+    "Absolutely no circuit boards, no PCB traces, no glowing tech grids, no matrix "
+    "code, no cyberpunk, no neon wires, no busy techy background — keep it clean "
+    "and uncluttered. No extra text or letters beyond what is already in the logo. "
+    "Full-bleed image filling the whole canvas, no frame, no card, no border."
 )
 
 
@@ -48,6 +80,29 @@ class ImagePromptBuilder:
         """Краткая инструкция для поля image_prompt в ArticleWriter."""
         _ = channel
         return _WRITER_IMAGE_FIELD_HINT
+
+    @staticmethod
+    def build_logo_edit(
+        channel: Channel,
+        *,
+        scene: str,
+        tool_name: str = "",
+    ) -> str:
+        """Промпт стилизации найденного логотипа (отдельно от генерации с нуля).
+
+        Args:
+            channel: канал (для будущей кастомизации).
+            scene: метафора работы инструмента (англ., от ArticleWriter).
+            tool_name: имя инструмента.
+
+        Returns:
+            str: инструкция для Qwen Image Edit.
+        """
+        _ = channel, tool_name
+        safe_scene = ImagePromptBuilder._sanitize_scene_for_qwen(scene) or (
+            "how the tool works"
+        )
+        return LOGO_EDIT_TEMPLATE.format(scene=safe_scene)
 
     @staticmethod
     def build_for_qwen(
