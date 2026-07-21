@@ -254,6 +254,19 @@ class ImagePromptBuilder:
                 "military equipment and smoke on distant horizon, documentary wide shot, "
                 "no individual portraits"
             )
+        tech_markers = (
+            "чип", "процессор", "смартфон", "телефон", "iphone", "айфон",
+            "android", "андроид", "гаджет", "ноутбук", "планшет", "нейросет",
+            "искусственн", "робот", "приложени", "видеокарт", "сервер", "облач",
+            "браузер", "стартап", "кибер", "хакер", "взлом", "софт",
+            "nvidia", "нвидиа", "apple", "эппл", "google", "гугл", "microsoft",
+            "майкрософт", "samsung", "самсунг", "intel", "amd", "openai",
+        )
+        if any(marker in lowered for marker in tech_markers):
+            return (
+                "a sleek modern tech gadget or a glowing microchip on a dark "
+                "reflective surface, single hero object, soft studio lighting, minimal"
+            )
         return (
             "symbolic inanimate scene representing the news topic — relevant objects, "
             "vehicles, buildings or landscape, wide environmental shot, "

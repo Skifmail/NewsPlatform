@@ -102,3 +102,11 @@ def test_negatives_ban_circuit_clichE() -> None:
     for neg in (QWEN_LOGO_EDIT_NEGATIVE, QWEN_NO_TEXT_NEGATIVE):
         assert "circuit board" in neg
         assert "matrix code" in neg
+
+
+def test_tech_news_gets_clean_gadget_scene() -> None:
+    """IT-новости дают чистую тех-сцену (без generic vehicles/no people)."""
+    scene = ImagePromptBuilder._visual_hint_from_title("Nvidia представила новый ИИ-чип")
+    low = scene.lower()
+    assert "gadget" in low or "microchip" in low
+    assert "no people" not in low  # не generic-фолбэк
