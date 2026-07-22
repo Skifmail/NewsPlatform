@@ -11,9 +11,15 @@
         <span class="chevron" :class="{ open: showNewForm }">▸</span>
         <span>＋ Добавить канал</span>
       </button>
-      <div class="collapse" :class="{ open: showNewForm }">
-        <div class="collapse-inner">
-          <form class="form-card" @submit.prevent="create">
+      <transition
+        name="expand"
+        @enter="startExpand"
+        @after-enter="endExpand"
+        @before-leave="startCollapse"
+        @leave="doCollapse"
+      >
+        <div v-if="showNewForm" class="expand-body">
+          <form class="form-card mt-3" @submit.prevent="create">
             <div class="form-grid">
               <input v-model="form.name" placeholder="Название" class="input" required />
               <select v-model="form.platform" class="select">
@@ -83,7 +89,7 @@
             <button type="submit" class="btn-primary mt-4">Добавить канал</button>
           </form>
         </div>
-      </div>
+      </transition>
     </div>
 
     <div v-if="!channels.length" class="empty-state">Каналы не добавлены</div>
@@ -114,8 +120,14 @@
           </div>
         </button>
 
-        <div class="collapse" :class="{ open: expandedId === ch.id }">
-          <div class="collapse-inner channel-body">
+        <transition
+          name="expand"
+          @enter="startExpand"
+          @after-enter="endExpand"
+          @before-leave="startCollapse"
+          @leave="doCollapse"
+        >
+          <div v-if="expandedId === ch.id" class="expand-body channel-body">
             <label class="active-toggle mb-4">
               <input
                 v-model="editForms[ch.id].is_active"
@@ -292,7 +304,7 @@
               </button>
             </div>
           </div>
-        </div>
+        </transition>
       </article>
     </div>
   </div>
@@ -382,6 +394,26 @@ function buildEditForm(ch) {
 function isDirty(id) {
   if (!editForms[id] || !originalForms[id]) return false
   return JSON.stringify(editForms[id]) !== JSON.stringify(originalForms[id])
+}
+
+/* Плавная анимация высоты (надёжнее grid-rows при любой раскладке) */
+function startExpand(el) {
+  el.style.height = '0'
+  el.style.overflow = 'hidden'
+  void el.offsetHeight
+  el.style.height = `${el.scrollHeight}px`
+}
+function endExpand(el) {
+  el.style.height = ''
+  el.style.overflow = ''
+}
+function startCollapse(el) {
+  el.style.height = `${el.scrollHeight}px`
+  el.style.overflow = 'hidden'
+  void el.offsetHeight
+}
+function doCollapse(el) {
+  el.style.height = '0'
 }
 
 async function load() {
@@ -607,19 +639,11 @@ onMounted(load)
   @apply bg-panel-hover text-[var(--text-secondary)];
 }
 
-/* Плавное раскрытие (grid-rows 0fr → 1fr) */
-.collapse {
-  @apply grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.28s ease;
-}
-
-.collapse.open {
-  grid-template-rows: 1fr;
-}
-
-.collapse-inner {
-  @apply overflow-hidden min-h-0;
+/* Плавное раскрытие через анимацию высоты */
+.expand-enter-active,
+.expand-leave-active {
+  transition: height 0.28s ease;
+  overflow: hidden;
 }
 
 .channel-body {
