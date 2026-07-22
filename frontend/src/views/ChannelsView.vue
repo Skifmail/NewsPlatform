@@ -5,264 +5,293 @@
       subtitle="Telegram, VK и MAX — настройка промптов и привязка каналов"
     />
 
-    <form class="form-card" @submit.prevent="create">
-      <h3 class="form-card-title">Новый канал</h3>
-      <div class="form-grid">
-        <input v-model="form.name" placeholder="Название" class="input" required />
-        <select v-model="form.platform" class="select">
-          <option value="telegram">Telegram</option>
-          <option value="vk">VK</option>
-          <option value="max">MAX</option>
-        </select>
-        <input
-          v-model="form.platform_id"
-          :placeholder="platformIdPlaceholder(form.platform)"
-          class="input"
-          required
-        />
-        <select v-model="form.topic" class="select">
-          <option v-for="opt in TOPIC_OPTIONS" :key="opt.value" :value="opt.value">
-            {{ opt.label }}
-          </option>
-        </select>
-        <select v-model="form.content_mode" class="select">
-          <option value="news">Новости (рерайт RSS)</option>
-          <option value="article">Статьи (AI + веб-поиск)</option>
-        </select>
+    <!-- Добавление канала — скрыто по умолчанию -->
+    <div class="add-channel">
+      <button type="button" class="add-toggle" @click="showNewForm = !showNewForm">
+        <span class="chevron" :class="{ open: showNewForm }">▸</span>
+        <span>＋ Добавить канал</span>
+      </button>
+      <div class="collapse" :class="{ open: showNewForm }">
+        <div class="collapse-inner">
+          <form class="form-card" @submit.prevent="create">
+            <div class="form-grid">
+              <input v-model="form.name" placeholder="Название" class="input" required />
+              <select v-model="form.platform" class="select">
+                <option value="telegram">Telegram</option>
+                <option value="vk">VK</option>
+                <option value="max">MAX</option>
+              </select>
+              <input
+                v-model="form.platform_id"
+                :placeholder="platformIdPlaceholder(form.platform)"
+                class="input"
+                required
+              />
+              <select v-model="form.topic" class="select">
+                <option v-for="opt in TOPIC_OPTIONS" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <select v-model="form.content_mode" class="select">
+                <option value="news">Новости (рерайт RSS)</option>
+                <option value="article">Статьи (AI + веб-поиск)</option>
+              </select>
+            </div>
+            <p v-if="form.content_mode === 'article'" class="field-hint mb-2">
+              Для статей укажите в промпте нишу канала (наука, история, технологии). RSS не нужен.
+            </p>
+            <label class="field-label mt-4">{{ form.content_mode === 'article' ? 'Ниша и стиль канала' : 'Системный промпт рерайта' }}</label>
+            <p class="field-hint mb-1">
+              Полный шаблон с плейсхолдерами: {channel_name}, {topic}, {original_text}, {source_url}.
+              Короткий текст без {original_text} — только описание стиля (дефолтный шаблон платформы).
+            </p>
+            <textarea
+              v-model="form.style_prompt"
+              placeholder="Вставьте полный шаблон рерайта или краткое описание стиля канала"
+              rows="12"
+              class="input w-full mt-1 font-mono text-xs"
+            />
+            <label class="field-label mt-4">Промпт обложек (Qwen-Image)</label>
+            <p class="field-hint mb-1">
+              Обязательно для AI-обложек. Шаблон на английском. Плейсхолдеры:
+              {scene}, {tool_name}, {topic}. Без {title} — кириллица рисуется на картинке.
+              Не пишите «science-pop», «audience», «telegram» — модель выведет их как текст.
+            </p>
+            <textarea
+              v-model="form.image_prompt_guidelines"
+              rows="5"
+              class="input w-full mt-1 font-mono text-xs"
+              placeholder="Landscape editorial illustration, no text on image. Scene: {scene}."
+            />
+            <template v-if="form.platform === 'telegram'">
+              <label class="field-label mt-4">Перелив аудитории (ссылка в конце поста)</label>
+              <p class="field-hint mb-1">
+                Добавляется при публикации в Telegram после основного текста.
+                Например, ссылка на тот же канал в MAX.
+              </p>
+              <input
+                v-model="form.cross_promote_url"
+                placeholder="https://max.ru/your_channel"
+                class="input w-full mt-1 font-mono text-xs"
+              />
+              <input
+                v-model="form.cross_promote_label"
+                placeholder="Подписывайтесь на ПАРАГРАФ в MAX →"
+                class="input w-full mt-2 text-xs"
+              />
+            </template>
+            <button type="submit" class="btn-primary mt-4">Добавить канал</button>
+          </form>
+        </div>
       </div>
-      <p v-if="form.content_mode === 'article'" class="field-hint mb-2">
-        Для статей укажите в промпте нишу канала (наука, история, технологии). RSS не нужен.
-      </p>
-      <label class="field-label mt-4">{{ form.content_mode === 'article' ? 'Ниша и стиль канала' : 'Системный промпт рерайта' }}</label>
-      <p class="field-hint mb-1">
-        Полный шаблон с плейсхолдерами: {channel_name}, {topic}, {original_text}, {source_url}.
-        Короткий текст без {original_text} — только описание стиля (дефолтный шаблон платформы).
-      </p>
-      <textarea
-        v-model="form.style_prompt"
-        placeholder="Вставьте полный шаблон рерайта или краткое описание стиля канала"
-        rows="12"
-        class="input w-full mt-1 font-mono text-xs"
-      />
-      <label class="field-label mt-4">Промпт обложек (Qwen-Image)</label>
-      <p class="field-hint mb-1">
-        Обязательно для AI-обложек. Шаблон на английском. Плейсхолдеры:
-        {scene}, {tool_name}, {topic}. Без {title} — кириллица рисуется на картинке.
-        Не пишите «science-pop», «audience», «telegram» — модель выведет их как текст.
-      </p>
-      <textarea
-        v-model="form.image_prompt_guidelines"
-        rows="5"
-        class="input w-full mt-1 font-mono text-xs"
-        placeholder="Landscape editorial illustration, no text on image. Scene: {scene}."
-      />
-      <template v-if="form.platform === 'telegram'">
-        <label class="field-label mt-4">Перелив аудитории (ссылка в конце поста)</label>
-        <p class="field-hint mb-1">
-          Добавляется при публикации в Telegram после основного текста.
-          Например, ссылка на тот же канал в MAX.
-        </p>
-        <input
-          v-model="form.cross_promote_url"
-          placeholder="https://max.ru/your_channel"
-          class="input w-full mt-1 font-mono text-xs"
-        />
-        <input
-          v-model="form.cross_promote_label"
-          placeholder="Подписывайтесь на ПАРАГРАФ в MAX →"
-          class="input w-full mt-2 text-xs"
-        />
-      </template>
-      <button type="submit" class="btn-primary mt-4">Добавить канал</button>
-    </form>
+    </div>
 
     <div v-if="!channels.length" class="empty-state">Каналы не добавлены</div>
     <div v-else class="channels-list">
-      <article v-for="ch in channels" :key="ch.id" class="channel-card">
-        <div class="channel-header">
+      <article
+        v-for="ch in channels"
+        :key="ch.id"
+        class="channel-card"
+        :class="{ 'is-open': expandedId === ch.id }"
+      >
+        <button type="button" class="channel-header" @click="toggleChannel(ch.id)">
           <div class="channel-header-main">
-            <h3 class="channel-card-title">Канал #{{ ch.id }}</h3>
-            <label class="active-toggle">
+            <span class="chevron" :class="{ open: expandedId === ch.id }">▸</span>
+            <span class="channel-card-title">{{ editForms[ch.id].name || ('Канал #' + ch.id) }}</span>
+            <span
+              v-if="isDirty(ch.id)"
+              class="dirty-dot"
+              title="Есть несохранённые изменения"
+            >●</span>
+          </div>
+          <div class="channel-badges">
+            <span class="badge-info">{{ platformLabel(editForms[ch.id].platform) }}</span>
+            <span class="badge-purple">{{ topicLabelFn(editForms[ch.id].topic) }}</span>
+            <span v-if="editForms[ch.id].content_mode === 'article'" class="badge-accent">Статьи</span>
+            <span class="status-pill" :class="editForms[ch.id].is_active ? 'on' : 'off'">
+              {{ editForms[ch.id].is_active ? 'Активен' : 'Отключён' }}
+            </span>
+          </div>
+        </button>
+
+        <div class="collapse" :class="{ open: expandedId === ch.id }">
+          <div class="collapse-inner channel-body">
+            <label class="active-toggle mb-4">
               <input
                 v-model="editForms[ch.id].is_active"
                 type="checkbox"
                 class="active-checkbox"
               />
-              <span>{{ editForms[ch.id].is_active ? 'Активен' : 'Отключён' }}</span>
+              <span>{{ editForms[ch.id].is_active ? 'Канал активен' : 'Канал отключён' }}</span>
             </label>
-          </div>
-          <div class="channel-badges">
-            <span class="badge-info">{{ editForms[ch.id].platform }}</span>
-            <span class="badge-purple">{{ topicLabelFn(editForms[ch.id].topic) }}</span>
-            <span v-if="editForms[ch.id].content_mode === 'article'" class="badge-accent">Статьи</span>
-          </div>
-        </div>
 
-        <div class="form-grid channel-fields">
-          <div>
-            <label class="field-label">Название</label>
-            <input v-model="editForms[ch.id].name" class="input w-full mt-1" required />
-          </div>
-          <div>
-            <label class="field-label">Платформа</label>
-            <select v-model="editForms[ch.id].platform" class="select w-full mt-1">
-              <option value="telegram">Telegram</option>
-              <option value="vk">VK</option>
-              <option value="max">MAX</option>
-            </select>
-          </div>
-          <div class="md:col-span-2">
-            <label class="field-label">ID канала</label>
-            <input
-              v-model="editForms[ch.id].platform_id"
-              class="input w-full mt-1 font-mono"
-              :placeholder="platformIdPlaceholder(editForms[ch.id].platform)"
-              required
-            />
-            <p class="field-hint mt-1">
-              {{ platformIdHint(editForms[ch.id].platform) }}
-            </p>
-          </div>
-          <div>
-            <label class="field-label">Тематика</label>
-            <select v-model="editForms[ch.id].topic" class="select w-full mt-1">
-              <option v-for="opt in TOPIC_OPTIONS" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-          <div>
-            <label class="field-label">Режим контента</label>
-            <select v-model="editForms[ch.id].content_mode" class="select w-full mt-1">
-              <option value="news">Новости</option>
-              <option value="article">Статьи</option>
-            </select>
-          </div>
-        </div>
-
-        <label class="field-label mt-5">
-          {{ editForms[ch.id].content_mode === 'article' ? 'Ниша и стиль канала' : 'Промпт рерайта' }}
-        </label>
-        <textarea
-          v-model="editForms[ch.id].style_prompt"
-          rows="12"
-          class="input w-full text-xs font-mono mt-1"
-        />
-
-        <label class="field-label mt-5">Промпт обложек (Qwen-Image)</label>
-        <p class="field-hint mb-1">
-          Обязательно для AI-обложек. Шаблон на английском. Плейсхолдеры:
-          {scene}, {tool_name}, {topic}. Без {title} — кириллица рисуется на картинке.
-          Не пишите «science-pop», «audience», «telegram» — модель выведет их как текст.
-        </p>
-        <textarea
-          v-model="editForms[ch.id].image_prompt_guidelines"
-          rows="6"
-          class="input w-full text-xs font-mono mt-1"
-          placeholder="Landscape editorial illustration, no text on image. Scene: {scene}."
-        />
-
-        <template v-if="editForms[ch.id].platform === 'telegram'">
-          <label class="field-label mt-5">Перелив аудитории (ссылка в конце поста)</label>
-          <p class="field-hint mb-1">
-            Добавляется при публикации в Telegram. Укажите ссылку на канал в MAX
-            и текст кнопки-ссылки.
-          </p>
-          <input
-            v-model="editForms[ch.id].cross_promote_url"
-            placeholder="https://max.ru/your_channel"
-            class="input w-full mt-1 font-mono text-xs"
-          />
-          <input
-            v-model="editForms[ch.id].cross_promote_label"
-            placeholder="Подписывайтесь на ПАРАГРАФ в MAX →"
-            class="input w-full mt-2 text-xs"
-          />
-          <input
-            v-model="editForms[ch.id].cross_promote_emoji_id"
-            placeholder="ID анимированного эмодзи (custom_emoji_id)"
-            class="input w-full mt-2 font-mono text-xs"
-          />
-          <p class="field-hint mt-1">
-            Эмодзи MAX: перешлите сообщение с этим эмодзи боту @RawDataBot —
-            скопируйте custom_emoji_id. В каналах работает только если у бота
-            куплен username на Fragment или есть Telegram Premium у владельца.
-          </p>
-        </template>
-
-        <div
-          v-if="editForms[ch.id].content_mode === 'article'"
-          class="article-schedule mt-5 pt-4 border-t border-panel-border"
-        >
-          <h4 class="schedule-title">Расписание генерации статей</h4>
-          <label class="field-mini w-full">
-            <span>Времена выхода по МСК</span>
-            <input
-              v-model="editForms[ch.id].publish_times"
-              type="text"
-              inputmode="numeric"
-              placeholder="09:00, 18:00"
-              class="input input-sm"
-            />
-          </label>
-          <p class="field-hint mt-1 mb-3">
-            Посты выходят точно в эти времена по Москве (через запятую). Если поле
-            заполнено — окно и интервал ниже игнорируются. Автозапуск включается в
-            «Настройки» → «Автогенерация статей».
-          </p>
-
-          <details class="schedule-fallback">
-            <summary>Запасной режим: окно + интервал (UTC)</summary>
-            <p class="field-hint mt-2 mb-2">
-              Используется, только если «Времена выхода» выше пусты. Время — в UTC.
-            </p>
-            <div class="schedule-fields">
-              <label class="field-mini">
-                <span>Интервал (мин)</span>
+            <div class="form-grid channel-fields">
+              <div>
+                <label class="field-label">Название</label>
+                <input v-model="editForms[ch.id].name" class="input w-full mt-1" required />
+              </div>
+              <div>
+                <label class="field-label">Платформа</label>
+                <select v-model="editForms[ch.id].platform" class="select w-full mt-1">
+                  <option value="telegram">Telegram</option>
+                  <option value="vk">VK</option>
+                  <option value="max">MAX</option>
+                </select>
+              </div>
+              <div class="md:col-span-2">
+                <label class="field-label">ID канала</label>
                 <input
-                  v-model.number="editForms[ch.id].publish_interval_minutes"
-                  type="number"
-                  min="1"
-                  max="1440"
-                  class="input input-sm"
+                  v-model="editForms[ch.id].platform_id"
+                  class="input w-full mt-1 font-mono"
+                  :placeholder="platformIdPlaceholder(editForms[ch.id].platform)"
+                  required
                 />
-              </label>
-              <label class="field-mini">
-                <span>Окно с (UTC)</span>
-                <input
-                  v-model="editForms[ch.id].publish_window_start"
-                  type="time"
-                  class="input input-sm"
-                />
-              </label>
-              <label class="field-mini">
-                <span>Окно до (UTC)</span>
-                <input
-                  v-model="editForms[ch.id].publish_window_end"
-                  type="time"
-                  class="input input-sm"
-                />
-              </label>
+                <p class="field-hint mt-1">
+                  {{ platformIdHint(editForms[ch.id].platform) }}
+                </p>
+              </div>
+              <div>
+                <label class="field-label">Тематика</label>
+                <select v-model="editForms[ch.id].topic" class="select w-full mt-1">
+                  <option v-for="opt in TOPIC_OPTIONS" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">Режим контента</label>
+                <select v-model="editForms[ch.id].content_mode" class="select w-full mt-1">
+                  <option value="news">Новости</option>
+                  <option value="article">Статьи</option>
+                </select>
+              </div>
             </div>
-          </details>
-        </div>
 
-        <div class="channel-actions">
-          <button
-            v-if="editForms[ch.id].content_mode === 'article'"
-            type="button"
-            class="btn-secondary btn-sm"
-            :disabled="generatingChannel === ch.id"
-            @click="generateArticle(ch.id)"
-          >
-            {{ generatingChannel === ch.id ? 'Запуск…' : 'Сгенерировать статью' }}
-          </button>
-          <button type="button" class="btn-primary btn-sm" @click="saveChannel(ch.id)">
-            Сохранить изменения
-          </button>
-          <button type="button" class="btn-danger btn-sm" @click="removeChannel(ch)">
-            Удалить канал
-          </button>
+            <label class="field-label mt-5">
+              {{ editForms[ch.id].content_mode === 'article' ? 'Ниша и стиль канала' : 'Промпт рерайта' }}
+            </label>
+            <textarea
+              v-model="editForms[ch.id].style_prompt"
+              rows="12"
+              class="input w-full text-xs font-mono mt-1"
+            />
+
+            <label class="field-label mt-5">Промпт обложек (Qwen-Image)</label>
+            <p class="field-hint mb-1">
+              Обязательно для AI-обложек. Шаблон на английском. Плейсхолдеры:
+              {scene}, {tool_name}, {topic}. Без {title} — кириллица рисуется на картинке.
+              Не пишите «science-pop», «audience», «telegram» — модель выведет их как текст.
+            </p>
+            <textarea
+              v-model="editForms[ch.id].image_prompt_guidelines"
+              rows="6"
+              class="input w-full text-xs font-mono mt-1"
+              placeholder="Landscape editorial illustration, no text on image. Scene: {scene}."
+            />
+
+            <template v-if="editForms[ch.id].platform === 'telegram'">
+              <label class="field-label mt-5">Перелив аудитории (ссылка в конце поста)</label>
+              <p class="field-hint mb-1">
+                Добавляется при публикации в Telegram. Укажите ссылку на канал в MAX
+                и текст кнопки-ссылки.
+              </p>
+              <input
+                v-model="editForms[ch.id].cross_promote_url"
+                placeholder="https://max.ru/your_channel"
+                class="input w-full mt-1 font-mono text-xs"
+              />
+              <input
+                v-model="editForms[ch.id].cross_promote_label"
+                placeholder="Подписывайтесь на ПАРАГРАФ в MAX →"
+                class="input w-full mt-2 text-xs"
+              />
+              <input
+                v-model="editForms[ch.id].cross_promote_emoji_id"
+                placeholder="ID анимированного эмодзи (custom_emoji_id)"
+                class="input w-full mt-2 font-mono text-xs"
+              />
+              <p class="field-hint mt-1">
+                Эмодзи MAX: перешлите сообщение с этим эмодзи боту @RawDataBot —
+                скопируйте custom_emoji_id. В каналах работает только если у бота
+                куплен username на Fragment или есть Telegram Premium у владельца.
+              </p>
+            </template>
+
+            <div
+              v-if="editForms[ch.id].content_mode === 'article'"
+              class="article-schedule mt-5 pt-4 border-t border-panel-border"
+            >
+              <h4 class="schedule-title">Расписание генерации статей</h4>
+              <label class="field-mini w-full">
+                <span>Времена выхода по МСК</span>
+                <input
+                  v-model="editForms[ch.id].publish_times"
+                  type="text"
+                  inputmode="numeric"
+                  placeholder="09:00, 18:00"
+                  class="input input-sm"
+                />
+              </label>
+              <p class="field-hint mt-1 mb-3">
+                Посты выходят точно в эти времена по Москве (через запятую). Если поле
+                заполнено — окно и интервал ниже игнорируются. Автозапуск включается в
+                «Настройки» → «Автогенерация статей».
+              </p>
+
+              <details class="schedule-fallback">
+                <summary>Запасной режим: окно + интервал (UTC)</summary>
+                <p class="field-hint mt-2 mb-2">
+                  Используется, только если «Времена выхода» выше пусты. Время — в UTC.
+                </p>
+                <div class="schedule-fields">
+                  <label class="field-mini">
+                    <span>Интервал (мин)</span>
+                    <input
+                      v-model.number="editForms[ch.id].publish_interval_minutes"
+                      type="number"
+                      min="1"
+                      max="1440"
+                      class="input input-sm"
+                    />
+                  </label>
+                  <label class="field-mini">
+                    <span>Окно с (UTC)</span>
+                    <input
+                      v-model="editForms[ch.id].publish_window_start"
+                      type="time"
+                      class="input input-sm"
+                    />
+                  </label>
+                  <label class="field-mini">
+                    <span>Окно до (UTC)</span>
+                    <input
+                      v-model="editForms[ch.id].publish_window_end"
+                      type="time"
+                      class="input input-sm"
+                    />
+                  </label>
+                </div>
+              </details>
+            </div>
+
+            <div class="channel-actions">
+              <button
+                v-if="editForms[ch.id].content_mode === 'article'"
+                type="button"
+                class="btn-secondary btn-sm"
+                :disabled="generatingChannel === ch.id"
+                @click="generateArticle(ch.id)"
+              >
+                {{ generatingChannel === ch.id ? 'Запуск…' : 'Сгенерировать статью' }}
+              </button>
+              <button type="button" class="btn-primary btn-sm" @click="saveChannel(ch.id)">
+                Сохранить изменения
+              </button>
+              <button type="button" class="btn-danger btn-sm" @click="removeChannel(ch)">
+                Удалить канал
+              </button>
+            </div>
+          </div>
         </div>
       </article>
     </div>
@@ -282,7 +311,10 @@ const activityStore = useActivityStore()
 
 const channels = ref([])
 const editForms = reactive({})
+const originalForms = reactive({})
 const generatingChannel = ref(null)
+const expandedId = ref(null)
+const showNewForm = ref(false)
 const form = ref({
   name: '',
   platform: 'telegram',
@@ -290,11 +322,16 @@ const form = ref({
   topic: 'it',
   content_mode: 'news',
   style_prompt: '',
-    image_prompt_guidelines: '',
-    cross_promote_url: '',
-    cross_promote_label: '',
-    cross_promote_emoji_id: '',
+  image_prompt_guidelines: '',
+  cross_promote_url: '',
+  cross_promote_label: '',
+  cross_promote_emoji_id: '',
 })
+
+const PLATFORM_LABELS = { telegram: 'Telegram', vk: 'VK', max: 'MAX' }
+function platformLabel(p) {
+  return PLATFORM_LABELS[p] || p
+}
 
 function platformIdPlaceholder(platform) {
   if (platform === 'max') return '123456789 или my_channel'
@@ -342,12 +379,50 @@ function buildEditForm(ch) {
   }
 }
 
+function isDirty(id) {
+  if (!editForms[id] || !originalForms[id]) return false
+  return JSON.stringify(editForms[id]) !== JSON.stringify(originalForms[id])
+}
+
 async function load() {
   const { data } = await channelsApi.list()
   channels.value = data
   data.forEach((ch) => {
-    editForms[ch.id] = buildEditForm(ch)
+    const built = buildEditForm(ch)
+    editForms[ch.id] = built
+    originalForms[ch.id] = JSON.parse(JSON.stringify(built))
   })
+}
+
+/**
+ * Проверяет несохранённые изменения перед сворачиванием канала.
+ * @returns {Promise<boolean>} можно ли покидать (свернуть) канал
+ */
+async function guardBeforeLeave(id) {
+  if (!isDirty(id)) return true
+  const choice = await dialog.unsavedChanges({
+    title: 'Несохранённые изменения канала',
+    message: `Вы изменили настройки канала «${editForms[id]?.name || '#' + id}», но не сохранили их. Что сделать?`,
+  })
+  if (choice === 'stay') return false
+  if (choice === 'save') {
+    return await saveChannel(id)
+  }
+  // discard — возвращаем исходные значения
+  editForms[id] = JSON.parse(JSON.stringify(originalForms[id]))
+  return true
+}
+
+async function toggleChannel(id) {
+  if (expandedId.value === id) {
+    if (await guardBeforeLeave(id)) expandedId.value = null
+    return
+  }
+  const current = expandedId.value
+  if (current != null && current !== id) {
+    if (!(await guardBeforeLeave(current))) return
+  }
+  expandedId.value = id
 }
 
 async function create() {
@@ -364,9 +439,13 @@ async function create() {
     cross_promote_label: '',
     cross_promote_emoji_id: '',
   }
+  showNewForm.value = false
   await load()
 }
 
+/**
+ * @returns {Promise<boolean>} успешно ли сохранено
+ */
 async function saveChannel(id) {
   const payload = editForms[id]
   if (!payload?.name?.trim() || !payload?.platform_id?.trim()) {
@@ -374,31 +453,36 @@ async function saveChannel(id) {
       title: 'Каналы',
       message: 'Заполните название и ID канала.',
     })
-    return
+    return false
   }
-  await channelsApi.update(id, {
-    name: payload.name.trim(),
-    platform: payload.platform,
-    platform_id: payload.platform_id.trim(),
-    topic: payload.topic,
-    content_mode: payload.content_mode,
-    is_active: payload.is_active,
-    style_prompt: payload.style_prompt,
-    image_prompt_guidelines: payload.image_prompt_guidelines,
-    cross_promote_url: payload.cross_promote_url?.trim() || null,
-    cross_promote_label: payload.cross_promote_label?.trim() || null,
-    cross_promote_emoji_id: payload.cross_promote_emoji_id?.trim() || null,
-    ...(payload.content_mode === 'article'
-      ? {
-          publish_interval_minutes: payload.publish_interval_minutes,
-          publish_window_start: timeInputToApi(payload.publish_window_start),
-          publish_window_end: timeInputToApi(payload.publish_window_end),
-          publish_times: payload.publish_times?.trim() || null,
-        }
-      : {}),
-  })
-  await dialog.alert({ title: 'Каналы', message: 'Изменения сохранены' })
+  try {
+    await channelsApi.update(id, {
+      name: payload.name.trim(),
+      platform: payload.platform,
+      platform_id: payload.platform_id.trim(),
+      topic: payload.topic,
+      content_mode: payload.content_mode,
+      is_active: payload.is_active,
+      style_prompt: payload.style_prompt,
+      image_prompt_guidelines: payload.image_prompt_guidelines,
+      cross_promote_url: payload.cross_promote_url?.trim() || null,
+      cross_promote_label: payload.cross_promote_label?.trim() || null,
+      cross_promote_emoji_id: payload.cross_promote_emoji_id?.trim() || null,
+      ...(payload.content_mode === 'article'
+        ? {
+            publish_interval_minutes: payload.publish_interval_minutes,
+            publish_window_start: timeInputToApi(payload.publish_window_start),
+            publish_window_end: timeInputToApi(payload.publish_window_end),
+            publish_times: payload.publish_times?.trim() || null,
+          }
+        : {}),
+    })
+  } catch (e) {
+    await dialog.alertApiError(e, 'Не удалось сохранить канал')
+    return false
+  }
   await load()
+  return true
 }
 
 async function generateArticle(id) {
@@ -430,7 +514,9 @@ async function removeChannel(ch) {
   if (!ok) return
   try {
     await channelsApi.remove(ch.id)
+    if (expandedId.value === ch.id) expandedId.value = null
     delete editForms[ch.id]
+    delete originalForms[ch.id]
     await load()
   } catch (e) {
     await dialog.alertApiError(e, 'Не удалось удалить канал')
@@ -442,11 +528,7 @@ onMounted(load)
 
 <style scoped>
 .form-card {
-  @apply panel-card p-5 mb-6;
-}
-
-.form-card-title {
-  @apply text-sm font-semibold text-[var(--text-primary)] mb-4;
+  @apply panel-card p-5;
 }
 
 .form-grid {
@@ -457,32 +539,91 @@ onMounted(load)
   @apply block text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)];
 }
 
-.channels-list {
-  @apply flex flex-col gap-4;
-}
-
 .field-hint {
   @apply text-xs text-[var(--text-secondary)];
 }
 
+/* Добавление канала */
+.add-channel {
+  @apply mb-6;
+}
+
+.add-toggle {
+  @apply flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]
+         panel-card w-full p-4 hover:bg-panel-hover transition-colors;
+}
+
+/* Аккордеон каналов */
+.channels-list {
+  @apply flex flex-col gap-3;
+}
+
 .channel-card {
-  @apply panel-card p-5;
+  @apply panel-card overflow-hidden transition-colors;
+}
+
+.channel-card.is-open {
+  @apply ring-1 ring-accent;
 }
 
 .channel-header {
-  @apply flex flex-wrap items-start justify-between gap-3 mb-4 pb-4 border-b border-panel-border;
+  @apply flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left
+         cursor-pointer hover:bg-panel-hover transition-colors;
 }
 
 .channel-header-main {
-  @apply flex flex-wrap items-center gap-4;
+  @apply flex items-center gap-3 min-w-0;
 }
 
 .channel-card-title {
-  @apply text-sm font-semibold text-[var(--text-primary)];
+  @apply text-sm font-semibold text-[var(--text-primary)] truncate;
 }
 
 .channel-badges {
-  @apply flex gap-2;
+  @apply flex flex-wrap items-center gap-2;
+}
+
+.chevron {
+  @apply inline-block text-[var(--text-secondary)] text-xs transition-transform duration-200;
+}
+
+.chevron.open {
+  @apply rotate-90;
+}
+
+.dirty-dot {
+  @apply text-amber-400 text-xs leading-none;
+}
+
+.status-pill {
+  @apply text-[10px] px-2 py-0.5 rounded-full;
+}
+
+.status-pill.on {
+  @apply bg-emerald-500/15 text-emerald-400;
+}
+
+.status-pill.off {
+  @apply bg-panel-hover text-[var(--text-secondary)];
+}
+
+/* Плавное раскрытие (grid-rows 0fr → 1fr) */
+.collapse {
+  @apply grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s ease;
+}
+
+.collapse.open {
+  grid-template-rows: 1fr;
+}
+
+.collapse-inner {
+  @apply overflow-hidden min-h-0;
+}
+
+.channel-body {
+  @apply px-4 pb-5 pt-1 border-t border-panel-border;
 }
 
 .channel-fields {
