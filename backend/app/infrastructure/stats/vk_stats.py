@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.infrastructure.models.channel import Channel
+from app.utils.vk_credentials import resolve_vk_token
 from app.infrastructure.stats.base import (
     BaseStatsCollector,
     ChannelStatsDTO,
@@ -136,8 +137,9 @@ class VkStatsCollector(BaseStatsCollector):
             ChannelStatsDTO: метрики.
         """
         settings = get_settings()
-        if not settings.vk_access_token:
-            logger.warning("VK_ACCESS_TOKEN not configured for analytics")
+        token = await resolve_vk_token()
+        if not token:
+            logger.warning("VK access token not configured for analytics")
             return ChannelStatsDTO()
 
         owner_id = channel.platform_id.strip()
@@ -145,11 +147,11 @@ class VkStatsCollector(BaseStatsCollector):
 
         async with aiohttp.ClientSession() as session:
             subscribers = await self._fetch_subscribers(
-                session, settings.vk_access_token, settings.vk_api_version, group_id, owner_id
+                session, token, settings.vk_api_version, group_id, owner_id
             )
             post_metrics = await self._fetch_post_metrics(
                 session,
-                settings.vk_access_token,
+                token,
                 settings.vk_api_version,
                 owner_id,
                 known_post_ids or [],
