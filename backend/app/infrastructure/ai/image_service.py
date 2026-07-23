@@ -10,6 +10,7 @@ from PIL import Image
 from app.core.config import get_settings
 from app.domain.enums import ImageSource
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
+from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.ai.image_prompt_builder import (
     ImagePromptBuilder,
     QWEN_LOGO_EDIT_NEGATIVE,
@@ -235,7 +236,10 @@ class ImageService:
         generated = None
         if final_prompt:
             logger.debug("Article image prompt built", preview=final_prompt[:200])
-            generated = await self._generate_with_qwen_constraints(final_prompt)
+            if is_paragraph_article_channel(channel.name):
+                generated = await self._generate_with_dalle_primary(final_prompt)
+            else:
+                generated = await self._generate_with_qwen_constraints(final_prompt)
         else:
             logger.warning(
                 "Article cover skipped: image_prompt_guidelines is empty",
@@ -315,6 +319,25 @@ class ImageService:
             except Exception as exc:
                 logger.warning("Qwen Image generation failed", error=str(exc))
         return await self._generate_dalle(prompt)
+
+    async def _generate_with_dalle_primary(self, prompt: str | None) -> str | None:
+        """Генерирует изображение: DALL-E 3 → fallback Qwen.
+
+        Используется для образовательных каналов (ПАРАГРАФ), где DALL-E 3
+        значительно лучше справляется с детальными научными иллюстрациями.
+
+        Args:
+            prompt: финальный промпт.
+
+        Returns:
+            str | None: URL изображения.
+        """
+        if not prompt:
+            return None
+        result = await self._generate_dalle(prompt)
+        if result:
+            return result
+        return await self._generate_with_qwen_constraints(prompt)
 
     async def _generate_with_qwen_constraints(self, prompt: str | None) -> str | None:
         """Генерирует изображение через Qwen без текста на картинке.

@@ -57,6 +57,14 @@ _WRITER_IMAGE_FIELD_HINT = (
     "текстом на картинке."
 )
 
+_PARAGRAPH_WRITER_HINT = (
+    "Поле image_prompt: 3–4 предложения на английском — детальное описание "
+    "образовательной иллюстрации с реальными объектами из статьи. "
+    "Укажи конкретные предметы, научные элементы, материалы, текстуры, ракурс, "
+    "освещение и цветовую палитру. Стиль: photorealistic или high-quality 3D render. "
+    "Запрещено: люди, лица, текст/буквы/цифры на картинке, интерфейсы, экраны."
+)
+
 # Промпт стилизации НАЙДЕННОГО логотипа репозитория (Qwen Image Edit).
 # ВАЖНО: только УТВЕРДИТЕЛЬНЫЕ формулировки. Отрицания («no circuit boards»)
 # давать НЕЛЬЗЯ — Qwen игнорирует «no» и рисует упомянутый объект (микросхемы,
@@ -77,7 +85,8 @@ class ImagePromptBuilder:
     @staticmethod
     def writer_image_guidelines(channel: Channel) -> str:
         """Краткая инструкция для поля image_prompt в ArticleWriter."""
-        _ = channel
+        if "параграф" in (channel.name or "").lower():
+            return _PARAGRAPH_WRITER_HINT
         return _WRITER_IMAGE_FIELD_HINT
 
     @staticmethod
