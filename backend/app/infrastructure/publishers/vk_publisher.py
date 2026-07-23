@@ -25,10 +25,23 @@ def build_vk_message(post: ProcessedPost, limit: int = _VK_MESSAGE_LIMIT) -> str
         limit: максимум символов.
 
     Returns:
-        str: текст без HTML, обрезанный до лимита.
+        str: текст без HTML, обрезанный до лимита по границе предложения.
     """
     raw = post.article_body if post.article_body else post.rewritten_text
-    return strip_html_tags(raw or "")[:limit]
+    text = strip_html_tags(raw or "")
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit]
+    boundary = max(
+        truncated.rfind(". "),
+        truncated.rfind(".\n"),
+        truncated.rfind("! "),
+        truncated.rfind("? "),
+        truncated.rfind("?\n"),
+    )
+    if boundary > limit // 2:
+        return truncated[:boundary + 1] + "…"
+    return truncated.rstrip() + "…"
 
 
 class VkPublisher(BasePublisher):
