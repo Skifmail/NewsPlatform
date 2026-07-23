@@ -1,132 +1,113 @@
-"""VK OAuth — Authorization Code + PKCE для Web-приложения (id.vk.ru)."""
+"""VK OAuth — получение user token через классический implicit flow."""
 
-import base64
-import hashlib
-import secrets
 import urllib.parse
 
-import httpx
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
-from app.core.config import get_settings
 from app.infrastructure.database import async_session_factory
 from app.repositories.setting_repository import SettingRepository
 
 router = APIRouter(prefix="/vk/oauth", tags=["vk-oauth"])
 
-_SCOPE = "photos wall groups offline"
-_CALLBACK_URL = "https://news-platform.online/api/vk/oauth/callback"
-_VK_AUTH_URL = "https://oauth.vk.ru/authorize"
-_VK_TOKEN_URL = "https://oauth.vk.ru/access_token"
-_VERIFIER_PREFIX = "vk_oauth_verifier_"
-
-
-def _make_verifier() -> str:
-    return secrets.token_urlsafe(64)
-
-
-def _make_challenge(verifier: str) -> str:
-    digest = hashlib.sha256(verifier.encode()).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+# oauth.vk.com/blank.html — стандартный redirect для Standalone-приложений.
+# Используем client_id официального VK Android (2274003) — поддерживает
+# классический implicit flow с полными API-скоупами.
+_AUTH_URL = (
+    "https://oauth.vk.com/authorize"
+    "?client_id=2274003"
+    "&redirect_uri=https%3A%2F%2Foauth.vk.com%2Fblank.html"
+    "&scope=photos%2Cwall%2Cgroups%2Coffline"
+    "&response_type=token"
+    "&display=mobile"
+    "&revoke=1"
+)
 
 
 @router.get("/start")
-async def vk_oauth_start() -> RedirectResponse:
-    settings = get_settings()
-    verifier = _make_verifier()
-    challenge = _make_challenge(verifier)
-    state = secrets.token_urlsafe(16)
+async def vk_oauth_start() -> HTMLResponse:
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>VK User Token</title>
+  <style>
+    body{{font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 16px}}
+    h2{{color:#222}}
+    .btn{{background:#2787f5;color:#fff;padding:12px 24px;border:none;border-radius:6px;
+          font-size:15px;cursor:pointer;text-decoration:none;display:inline-block}}
+    .btn:hover{{background:#1a6fc4}}
+    .btn-green{{background:#4caf50}}.btn-green:hover{{background:#388e3c}}
+    .step{{background:#f5f5f5;border-radius:8px;padding:16px;margin:16px 0}}
+    textarea{{width:100%;height:64px;font-family:monospace;font-size:12px;
+              box-sizing:border-box;padding:8px;margin:8px 0;border:1px solid #ccc;border-radius:4px}}
+    code{{background:#e0e0e0;padding:2px 5px;border-radius:3px;font-size:12px;word-break:break-all}}
+    #result{{margin-top:10px;font-weight:bold}}
+  </style>
+</head>
+<body>
+  <h2>Получение VK User Token</h2>
 
-    async with async_session_factory() as db:
-        repo = SettingRepository(db)
-        await repo.set(_VERIFIER_PREFIX + state, verifier)
-        await db.commit()
+  <div class="step">
+    <b>Шаг 1.</b> Нажмите кнопку и войдите в ВКонтакте:<br><br>
+    <a class="btn" href="{_AUTH_URL}" target="_blank">Авторизоваться в VK →</a>
+  </div>
 
-    params = urllib.parse.urlencode({
-        "client_id": settings.vk_app_client_id,
-        "redirect_uri": _CALLBACK_URL,
-        "scope": _SCOPE,
-        "response_type": "code",
-        "state": state,
-        "code_challenge": challenge,
-        "code_challenge_method": "s256",
-    })
-    return RedirectResponse(f"{_VK_AUTH_URL}?{params}")
+  <div class="step">
+    <b>Шаг 2.</b> После нажатия «Разрешить» VK откроет пустую страницу.<br>
+    Скопируйте <b>весь</b> адрес из строки браузера — он выглядит так:<br><br>
+    <code>https://oauth.vk.com/blank.html#access_token=<b>ВОТ_ЭТО_НУЖНО</b>&amp;expires_in=0&amp;user_id=...</code><br><br>
+    Скопируйте только значение после <code>access_token=</code> и до <code>&amp;</code>.
+  </div>
+
+  <div class="step">
+    <b>Шаг 3.</b> Вставьте токен и нажмите «Сохранить»:<br>
+    <textarea id="t" placeholder="Вставьте access_token (начинается с vk1.a. или длинная строка)..."></textarea>
+    <button class="btn btn-green" onclick="save()">Сохранить токен</button>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    async function save() {{
+      const raw = document.getElementById('t').value.trim();
+      // Если вставили весь URL — извлечём токен автоматически
+      let token = raw;
+      const m = raw.match(/[?#&]access_token=([^&]+)/);
+      if (m) token = m[1];
+      if (!token) {{
+        document.getElementById('result').innerHTML = '<span style="color:red">Токен пустой</span>';
+        return;
+      }}
+      const r = await fetch('/api/vk/oauth/save', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{token}})
+      }});
+      document.getElementById('result').innerHTML = await r.text();
+    }}
+  </script>
+</body>
+</html>""")
 
 
-@router.get("/callback")
-async def vk_oauth_callback(
-    code: str | None = None,
-    state: str | None = None,
-    error: str | None = None,
-    error_description: str | None = None,
-) -> HTMLResponse:
-    if error:
-        return HTMLResponse(
-            f"<h2>Ошибка VK OAuth</h2><p>{error}: {error_description}</p>"
-            f"<p><a href='/api/vk/oauth/start'>Попробовать снова</a></p>",
-            status_code=400,
-        )
-    if not code or not state:
-        return HTMLResponse(
-            "<h2>Ошибка: нет code или state в ответе VK</h2>"
-            "<p><a href='/api/vk/oauth/start'>Попробовать снова</a></p>",
-            status_code=400,
-        )
+class _TokenBody(BaseModel):
+    token: str
 
-    async with async_session_factory() as db:
-        repo = SettingRepository(db)
-        verifier_key = _VERIFIER_PREFIX + state
-        verifier = await repo.get(verifier_key, "")
-        if verifier:
-            await repo.set(verifier_key, "")
-        await db.commit()
 
-    if not verifier:
-        return HTMLResponse(
-            "<h2>Сессия OAuth истекла или state неверный</h2>"
-            "<p><a href='/api/vk/oauth/start'>Начать снова</a></p>",
-            status_code=400,
-        )
-
-    settings = get_settings()
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            _VK_TOKEN_URL,
-            data={
-                "grant_type": "authorization_code",
-                "client_id": settings.vk_app_client_id,
-                "client_secret": settings.vk_app_client_secret,
-                "code": code,
-                "code_verifier": verifier,
-                "redirect_uri": _CALLBACK_URL,
-            },
-        )
-
-    data = resp.json()
-    token = data.get("access_token")
-
+@router.post("/save")
+async def vk_oauth_save(body: _TokenBody) -> HTMLResponse:
+    token = body.token.strip()
     if not token:
-        err = data.get("error_description") or data.get("error") or str(data)
         return HTMLResponse(
-            f"<h2>Не удалось получить токен</h2><p>{err}</p>"
-            f"<p>Ответ VK: <code>{data}</code></p>"
-            f"<p><a href='/api/vk/oauth/start'>Попробовать снова</a></p>",
+            "<span style='color:red'>Токен не может быть пустым</span>",
             status_code=400,
         )
-
     async with async_session_factory() as db:
         repo = SettingRepository(db)
         await repo.set("vk_user_token", token)
         await db.commit()
-
-    user_id = data.get("user_id", "")
     return HTMLResponse(
-        "<!DOCTYPE html><html><body style='font-family:sans-serif;"
-        "max-width:500px;margin:60px auto;text-align:center'>"
-        "<h2 style='color:green'>&#10003; VK user token сохранён!</h2>"
-        + (f"<p>VK User ID: {user_id}</p>" if user_id else "")
-        + "<p>Следующие публикации в VK будут содержать фото.</p>"
-        "</body></html>"
+        "<span style='color:green;font-size:16px'>&#10003; Токен сохранён! "
+        "Следующие публикации в VK будут содержать фото.</span>"
     )
