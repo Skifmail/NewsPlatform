@@ -31,6 +31,7 @@ class Channel(Base):
     # Конкретные времена выхода статей по МСК ("09:00,18:00"). Если задано —
     # у article-канала имеет приоритет над окном+интервалом.
     publish_times: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    post_footer: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

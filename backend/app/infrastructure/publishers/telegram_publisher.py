@@ -25,6 +25,7 @@ from app.utils.text_format import (
     TELEGRAM_MESSAGE_MAX,
     TELEGRAM_USER_CAPTION_MAX,
     append_cross_promote_footer,
+    append_post_footer,
     build_article_read_more_html,
     build_article_telegram_text,
     cross_promote_footer_length,
@@ -73,7 +74,8 @@ class TelegramPublisher(BasePublisher):
             channel.cross_promote_url,
             channel.cross_promote_label,
             promote_emoji_id=channel.cross_promote_emoji_id,
-        )[:TELEGRAM_MESSAGE_MAX]
+        )
+        text = append_post_footer(text, channel.post_footer)[:TELEGRAM_MESSAGE_MAX]
 
         try:
             message_id = await self._send_content(
@@ -158,6 +160,7 @@ class TelegramPublisher(BasePublisher):
             channel.cross_promote_label,
             promote_emoji_id=channel.cross_promote_emoji_id,
         )
+        text = append_post_footer(text, channel.post_footer)
 
         settings = get_settings()
         bot = Bot(token=settings.telegram_bot_token)
@@ -228,6 +231,7 @@ class TelegramPublisher(BasePublisher):
             channel.cross_promote_label,
             promote_emoji_id=channel.cross_promote_emoji_id,
         )
+        caption = append_post_footer(caption, channel.post_footer)
 
         settings = get_settings()
         bot = Bot(token=settings.telegram_bot_token)

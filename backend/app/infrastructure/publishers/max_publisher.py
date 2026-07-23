@@ -21,6 +21,7 @@ from app.utils.max_api import get_max_api_base, max_client_session
 from app.utils.telegram_channels import is_long_form_article_channel
 from app.utils.text_format import (
     MAX_MESSAGE_MAX,
+    append_post_footer,
     build_article_read_more_html,
     build_article_telegram_text,
     to_max_api_html,
@@ -59,7 +60,7 @@ class MaxPublisher(BasePublisher):
             msg = "MAX_BOT_TOKEN not configured"
             raise RuntimeError(msg)
 
-        text = to_max_api_html(post.rewritten_text)
+        text = append_post_footer(to_max_api_html(post.rewritten_text), channel.post_footer)
         async with max_client_session() as session:
             chat_id = await self._resolve_chat_id(
                 session, settings.max_bot_token, channel.platform_id
@@ -138,6 +139,7 @@ class MaxPublisher(BasePublisher):
             body_html=post.article_body,
             max_length=MAX_MESSAGE_MAX,
         )
+        text = append_post_footer(text, channel.post_footer)
 
         async with max_client_session() as session:
             chat_id = await self._resolve_chat_id(
@@ -211,7 +213,7 @@ class MaxPublisher(BasePublisher):
             article_body=post.article_body or "",
             post_id=post.id,
         )
-        text = f"{teaser}\n\n{link}".strip()
+        text = append_post_footer(f"{teaser}\n\n{link}".strip(), channel.post_footer)
 
         async with max_client_session() as session:
             chat_id = await self._resolve_chat_id(

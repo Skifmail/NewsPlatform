@@ -75,11 +75,14 @@ class VkPublisher(BasePublisher):
 
         api_version = get_settings().vk_api_version
         owner_id = channel.platform_id.strip()
+        message = build_vk_message(post)
+        if channel.post_footer:
+            message = f"{message}\n\n{channel.post_footer}"
         params: dict[str, str | int] = {
             "access_token": token,
             "v": api_version,
             "owner_id": owner_id,
-            "message": build_vk_message(post),
+            "message": message,
             "from_group": 1 if owner_id.startswith("-") else 0,
         }
 

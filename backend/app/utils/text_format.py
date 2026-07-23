@@ -218,6 +218,22 @@ def append_cross_promote_footer(
     return f"{stripped}{separator}{link}"
 
 
+def append_post_footer(text: str, footer: str | None) -> str:
+    """Добавляет футер с перекрёстными ссылками на другие платформы.
+
+    Args:
+        text: текст поста.
+        footer: многострочный plain-text футер из Channel.post_footer.
+
+    Returns:
+        str: текст с футером в конце, или исходный текст если footer пуст.
+    """
+    if not footer or not footer.strip():
+        return text.strip()
+    stripped = text.strip()
+    return f"{stripped}\n\n{footer.strip()}" if stripped else footer.strip()
+
+
 def cross_promote_footer_length(
     promote_url: str | None,
     promote_label: str | None = None,
