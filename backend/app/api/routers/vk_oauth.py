@@ -1,5 +1,8 @@
 """VK OAuth flow — одноразовое получение user token с правами photos+wall+groups."""
 
+import base64
+import hashlib
+import os
 import urllib.parse
 
 import aiohttp
@@ -13,21 +16,28 @@ from app.repositories.setting_repository import SettingRepository
 router = APIRouter(prefix="/vk/oauth", tags=["vk-oauth"])
 
 _SCOPE = "photos,wall,groups,offline"
+_PKCE_COOKIE = "vk_pkce_verifier"
 
 
 def _callback_url(request: Request) -> str:
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-    # Traefik does SSL termination; inner nginx receives http and overwrites proto.
-    # If we're behind any proxy but proto is still http → the outer layer used https.
     if proto == "http" and request.headers.get("x-forwarded-for"):
         proto = "https"
     host = request.headers.get("x-forwarded-host", request.url.netloc)
     return f"{proto}://{host}/api/vk/oauth/callback"
 
 
+def _pkce_pair() -> tuple[str, str]:
+    """Returns (code_verifier, code_challenge) for S256 PKCE."""
+    verifier = base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode()
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return verifier, challenge
+
+
 @router.get("/start")
 async def vk_oauth_start(request: Request) -> RedirectResponse:
-    """Перенаправляет на страницу авторизации VK."""
+    """Перенаправляет на страницу авторизации VK (Authorization Code + PKCE)."""
     settings = get_settings()
     if not settings.vk_app_client_secret:
         raise HTTPException(
@@ -35,15 +45,22 @@ async def vk_oauth_start(request: Request) -> RedirectResponse:
             detail="VK_APP_CLIENT_SECRET не настроен — добавьте в .env и перезапустите контейнер",
         )
 
+    verifier, challenge = _pkce_pair()
+    callback = _callback_url(request)
+
     auth_url = (
         "https://oauth.vk.com/authorize"
         f"?client_id={settings.vk_app_client_id}"
-        f"&redirect_uri={urllib.parse.quote(_callback_url(request))}"
+        f"&redirect_uri={urllib.parse.quote(callback, safe='')}"
         f"&scope={_SCOPE}"
         "&response_type=code"
+        f"&code_challenge={challenge}"
+        "&code_challenge_method=S256"
         "&v=5.199"
     )
-    return RedirectResponse(auth_url)
+    response = RedirectResponse(auth_url)
+    response.set_cookie(_PKCE_COOKIE, verifier, max_age=600, httponly=True, samesite="lax")
+    return response
 
 
 @router.get("/callback")
@@ -63,16 +80,22 @@ async def vk_oauth_callback(
         return HTMLResponse("<h2>Нет кода авторизации</h2>", status_code=400)
 
     settings = get_settings()
-    token_url = (
-        "https://oauth.vk.com/access_token"
-        f"?client_id={settings.vk_app_client_id}"
-        f"&client_secret={urllib.parse.quote(settings.vk_app_client_secret)}"
-        f"&redirect_uri={urllib.parse.quote(_callback_url(request))}"
-        f"&code={urllib.parse.quote(code)}"
-    )
+    verifier = request.cookies.get(_PKCE_COOKIE, "")
+    callback = _callback_url(request)
+
+    token_params: dict[str, str] = {
+        "client_id": settings.vk_app_client_id,
+        "client_secret": settings.vk_app_client_secret,
+        "redirect_uri": callback,
+        "code": code,
+    }
+    if verifier:
+        token_params["code_verifier"] = verifier
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(token_url) as resp:
+        async with session.post(
+            "https://oauth.vk.com/access_token", data=token_params
+        ) as resp:
             data = await resp.json()
 
     if "error" in data:
