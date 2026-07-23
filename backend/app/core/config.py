@@ -88,6 +88,12 @@ class Settings(BaseSettings):
 
     # VK
     vk_access_token: str = ""
+    # Пользовательский токен VK с правами photos+wall+groups (нужен для загрузки фото).
+    # Если не задан — фото публикуются без картинки.
+    vk_user_token: str = ""
+    # VK ID приложение для OAuth (Authorization Code flow).
+    vk_app_client_id: str = "54690770"
+    vk_app_client_secret: str = ""
 
     # MAX (мессенджер) — токен бота из business.max.ru
     max_bot_token: str = ""
