@@ -1,7 +1,8 @@
 """VK OAuth flow — получение user token с правами photos+wall+groups+offline."""
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.infrastructure.database import async_session_factory
@@ -35,10 +36,12 @@ async def vk_oauth_start() -> HTMLResponse:
              font-size: 16px; border-radius: 6px; cursor: pointer;
              text-decoration: none; display: inline-block; }}
     .btn:hover {{ background: #1a6fc4; }}
-    textarea {{ width: 100%; height: 80px; font-family: monospace; font-size: 13px; margin: 8px 0; box-sizing: border-box; }}
+    textarea {{ width: 100%; height: 80px; font-family: monospace; font-size: 13px;
+                margin: 8px 0; box-sizing: border-box; }}
     .step {{ margin: 20px 0; padding: 16px; background: #f5f5f5; border-radius: 8px; }}
     code {{ background: #e0e0e0; padding: 2px 4px; border-radius: 3px; }}
     .note {{ color: #555; font-size: 13px; margin-top: 8px; }}
+    #result {{ margin-top: 12px; font-weight: bold; }}
   </style>
 </head>
 <body>
@@ -55,21 +58,38 @@ async def vk_oauth_start() -> HTMLResponse:
   </div>
   <div class="step">
     <b>Шаг 3.</b> Вставьте токен и нажмите «Сохранить»:
-    <form method="post" action="/api/vk/oauth/save">
-      <textarea name="token" placeholder="Вставьте access_token сюда..." required></textarea><br>
-      <button class="btn" type="submit">Сохранить токен</button>
-    </form>
+    <br>
+    <textarea id="tokenInput" placeholder="Вставьте access_token сюда..."></textarea><br>
+    <button class="btn" onclick="saveToken()">Сохранить токен</button>
+    <div id="result"></div>
   </div>
+  <script>
+    async function saveToken() {{
+      const token = document.getElementById('tokenInput').value.trim();
+      if (!token) {{ document.getElementById('result').innerHTML = '<span style="color:red">Токен пустой</span>'; return; }}
+      const res = await fetch('/api/vk/oauth/save', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{token}})
+      }});
+      const text = await res.text();
+      document.getElementById('result').innerHTML = text;
+    }}
+  </script>
 </body>
 </html>""")
 
 
+class _TokenBody(BaseModel):
+    token: str
+
+
 @router.post("/save")
-async def vk_oauth_save(token: str = Form(...)) -> HTMLResponse:
+async def vk_oauth_save(body: _TokenBody) -> HTMLResponse:
     """Сохраняет vk_user_token в БД."""
-    token = token.strip()
+    token = body.token.strip()
     if not token:
-        return HTMLResponse("<h2 style='color:red'>Токен не может быть пустым</h2>", status_code=400)
+        return HTMLResponse("<span style='color:red'>Токен не может быть пустым</span>", status_code=400)
 
     async with async_session_factory() as db:
         repo = SettingRepository(db)
@@ -77,7 +97,6 @@ async def vk_oauth_save(token: str = Form(...)) -> HTMLResponse:
         await db.commit()
 
     return HTMLResponse(
-        "<h2 style='color:green'>VK user token сохранён!</h2>"
-        "<p>Токен записан в настройку <code>vk_user_token</code>.</p>"
-        "<p>Следующие публикации в VK будут содержать фото.</p>"
+        "<span style='color:green'>&#10003; VK user token сохранён!</span> "
+        "Следующие публикации в VK будут содержать фото."
     )

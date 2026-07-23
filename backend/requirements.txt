@@ -26,3 +26,4 @@ greenlet>=3.1.0
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 qrcode>=7.4.2
+python-multipart>=0.0.9
