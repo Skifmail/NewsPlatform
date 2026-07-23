@@ -11,15 +11,16 @@ from loguru import logger
 from app.core.config import get_settings
 
 DEFAULT_GENERATE_MODELS: tuple[str, ...] = (
-    "qwen-image-max",
+    "wan2.7-image-pro",
+    "wan2.7-image",
     "qwen-image-2.0-pro",
-    "qwen-image-plus",
     "qwen-image-2.0",
-    "qwen-image",
     "z-image-turbo",
 )
 
 DEFAULT_EDIT_MODELS: tuple[str, ...] = (
+    "wan2.7-image-pro",
+    "wan2.7-image",
     "qwen-image-edit-plus",
     "qwen-image-edit-max",
     "qwen-image-edit",
@@ -87,6 +88,8 @@ def resolve_edit_models(raw: str | None = None) -> list[str]:
 
 def sizes_for_model(model: str, default_size: str) -> list[str]:
     """Возвращает размеры для повтора при ошибке валидации."""
+    if model.startswith("wan2.7-image"):
+        return [default_size, "1664*928"]
     if model.startswith(("qwen-image-plus", "qwen-image-max")) or model == "qwen-image":
         return ["1664*928", default_size]
     return [default_size, "1664*928"]
