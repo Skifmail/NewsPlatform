@@ -8,7 +8,7 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.infrastructure.models.channel import Channel
-from app.utils.vk_credentials import resolve_vk_token
+from app.utils.vk_credentials import resolve_vk_token, resolve_vk_user_token
 from app.infrastructure.stats.base import (
     BaseStatsCollector,
     ChannelStatsDTO,
@@ -147,6 +147,11 @@ class VkStatsCollector(BaseStatsCollector):
             logger.warning("VK access token not configured for analytics")
             return ChannelStatsDTO()
 
+        # wall.get / wall.getById / stats.getPostReach fail with group token (error 27);
+        # use user token when available, fall back to group token.
+        user_token = await resolve_vk_user_token()
+        wall_token = user_token or token
+
         owner_id = channel.platform_id.strip()
         group_id = abs(int(owner_id)) if owner_id.startswith("-") else None
 
@@ -156,7 +161,7 @@ class VkStatsCollector(BaseStatsCollector):
             )
             post_metrics = await self._fetch_post_metrics(
                 session,
-                token,
+                wall_token,
                 settings.vk_api_version,
                 owner_id,
                 known_post_ids or [],
