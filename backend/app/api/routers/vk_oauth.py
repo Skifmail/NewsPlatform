@@ -1,7 +1,9 @@
 """VK OAuth flow — получение user token с правами photos+wall+groups+offline."""
 
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+import urllib.parse
+
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.core.config import get_settings
@@ -11,70 +13,70 @@ from app.repositories.setting_repository import SettingRepository
 router = APIRouter(prefix="/vk/oauth", tags=["vk-oauth"])
 
 _SCOPE = "photos,wall,groups,offline"
+_CALLBACK_URL = "https://news-platform.online/api/vk/oauth/callback"
 
 
 @router.get("/start")
-async def vk_oauth_start() -> HTMLResponse:
-    """Страница для получения VK user token через implicit flow."""
+async def vk_oauth_start() -> RedirectResponse:
+    """Перенаправляет на страницу авторизации VK (implicit flow)."""
     settings = get_settings()
     auth_url = (
         "https://oauth.vk.com/authorize"
         f"?client_id={settings.vk_app_client_id}"
-        "&redirect_uri=https%3A%2F%2Foauth.vk.com%2Fblank.html"
+        f"&redirect_uri={urllib.parse.quote(_CALLBACK_URL, safe='')}"
         f"&scope={_SCOPE}"
         "&response_type=token"
         "&v=5.199"
     )
-    return HTMLResponse(f"""<!DOCTYPE html>
+    return RedirectResponse(auth_url)
+
+
+@router.get("/callback")
+async def vk_oauth_callback(
+    error: str | None = None,
+    error_description: str | None = None,
+) -> HTMLResponse:
+    """Принимает implicit-токен из URL-фрагмента через JS и сохраняет в БД."""
+    if error:
+        return HTMLResponse(
+            f"<h2>Ошибка VK OAuth</h2><p>{error}: {error_description}</p>",
+            status_code=400,
+        )
+    return HTMLResponse("""<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <title>VK OAuth</title>
-  <style>
-    body {{ font-family: sans-serif; max-width: 620px; margin: 40px auto; padding: 0 20px; }}
-    .btn {{ background: #2787f5; color: #fff; border: none; padding: 12px 24px;
-             font-size: 16px; border-radius: 6px; cursor: pointer;
-             text-decoration: none; display: inline-block; }}
-    .btn:hover {{ background: #1a6fc4; }}
-    textarea {{ width: 100%; height: 80px; font-family: monospace; font-size: 13px;
-                margin: 8px 0; box-sizing: border-box; }}
-    .step {{ margin: 20px 0; padding: 16px; background: #f5f5f5; border-radius: 8px; }}
-    code {{ background: #e0e0e0; padding: 2px 4px; border-radius: 3px; }}
-    .note {{ color: #555; font-size: 13px; margin-top: 8px; }}
-    #result {{ margin-top: 12px; font-weight: bold; }}
-  </style>
+  <style>body{font-family:sans-serif;max-width:500px;margin:60px auto;text-align:center}</style>
 </head>
 <body>
-  <h2>Получение VK User Token</h2>
-  <div class="step">
-    <b>Шаг 1.</b> Нажмите кнопку — откроется авторизация VK в новой вкладке.<br><br>
-    <a class="btn" href="{auth_url}" target="_blank">Авторизоваться в VK</a>
-  </div>
-  <div class="step">
-    <b>Шаг 2.</b> После разрешения доступа VK перенаправит на белую страницу.<br>
-    Скопируйте значение <code>access_token</code> из адресной строки.<br>
-    <div class="note">URL будет выглядеть так:<br>
-    <code>https://oauth.vk.com/blank.html#access_token=<b>СЮДА_СКОПИРОВАТЬ</b>&amp;expires_in=0&amp;user_id=...</code></div>
-  </div>
-  <div class="step">
-    <b>Шаг 3.</b> Вставьте токен и нажмите «Сохранить»:
-    <br>
-    <textarea id="tokenInput" placeholder="Вставьте access_token сюда..."></textarea><br>
-    <button class="btn" onclick="saveToken()">Сохранить токен</button>
-    <div id="result"></div>
-  </div>
+  <h2 id="title">Сохраняем токен...</h2>
+  <div id="msg"></div>
   <script>
-    async function saveToken() {{
-      const token = document.getElementById('tokenInput').value.trim();
-      if (!token) {{ document.getElementById('result').innerHTML = '<span style="color:red">Токен пустой</span>'; return; }}
-      const res = await fetch('/api/vk/oauth/save', {{
+    const hash = window.location.hash.slice(1);
+    const params = new URLSearchParams(hash);
+    const token = params.get('access_token');
+    const userId = params.get('user_id');
+    if (!token) {
+      document.getElementById('title').textContent = 'Ошибка';
+      document.getElementById('msg').innerHTML = '<span style="color:red">access_token не найден в URL</span>';
+    } else {
+      fetch('/api/vk/oauth/save', {
         method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{token}})
-      }});
-      const text = await res.text();
-      document.getElementById('result').innerHTML = text;
-    }}
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({token})
+      })
+      .then(r => r.text())
+      .then(html => {
+        document.getElementById('title').textContent = '';
+        document.getElementById('msg').innerHTML = html
+          + (userId ? '<p>VK User ID: ' + userId + '</p>' : '');
+      })
+      .catch(e => {
+        document.getElementById('title').textContent = 'Ошибка';
+        document.getElementById('msg').innerHTML = '<span style="color:red">' + e + '</span>';
+      });
+    }
   </script>
 </body>
 </html>""")
@@ -89,14 +91,16 @@ async def vk_oauth_save(body: _TokenBody) -> HTMLResponse:
     """Сохраняет vk_user_token в БД."""
     token = body.token.strip()
     if not token:
-        return HTMLResponse("<span style='color:red'>Токен не может быть пустым</span>", status_code=400)
-
+        return HTMLResponse(
+            "<span style='color:red'>Токен не может быть пустым</span>",
+            status_code=400,
+        )
     async with async_session_factory() as db:
         repo = SettingRepository(db)
         await repo.set("vk_user_token", token)
         await db.commit()
 
     return HTMLResponse(
-        "<span style='color:green'>&#10003; VK user token сохранён!</span> "
-        "Следующие публикации в VK будут содержать фото."
+        "<h2 style='color:green'>&#10003; VK user token сохранён!</h2>"
+        "<p>Следующие публикации в VK будут содержать фото.</p>"
     )
