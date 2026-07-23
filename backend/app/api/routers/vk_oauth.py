@@ -12,11 +12,10 @@ from app.repositories.setting_repository import SettingRepository
 router = APIRouter(prefix="/vk/oauth", tags=["vk-oauth"])
 
 # oauth.vk.com/blank.html — стандартный redirect для Standalone-приложений.
-# Используем client_id официального VK Android (2274003) — поддерживает
-# классический implicit flow с полными API-скоупами.
+# Используем client_id Kate Mobile (2685278) — standalone OAuth без direct auth.
 _AUTH_URL = (
     "https://oauth.vk.com/authorize"
-    "?client_id=2274003"
+    "?client_id=2685278"
     "&redirect_uri=https%3A%2F%2Foauth.vk.com%2Fblank.html"
     "&scope=photos%2Cwall%2Cgroups%2Coffline"
     "&response_type=token"
