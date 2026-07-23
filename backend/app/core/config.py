@@ -75,7 +75,7 @@ class Settings(BaseSettings):
         "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/"
         "multimodal-generation/generation"
     )
-    qwen_image_model: str = "qwen-image-2.0"
+    qwen_image_model: str = ""
     qwen_image_models: str = ""
     qwen_image_edit_models: str = ""
     qwen_image_size: str = "1024*1024"
