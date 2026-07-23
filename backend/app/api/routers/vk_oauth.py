@@ -1,8 +1,9 @@
-"""VK OAuth — ручное получение user token через Standalone-приложение VK."""
+"""VK OAuth — получение user token (поддерживает oauth.vk.ru и oauth.vk.com)."""
 
-import aiohttp
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+import urllib.parse
+
+from fastapi import APIRouter
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.core.config import get_settings
@@ -12,103 +13,73 @@ from app.repositories.setting_repository import SettingRepository
 router = APIRouter(prefix="/vk/oauth", tags=["vk-oauth"])
 
 _SCOPE = "photos,wall,groups,offline"
+_CALLBACK_URL = "https://news-platform.online/api/vk/oauth/callback"
 
 
 @router.get("/start")
-async def vk_oauth_start() -> HTMLResponse:
-    """Страница-инструкция для получения VK user token через Standalone-приложение."""
+async def vk_oauth_start() -> RedirectResponse:
+    """Implicit flow через oauth.vk.ru с нашим зарегистрированным redirect URI."""
     settings = get_settings()
-    client_id = settings.vk_app_client_id
-
-    # URL для Standalone-приложения (blank.html — стандартный redirect для desktop/standalone)
     auth_url = (
-        f"https://oauth.vk.com/authorize?client_id={client_id}"
-        "&redirect_uri=https%3A%2F%2Foauth.vk.com%2Fblank.html"
+        "https://oauth.vk.ru/authorize"
+        f"?client_id={settings.vk_app_client_id}"
+        f"&redirect_uri={urllib.parse.quote(_CALLBACK_URL, safe='')}"
         f"&scope={_SCOPE}"
         "&response_type=token"
         "&display=page"
         "&v=5.199"
     )
+    return RedirectResponse(auth_url)
 
-    return HTMLResponse(f"""<!DOCTYPE html>
+
+@router.get("/callback")
+async def vk_oauth_callback(
+    error: str | None = None,
+    error_description: str | None = None,
+) -> HTMLResponse:
+    """Извлекает токен из URL-фрагмента через JS и сохраняет в БД."""
+    if error:
+        return HTMLResponse(
+            f"<h2>Ошибка VK OAuth</h2><p>{error}: {error_description}</p>",
+            status_code=400,
+        )
+    return HTMLResponse("""<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <title>VK User Token</title>
-  <style>
-    body {{ font-family: sans-serif; max-width: 680px; margin: 40px auto; padding: 0 20px; }}
-    .btn {{ background: #2787f5; color: #fff; border: none; padding: 12px 24px;
-             font-size: 15px; border-radius: 6px; cursor: pointer;
-             text-decoration: none; display: inline-block; margin-top: 8px; }}
-    .btn:hover {{ background: #1a6fc4; }}
-    .btn-green {{ background: #4caf50; }}
-    .btn-green:hover {{ background: #388e3c; }}
-    textarea {{ width: 100%; height: 70px; font-family: monospace; font-size: 12px;
-                margin: 8px 0; box-sizing: border-box; padding: 8px; }}
-    .step {{ margin: 18px 0; padding: 16px; background: #f5f5f5; border-radius: 8px; }}
-    code {{ background: #ddd; padding: 2px 5px; border-radius: 3px; font-size: 13px; }}
-    .warn {{ background: #fff3cd; border-left: 4px solid #ff9800; padding: 12px 16px;
-              border-radius: 4px; margin: 12px 0; font-size: 14px; }}
-    #result {{ margin-top: 10px; font-weight: bold; }}
-  </style>
+  <title>VK OAuth</title>
+  <style>body{font-family:sans-serif;max-width:500px;margin:60px auto;text-align:center}</style>
 </head>
 <body>
-  <h2>Получение VK User Token</h2>
-
-  <div class="warn">
-    ⚠️ Приложение <b>{client_id}</b> зарегистрировано на id.vk.com и не поддерживает
-    стандартный OAuth. Нужно создать <b>Standalone-приложение</b> на vk.com/apps.
-  </div>
-
-  <div class="step">
-    <b>Шаг 1.</b> Создайте Standalone-приложение VK (занимает 2 минуты):<br><br>
-    <a class="btn" href="https://vk.com/editapp?act=create" target="_blank">
-      Создать приложение на VK
-    </a><br><br>
-    Выберите тип <b>«Standalone-приложение»</b>, введите любое название и нажмите «Подключить».<br>
-    Скопируйте <b>ID приложения</b> из настроек.
-  </div>
-
-  <div class="step">
-    <b>Шаг 2.</b> Введите ID нового Standalone-приложения и нажмите кнопку:<br><br>
-    <input id="appId" type="text" placeholder="App ID (например 12345678)"
-           style="padding:8px;font-size:15px;width:220px;border:1px solid #ccc;border-radius:4px">
-    <button class="btn" onclick="openAuth()">Авторизоваться в VK →</button>
-  </div>
-
-  <div class="step">
-    <b>Шаг 3.</b> После авторизации VK перенаправит на белую страницу.<br>
-    Скопируйте значение <code>access_token</code> из адресной строки:<br>
-    <small style="color:#555">https://oauth.vk.com/blank.html#access_token=<b>СКОПИРОВАТЬ_ЭТО</b>&amp;expires_in=0...</small>
-  </div>
-
-  <div class="step">
-    <b>Шаг 4.</b> Вставьте токен и нажмите «Сохранить»:<br>
-    <textarea id="tokenInput" placeholder="Вставьте access_token сюда..."></textarea>
-    <button class="btn btn-green" onclick="saveToken()">Сохранить токен</button>
-    <div id="result"></div>
-  </div>
-
+  <h2 id="title">Сохраняем токен...</h2>
+  <div id="msg"></div>
   <script>
-    function openAuth() {{
-      const id = document.getElementById('appId').value.trim();
-      if (!id) {{ alert('Введите App ID'); return; }}
-      const url = 'https://oauth.vk.com/authorize?client_id=' + id
-        + '&redirect_uri=https%3A%2F%2Foauth.vk.com%2Fblank.html'
-        + '&scope=photos,wall,groups,offline&response_type=token&display=page&v=5.199';
-      window.open(url, '_blank');
-    }}
-
-    async function saveToken() {{
-      const token = document.getElementById('tokenInput').value.trim();
-      if (!token) {{ document.getElementById('result').innerHTML = '<span style="color:red">Токен пустой</span>'; return; }}
-      const res = await fetch('/api/vk/oauth/save', {{
+    const hash = window.location.hash.slice(1);
+    const params = new URLSearchParams(hash);
+    const token = params.get('access_token');
+    const userId = params.get('user_id');
+    if (!token) {
+      document.getElementById('title').textContent = 'Ошибка';
+      document.getElementById('msg').innerHTML =
+        '<p style="color:red">access_token не найден в URL</p>'
+        + '<p><a href="/api/vk/oauth/start">Попробовать снова</a></p>';
+    } else {
+      fetch('/api/vk/oauth/save', {
         method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{token}})
-      }});
-      document.getElementById('result').innerHTML = await res.text();
-    }}
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({token})
+      })
+      .then(r => r.text())
+      .then(html => {
+        document.getElementById('title').textContent = '';
+        document.getElementById('msg').innerHTML = html
+          + (userId ? '<p>VK User ID: ' + userId + '</p>' : '');
+      })
+      .catch(e => {
+        document.getElementById('title').textContent = 'Ошибка сохранения';
+        document.getElementById('msg').innerHTML = '<span style="color:red">' + e + '</span>';
+      });
+    }
   </script>
 </body>
 </html>""")
