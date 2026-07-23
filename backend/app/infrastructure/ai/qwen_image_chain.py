@@ -11,11 +11,11 @@ from loguru import logger
 from app.core.config import get_settings
 
 DEFAULT_GENERATE_MODELS: tuple[str, ...] = (
-    "qwen-image-plus",
     "qwen-image-max",
-    "qwen-image",
     "qwen-image-2.0-pro",
+    "qwen-image-plus",
     "qwen-image-2.0",
+    "qwen-image",
     "z-image-turbo",
 )
 
