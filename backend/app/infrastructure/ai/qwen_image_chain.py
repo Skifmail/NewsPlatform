@@ -71,9 +71,10 @@ def resolve_generate_models(raw: str | None = None) -> list[str]:
     settings = get_settings()
     source = raw if raw is not None else settings.qwen_image_models
     fallback: tuple[str, ...]
-    if settings.qwen_image_model.strip():
-        single = settings.qwen_image_model.strip()
-        fallback = (single, *DEFAULT_GENERATE_MODELS)
+    single = settings.qwen_image_model.strip()
+    if single:
+        rest = tuple(m for m in DEFAULT_GENERATE_MODELS if m != single)
+        fallback = (single, *rest)
     else:
         fallback = DEFAULT_GENERATE_MODELS
     return parse_model_chain(source, fallback=fallback)
