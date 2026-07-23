@@ -17,6 +17,10 @@ _SCOPE = "photos,wall,groups,offline"
 
 def _callback_url(request: Request) -> str:
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    # Traefik does SSL termination; inner nginx receives http and overwrites proto.
+    # If we're behind any proxy but proto is still http → the outer layer used https.
+    if proto == "http" and request.headers.get("x-forwarded-for"):
+        proto = "https"
     host = request.headers.get("x-forwarded-host", request.url.netloc)
     return f"{proto}://{host}/api/vk/oauth/callback"
 
