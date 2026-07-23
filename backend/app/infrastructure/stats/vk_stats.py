@@ -58,7 +58,12 @@ def parse_vk_group_members(payload: dict[str, Any]) -> int | None:
     """
     if "error" in payload:
         return None
-    groups = payload.get("response") or []
+    response = payload.get("response") or {}
+    # API v5.131+: {"groups": [...], "profiles": [...]}; older: [...]
+    if isinstance(response, dict):
+        groups = response.get("groups") or []
+    else:
+        groups = response
     if not groups:
         return None
     return groups[0].get("members_count")
