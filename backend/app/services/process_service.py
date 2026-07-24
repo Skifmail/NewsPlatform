@@ -173,15 +173,18 @@ class ProcessService:
             await self._settings.get("auto_approve", "false")
         ).lower() == "true"
         if auto_approve or curated:
-            from app.tasks.publish_tasks import publish_post_task
-
             for pid in created_ids:
                 post = await self._processed.get_by_id(pid)
                 if post:
                     post.status = PostStatus.APPROVED.value
                     await self._processed.update(post)
             await self._session.commit()
-            for pid in created_ids:
-                publish_post_task.delay(pid, bypass_daily_limit=curated)
+            # Публикация по расписанию канала (publish_times, МСК): FIFO из
+            # очереди APPROVED в слот планировщика. Умная публикация (curated)
+            # обходит расписание — оно уже соблюдено при отборе темы.
+            if curated:
+                from app.tasks.publish_tasks import publish_post_task
+                for pid in created_ids:
+                    publish_post_task.delay(pid, bypass_daily_limit=True)
 
         return ProcessResult(created_ids, raw_post.topic)

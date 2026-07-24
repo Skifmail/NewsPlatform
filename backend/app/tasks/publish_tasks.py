@@ -41,11 +41,19 @@ def publish_post_task(
             repo = ProcessedPostRepository(session)
             jobs = BackgroundJobRepository(session)
             post = await repo.get_by_id(processed_post_id)
-            if post and post.status == PostStatus.PENDING.value:
+            if post is None:
+                # Пост мог быть удалён (rollback генерации, ручное удаление,
+                # старый retry из очереди). Не считаем это ошибкой.
+                logger.warning(
+                    "publish_post skipped: post not found",
+                    processed_post_id=processed_post_id,
+                )
+                return -1
+            if post.status == PostStatus.PENDING.value:
                 post.status = PostStatus.APPROVED.value
                 await repo.update(post)
             if not await jobs.get_by_celery_id(task_id):
-                channel_name = post.channel.name if post and post.channel else "Канал"
+                channel_name = post.channel.name if post.channel else "Канал"
                 await JobTracker(session).enqueue_publish(
                     task_id, processed_post_id, channel_name
                 )
