@@ -7,6 +7,7 @@ from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.raw_post import RawPost
 from app.utils.rewrite_output import is_publishable_rewrite, sanitize_rewrite_output
+from app.utils.safe_format import safe_format
 from app.utils.text_format import (
     MAX_REWRITE_LENGTH,
     clamp_rewrite_length,
@@ -117,7 +118,8 @@ class ContentRewriter:
         topic_label = _TOPIC_LABELS.get(channel.topic, channel.topic)
         template, style_notes = self._resolve_template(channel)
 
-        prompt = template.format(
+        prompt = safe_format(
+            template,
             channel_name=channel.name,
             topic=channel.topic,
             topic_label=topic_label,

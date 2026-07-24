@@ -23,6 +23,7 @@ from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.models.channel import Channel
 from app.utils.text_format import normalize_telegram_html
 from app.utils.article_body_sanitize import sanitize_article_body_html
+from app.utils.safe_format import safe_format
 
 # Лимит вывода deepseek-chat ≈8192 токена; длинный JSON с HTML не влезает в 12000 символов.
 _ARTICLE_OUTPUT_CHAR_CAP = 7500
@@ -187,7 +188,8 @@ class ArticleWriter:
         image_guidelines = ImagePromptBuilder.writer_image_guidelines(channel)
         template = prompt_template.strip() or _DEFAULT_WRITING_PROMPT
         min_length = max(2500, body_max_length // 2)
-        prompt = template.format(
+        prompt = safe_format(
+            template,
             channel_name=channel.name,
             channel_niche=niche,
             topic=topic,

@@ -12,6 +12,7 @@ from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.models.channel import Channel
+from app.utils.safe_format import safe_format
 
 _MAX_IDEATION_ATTEMPTS = 5
 
@@ -138,7 +139,8 @@ class TopicIdeationService:
         niche = (channel.style_prompt or "познавательные статьи").strip()
         recent = _format_recent_topics(blocked_topics)
         template = prompt_template.strip() or _DEFAULT_IDEATION_PROMPT
-        prompt = template.format(
+        prompt = safe_format(
+            template,
             channel_name=channel.name,
             channel_niche=niche,
             recent_topics=recent,

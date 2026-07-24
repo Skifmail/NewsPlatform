@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.domain.curated_pick import TOPIC_LABELS, TopicPickResult
 from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.models.raw_post import RawPost
+from app.utils.safe_format import safe_format
 
 DEFAULT_CURATED_PICK_PROMPT = """Ты главный редактор Telegram-канала с тематикой «{topic_label}».
 Из списка сырых новостей выбери ОДНУ самую интересную для публикации прямо сейчас.
@@ -70,7 +71,8 @@ class TopicPicker:
             preview = " ".join(post.content.split())[:_PREVIEW_LEN]
             lines.append(f"#{post.id} | {source_name} | {title}\n{preview}")
         candidates_text = "\n\n".join(lines)
-        prompt = prompt_template.format(
+        prompt = safe_format(
+            prompt_template,
             topic_label=topic_label,
             topic=topic,
             candidates=candidates_text,
