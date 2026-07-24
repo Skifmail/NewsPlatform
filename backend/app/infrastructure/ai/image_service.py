@@ -13,7 +13,6 @@ from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.ai.image_prompt_builder import (
     ImagePromptBuilder,
-    QWEN_LOGO_EDIT_NEGATIVE,
     QWEN_NEWS_NEGATIVE,
     QWEN_NO_TEXT_NEGATIVE,
 )
@@ -24,7 +23,7 @@ from app.infrastructure.ai.qwen_image_chain import (
 from app.infrastructure.ai.qwen_image_client import QwenImageClient
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.raw_post import RawPost
-from app.infrastructure.parsers.github_repo_logo import GitHubRepoLogoFetcher
+from app.infrastructure.parsers.github_repo_logo import parse_github_repo
 from app.infrastructure.parsers.image_extract import (
     extract_image_from_html,
     is_social_preview_image,
@@ -62,7 +61,6 @@ class ImageService:
         edit_models: list[str] | None = None,
     ) -> None:
         self._qwen = QwenImageClient()
-        self._github_logos = GitHubRepoLogoFetcher()
         self._generate_models = generate_models
         self._edit_models = edit_models
 
@@ -204,28 +202,19 @@ class ImageService:
             repo_url
             and is_devtools_article_channel(channel.topic, channel.name)
         ):
-            logo_url = await self._github_logos.fetch_logo_url(repo_url)
-            if logo_url:
-                edit_prompt = ImagePromptBuilder.build_logo_edit(
-                    channel,
-                    scene=image_prompt or tool_name,
-                    tool_name=tool_name,
+            parsed = parse_github_repo(repo_url)
+            if parsed:
+                owner, repo = parsed
+                og_url = (
+                    f"https://opengraph.githubassets.com/1/{owner}/{repo}"
                 )
-                if edit_prompt:
-                    logger.debug(
-                        "Article logo edit prompt built",
-                        preview=edit_prompt[:200],
-                        logo_url=logo_url,
-                    )
-                    edited = await self._edit_logo_cover(edit_prompt, logo_url)
-                else:
-                    edited = None
-                if edited:
-                    return edited, ImageSource.GENERATED.value
-                logger.warning(
-                    "Logo-based cover failed, fallback to text-to-image",
-                    repo_url=repo_url,
+                logger.info(
+                    "Using GitHub OG preview as article cover",
+                    owner=owner,
+                    repo=repo,
+                    og_url=og_url,
                 )
+                return og_url, ImageSource.ORIGINAL.value
 
         final_prompt = ImagePromptBuilder.build_for_qwen(
             channel,
@@ -250,35 +239,6 @@ class ImageService:
         if fallback_url and self._is_usable_fallback_url(fallback_url):
             return fallback_url, ImageSource.ORIGINAL.value
         return None, ImageSource.NONE.value
-
-    async def _edit_logo_cover(
-        self,
-        prompt: str,
-        logo_url: str,
-    ) -> str | None:
-        """Стилизует логотип репозитория в обложку поста.
-
-        Args:
-            prompt: инструкция для Qwen Image Edit.
-            logo_url: URL логотипа из README.
-
-        Returns:
-            str | None: URL сгенерированной обложки.
-        """
-        settings = get_settings()
-        if not settings.qwen_image_api_key.strip():
-            return None
-        try:
-            return await self._qwen.edit(
-                logo_url,
-                prompt,
-                prompt_extend=False,
-                negative_prompt=QWEN_LOGO_EDIT_NEGATIVE,
-                models=self._edit_models,
-            )
-        except Exception as exc:
-            logger.warning("Qwen logo edit failed", error=str(exc))
-            return None
 
     async def _generate_for_post(
         self,
