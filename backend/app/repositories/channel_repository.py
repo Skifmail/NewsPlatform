@@ -42,6 +42,17 @@ class ChannelRepository:
         )
         return list(result.scalars().all())
 
+    async def list_active(self) -> list[Channel]:
+        """Все активные каналы независимо от content_mode.
+
+        Returns:
+            list[Channel]: каналы, у которых is_active=True.
+        """
+        result = await self._session.execute(
+            select(Channel).where(Channel.is_active.is_(True)).order_by(Channel.id)
+        )
+        return list(result.scalars().all())
+
     async def list_active_article_channels(self) -> list[Channel]:
         """Активные каналы в режиме статей.
 

@@ -1,24 +1,30 @@
-"""Планировщик автогенерации статей для article-каналов."""
+"""Единый планировщик публикаций каналов по publish_times (МСК).
 
-from datetime import UTC, datetime, timedelta
+При наступлении слота:
+- news-канал  → берётся самый старый approved-пост из очереди и публикуется;
+- article-канал → запускается генерация статьи (публикация происходит в задаче).
+"""
+
+from datetime import UTC, datetime
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.article import article_scheduler_key
-from app.domain.article_schedule import due_slot, parse_publish_times
+from app.domain.article_schedule import due_slot
 from app.domain.enums import ContentMode
+from app.infrastructure.models.channel import Channel
 from app.repositories.channel_repository import ChannelRepository
 from app.repositories.processed_post_repository import ProcessedPostRepository
 from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import JobTracker
 from app.services.platform_settings_service import PlatformSettingsService
-from app.services.scheduling_service import SchedulingService
 from app.tasks.article_tasks import generate_article_task
+from app.tasks.publish_tasks import publish_post_task
 
 
 class ArticleSchedulerService:
-    """Запускает генерацию статей по расписанию каналов."""
+    """Планировщик публикаций для всех активных каналов по publish_times."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -26,53 +32,38 @@ class ArticleSchedulerService:
         self._processed = ProcessedPostRepository(session)
         self._settings = SettingRepository(session)
         self._platform = PlatformSettingsService(session)
-        self._scheduling = SchedulingService(session)
         self._jobs = JobTracker(session)
 
     async def run_due_channels(self) -> dict[int, int | None]:
-        """Ставит в очередь генерацию для каналов, у которых наступил слот.
+        """Ставит в очередь публикацию для каналов, у которых наступил слот.
 
         Returns:
-            dict[int, int | None]: channel_id → processed_post_id или None.
+            dict[int, int | None]: channel_id → post_id или None.
         """
         platform = await self._platform.load()
-        if not platform.schedule_article_publish_enabled:
-            return {}
+        article_enabled = platform.schedule_article_publish_enabled
+        news_enabled = platform.schedule_publish_enabled
 
         now = datetime.now(UTC)
         result: dict[int, int | None] = {}
-        channels = await self._channels.list_active_article_channels()
+        channels = await self._channels.list_active()
         for channel in channels:
-            post_id = await self._try_channel(
-                channel=channel,
-                now=now,
-                posts_per_day=platform.posts_per_day,
-            )
+            if channel.content_mode == ContentMode.ARTICLE.value:
+                if not article_enabled:
+                    continue
+                post_id = await self._try_article_channel(channel, now)
+            else:
+                if not news_enabled:
+                    continue
+                post_id = await self._try_news_channel(channel, now)
             result[channel.id] = post_id
         return result
 
-    async def _try_channel(
-        self,
-        *,
-        channel: object,
-        now: datetime,
-        posts_per_day: int,
-    ) -> int | None:
-        """Пытается поставить генерацию статьи для одного канала.
-
-        Args:
-            channel: модель Channel.
-            now: текущий момент UTC.
-            posts_per_day: лимит публикаций на канал в сутки.
-
-        Returns:
-            int | None: None если слот не наступил (задача в очереди).
-        """
-        from app.infrastructure.models.channel import Channel
-
-        if not isinstance(channel, Channel):
-            return None
-
+    async def _slot_reached(self, channel: Channel, now: datetime) -> bool:
+        """Проверяет, наступил ли новый слот и что он ещё не отрабатывал."""
+        times_raw = (channel.publish_times or "").strip()
+        if not times_raw:
+            return False
         last_key = article_scheduler_key(channel.id)
         last_raw = (await self._settings.get(last_key, "")).strip()
         last_at: datetime | None = None
@@ -81,48 +72,53 @@ class ArticleSchedulerService:
                 last_at = datetime.fromisoformat(last_raw)
             except ValueError:
                 last_at = None
+        return due_slot(now, times_raw, last_at) is not None
 
-        times_raw = (channel.publish_times or "").strip()
-        if times_raw:
-            # Режим конкретных времён (МСК): слот наступил и ещё не отрабатывал.
-            if due_slot(now, times_raw, last_at) is None:
-                return None
-            # Явно заданные времена определяют дневной лимит (не режем их
-            # глобальным posts_per_day).
-            daily_cap = max(len(parse_publish_times(times_raw)), 1)
-        else:
-            # Легаси-режим: окно публикации + интервал между генерациями.
-            if not self._scheduling._in_publish_window(now, channel):
-                return None
-            interval = max(1, channel.publish_interval_minutes)
-            if last_at is not None and now - last_at < timedelta(minutes=interval):
-                return None
-            daily_cap = posts_per_day
+    async def _mark_slot_run(self, channel_id: int, now: datetime) -> None:
+        """Отмечает слот как отработанный."""
+        await self._settings.set(article_scheduler_key(channel_id), now.isoformat())
+        await self._session.commit()
 
-        published_today = await self._processed.count_published_today(channel.id)
-        created_today = await self._processed.count_articles_created_today(channel.id)
-        if published_today >= daily_cap or created_today >= daily_cap:
-            logger.info(
-                "Article skipped: daily limit",
-                channel_id=channel.id,
-                published_today=published_today,
-                created_today=created_today,
-                daily_cap=daily_cap,
-            )
+    async def _try_article_channel(
+        self, channel: Channel, now: datetime
+    ) -> int | None:
+        """Генерация статьи для article-канала на текущий слот."""
+        if not await self._slot_reached(channel, now):
             return None
 
         celery_result = generate_article_task.delay(channel.id)
         await self._jobs.enqueue_article(
-            celery_result.id,
-            channel.id,
-            channel.name,
+            celery_result.id, channel.id, channel.name,
         )
-        await self._settings.set(last_key, now.isoformat())
-        await self._session.commit()
-
+        await self._mark_slot_run(channel.id, now)
         logger.info(
             "Article generation queued",
             channel_id=channel.id,
             celery_task_id=celery_result.id,
         )
         return None
+
+    async def _try_news_channel(
+        self, channel: Channel, now: datetime
+    ) -> int | None:
+        """Публикация самого старого approved-поста news-канала."""
+        if not await self._slot_reached(channel, now):
+            return None
+
+        post = await self._processed.get_next_approved_for_channel(channel.id)
+        if post is None:
+            logger.info(
+                "News slot skipped: empty approved queue",
+                channel_id=channel.id,
+            )
+            await self._mark_slot_run(channel.id, now)
+            return None
+
+        publish_post_task.delay(post.id)
+        await self._mark_slot_run(channel.id, now)
+        logger.info(
+            "News post publish queued",
+            channel_id=channel.id,
+            post_id=post.id,
+        )
+        return post.id

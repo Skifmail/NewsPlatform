@@ -52,7 +52,6 @@ class OverviewData:
     active_jobs: int
     materials_unprocessed: int
     attention: list[tuple[str, str, int, str, str]]
-    upcoming: list[tuple[int, int, str, datetime, str | None]]
     top_channels: list[tuple[int, str, str, int | None, int | None, float | None, int | None]]
     recent_publications: list[tuple[int, str | None, str, datetime, str | None]]
     trend: list[tuple[str, str, int]]
@@ -99,7 +98,6 @@ class OverviewService:
         failed_jobs = job_counts.get(JobStatus.FAILED.value, 0)
 
         subscribers_delta_today = await self._subscribers_delta_today(channel_overviews)
-        upcoming = await self._load_upcoming()
         recent = await self._load_recent_publications()
         top_channels = self._build_top_channels(channel_overviews)
         trend = await self._aggregate_trend(trend_period)
@@ -127,7 +125,6 @@ class OverviewService:
             active_jobs=active_jobs,
             materials_unprocessed=materials_unprocessed,
             attention=attention,
-            upcoming=upcoming,
             top_channels=top_channels,
             recent_publications=recent,
             trend=trend,
@@ -160,26 +157,6 @@ class OverviewService:
                 has_data = True
 
         return total_delta if has_data else None
-
-    async def _load_upcoming(self) -> list[tuple[int, int, str, datetime, str | None]]:
-        """Ближайшие запланированные публикации."""
-        posts = await self._posts.list_upcoming_scheduled(limit=5)
-        result: list[tuple[int, int, str, datetime, str | None]] = []
-        for post in posts:
-            channel_name = post.channel.name if post.channel else f"Канал {post.channel_id}"
-            scheduled = post.scheduled_at
-            if scheduled is None:
-                continue
-            result.append(
-                (
-                    post.id,
-                    post.channel_id,
-                    channel_name,
-                    scheduled,
-                    _truncate_preview(post.rewritten_text),
-                )
-            )
-        return result
 
     async def _load_recent_publications(
         self,

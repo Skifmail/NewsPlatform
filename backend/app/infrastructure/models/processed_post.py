@@ -30,9 +30,6 @@ class ProcessedPost(Base):
     image_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ai_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending")
-    scheduled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

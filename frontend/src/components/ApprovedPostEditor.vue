@@ -12,8 +12,6 @@
             </button>
           </div>
 
-          <PublishCountdown :scheduled-at="scheduledAt || post.scheduled_at" class="mb-4" />
-
           <label class="field-label">Текст публикации</label>
           <textarea v-model="text" rows="8" class="input mb-4 resize-y min-h-[160px]" />
 
@@ -24,9 +22,6 @@
             :fallback-url="post?.raw_post?.image_url"
             @pull-from-source="pullImage"
           />
-
-          <label class="field-label mt-4">Время публикации (локальное)</label>
-          <input v-model="scheduledLocal" type="datetime-local" class="input mb-4" />
 
           <div class="modal-actions">
             <button type="button" class="btn-primary" :disabled="saving" @click="save">
@@ -49,7 +44,6 @@
 <script setup>
 import { ref, watch } from 'vue'
 import ImagePicker from './ImagePicker.vue'
-import PublishCountdown from './PublishCountdown.vue'
 import { postsApi } from '../api/index.js'
 import { useDialogStore } from '../stores/dialogStore'
 import { usePostsStore } from '../stores/postsStore'
@@ -61,21 +55,7 @@ const emit = defineEmits(['close', 'saved'])
 const store = usePostsStore()
 const text = ref('')
 const imageUrl = ref('')
-const scheduledLocal = ref('')
-const scheduledAt = ref(null)
 const saving = ref(false)
-
-function toLocalInput(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function localToIso(local) {
-  if (!local) return null
-  return new Date(local).toISOString()
-}
 
 watch(
   () => props.post,
@@ -83,8 +63,6 @@ watch(
     if (p) {
       text.value = p.rewritten_text
       imageUrl.value = p.generated_image_url || p.raw_post?.image_url || ''
-      scheduledLocal.value = toLocalInput(p.scheduled_at)
-      scheduledAt.value = p.scheduled_at
     }
   },
   { immediate: true }
@@ -105,13 +83,10 @@ async function pullImage() {
 async function save() {
   saving.value = true
   try {
-    const iso = localToIso(scheduledLocal.value)
     await store.updatePost(props.post.id, {
       rewritten_text: text.value,
       generated_image_url: imageUrl.value || null,
-      scheduled_at: iso,
     })
-    scheduledAt.value = iso
     emit('saved')
     emit('close')
   } finally {

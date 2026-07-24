@@ -17,8 +17,6 @@
       </time>
     </div>
 
-    <PublishCountdown v-if="!isFailed" :scheduled-at="post.scheduled_at" />
-
     <div v-if="publishError" class="publish-error">
       <p class="publish-error-title">Не удалось опубликовать</p>
       <p class="publish-error-text">{{ publishError }}</p>
@@ -34,8 +32,6 @@
     <p v-if="post.telegraph_url" class="schedule-hint">
       <a :href="post.telegraph_url" target="_blank" rel="noopener">Полная статья на Telegraph</a>
     </p>
-
-    <p v-if="scheduledLocal" class="schedule-hint">План: {{ scheduledLocal }}</p>
 
     <div class="post-actions">
       <button type="button" class="btn-secondary btn-sm" @click="previewOpen = true">
@@ -62,7 +58,6 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import PublishCountdown from './PublishCountdown.vue'
 import TelegramPreviewModal from './TelegramPreviewModal.vue'
 import { formatProcessedAt } from '../utils/datetime.js'
 import { stripHtmlForPreview } from '../utils/telegramHtml.js'
@@ -109,14 +104,6 @@ const hasImage = computed(
 )
 
 const previewText = computed(() => stripHtmlForPreview(props.post.rewritten_text || ''))
-
-const scheduledLocal = computed(() => {
-  if (!props.post.scheduled_at) return ''
-  return new Date(props.post.scheduled_at).toLocaleString('ru-RU', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  })
-})
 </script>
 
 <style scoped>

@@ -73,11 +73,6 @@ export const usePostsStore = defineStore('posts', () => {
     await Promise.all([loadQueue(), loadApproved(), loadApprovedSummary()])
   }
 
-  async function schedule(id, scheduledAt) {
-    await postsApi.schedule(id, { scheduled_at: scheduledAt })
-    await Promise.all([loadQueue(), loadApproved(), loadApprovedSummary()])
-  }
-
   async function updatePost(id, payload) {
     const { data } = await postsApi.update(id, payload)
     const idx = approved.value.findIndex((p) => p.id === id)
@@ -159,7 +154,6 @@ export const usePostsStore = defineStore('posts', () => {
     reject,
     bulkQueueAction,
     publishNow,
-    schedule,
     updatePost,
     deletePost,
     connectWebSocket,

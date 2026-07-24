@@ -11,7 +11,6 @@ from app.api.schemas.post import (
     ProcessedPostResponse,
     QueueBulkRequest,
     RejectRequest,
-    ScheduleRequest,
     UpdatePostRequest,
 )
 from app.domain.enums import PostStatus
@@ -74,13 +73,12 @@ async def update_post(
     session: DbSession,
     _: AuthDep,
 ) -> ProcessedPost:
-    """Редактирует текст, картинку или время публикации."""
+    """Редактирует текст или картинку поста."""
     try:
         return await ModerationService(session).update_content(
             post_id,
             rewritten_text=data.rewritten_text,
             generated_image_url=data.generated_image_url,
-            scheduled_at=data.scheduled_at,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -170,14 +168,3 @@ async def publish_now(
     return MessageResponse(message="Publish task queued")
 
 
-@router.patch("/{post_id}/schedule", response_model=ProcessedPostResponse)
-async def schedule_post(
-    post_id: int, data: ScheduleRequest, session: DbSession, _: AuthDep
-) -> ProcessedPost:
-    """Ставит в расписание."""
-    try:
-        return await ModerationService(session).schedule(
-            post_id, data.scheduled_at
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc

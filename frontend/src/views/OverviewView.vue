@@ -97,11 +97,10 @@
 
       <div class="secondary-grid">
         <LiveActivityFeed :items="activityItems" :connected="wsConnected" />
-        <UpcomingPublications :items="data.upcoming" />
+        <TopChannels :items="data.top_channels" />
       </div>
 
       <div class="secondary-grid">
-        <TopChannels :items="data.top_channels" />
         <RecentPublications :items="data.recent_publications" />
       </div>
     </template>
@@ -117,7 +116,6 @@ import KpiCard from '../components/overview/KpiCard.vue'
 import LiveActivityFeed from '../components/overview/LiveActivityFeed.vue'
 import RecentPublications from '../components/overview/RecentPublications.vue'
 import TopChannels from '../components/overview/TopChannels.vue'
-import UpcomingPublications from '../components/overview/UpcomingPublications.vue'
 import { overviewApi } from '../api/index.js'
 import { useActivityStore } from '../stores/activityStore'
 import { usePostsStore } from '../stores/postsStore'

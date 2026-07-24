@@ -330,7 +330,7 @@
                 </tr>
                 <tr>
                   <td class="setting-name">Публикация по расписанию</td>
-                  <td class="setting-desc">Посты с наступившим scheduled_at уходят в каналы</td>
+                  <td class="setting-desc">Публикация одобренных постов по расписанию канала (publish_times, МСК)</td>
                   <td class="col-toggle">
                     <SettingToggle v-model="schedulePublish" />
                   </td>

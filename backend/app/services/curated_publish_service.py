@@ -14,7 +14,6 @@ from app.repositories.raw_post_repository import RawPostRepository
 from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import JobTracker
 from app.services.platform_settings_service import PlatformSettingsService
-from app.services.scheduling_service import SchedulingService
 from app.infrastructure.ai.topic_picker import DEFAULT_CURATED_PICK_PROMPT, TopicPicker
 from app.tasks.ai_tasks import process_post_task
 
@@ -31,7 +30,6 @@ class CuratedPublishService:
         self._processed = ProcessedPostRepository(session)
         self._settings = SettingRepository(session)
         self._platform = PlatformSettingsService(session)
-        self._scheduling = SchedulingService(session)
         self._picker = TopicPicker()
         self._jobs = JobTracker(session)
 
@@ -86,9 +84,6 @@ class CuratedPublishService:
         """
         channels = await self._channels.list_active_by_topic(topic)
         if not channels:
-            return None
-
-        if not any(self._scheduling._in_publish_window(now, ch) for ch in channels):
             return None
 
         interval = max(1, interval_minutes)

@@ -25,12 +25,15 @@ class Channel(Base):
     cross_promote_emoji_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     content_mode: Mapped[str] = mapped_column(String(32), default="news")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    publish_interval_minutes: Mapped[int] = mapped_column(default=60)
-    publish_window_start: Mapped[str] = mapped_column(String(5), default="08:00")
-    publish_window_end: Mapped[str] = mapped_column(String(5), default="22:00")
-    # Конкретные времена выхода статей по МСК ("09:00,18:00"). Если задано —
-    # у article-канала имеет приоритет над окном+интервалом.
-    publish_times: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    publish_times: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        server_default=(
+            "07:00,07:40,08:20,09:00,09:40,10:20,11:00,11:40,12:20,13:00,"
+            "13:40,14:20,15:00,15:40,16:20,17:00,17:40,18:20,19:00,19:40,"
+            "20:20,21:00,21:40,22:20,23:00"
+        ),
+    )
     post_footer: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

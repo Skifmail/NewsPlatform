@@ -54,17 +54,6 @@ class ModerationService:
         post.rejection_reason = None
         updated = await self._processed.update(post)
 
-        if not publish_immediately:
-            from app.services.platform_settings_service import PlatformSettingsService
-
-            platform = await PlatformSettingsService(self._session).load()
-            if not platform.schedule_curated_publish_enabled:
-                from app.services.scheduling_service import SchedulingService
-
-                updated = await SchedulingService(self._session).assign_schedule_to_post(
-                    updated
-                )
-
         await self._session.commit()
 
         if publish_immediately:
@@ -98,44 +87,18 @@ class ModerationService:
         await self._session.commit()
         return updated
 
-    async def schedule(self, post_id: int, scheduled_at: datetime) -> ProcessedPost:
-        """Планирует публикацию.
-
-        Args:
-            post_id: ID.
-            scheduled_at: время.
-
-        Returns:
-            ProcessedPost: обновлённый пост.
-
-        Raises:
-            ValueError: пост не найден.
-        """
-        post = await self._processed.get_by_id(post_id)
-        if not post:
-            msg = f"Post {post_id} not found"
-            raise ValueError(msg)
-
-        post.status = PostStatus.APPROVED.value
-        post.scheduled_at = scheduled_at
-        updated = await self._processed.update(post)
-        await self._session.commit()
-        return updated
-
     async def update_content(
         self,
         post_id: int,
         rewritten_text: str | None = None,
         generated_image_url: str | None = None,
-        scheduled_at: datetime | None = None,
     ) -> ProcessedPost:
-        """Обновляет текст, картинку или время публикации одобренного поста.
+        """Обновляет текст или картинку поста.
 
         Args:
             post_id: ID processed_post.
             rewritten_text: новый текст.
             generated_image_url: URL картинки.
-            scheduled_at: новое время публикации.
 
         Returns:
             ProcessedPost: обновлённый пост.
@@ -159,8 +122,6 @@ class ModerationService:
             post.rewritten_text = rewritten_text
         if generated_image_url is not None:
             post.generated_image_url = generated_image_url
-        if scheduled_at is not None:
-            post.scheduled_at = scheduled_at
 
         updated = await self._processed.update(post)
         await self._session.commit()

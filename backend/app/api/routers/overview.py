@@ -11,7 +11,6 @@ from app.api.schemas.overview import (
     PlatformStatus,
     RecentPublication,
     TopChannelItem,
-    UpcomingPublication,
 )
 from app.services.overview_service import OverviewService
 
@@ -47,16 +46,6 @@ async def get_overview(
                 severity=severity,
             )
             for key, label, count, route, severity in data.attention
-        ],
-        upcoming=[
-            UpcomingPublication(
-                id=post_id,
-                channel_id=channel_id,
-                channel_name=channel_name,
-                scheduled_at=scheduled_at,
-                preview=preview,
-            )
-            for post_id, channel_id, channel_name, scheduled_at, preview in data.upcoming
         ],
         top_channels=[
             TopChannelItem(

@@ -67,27 +67,3 @@ def publish_post_task(
     return run_async(_run())
 
 
-@celery_app.task(name="app.tasks.publish_tasks.publish_scheduled")
-def publish_scheduled() -> int:
-    """Публикует посты с наступившим scheduled_at (legacy; см. scheduler tick).
-
-    Returns:
-        int: число поставленных в очередь.
-    """
-
-    async def _run() -> int:
-        from app.services.platform_settings_service import PlatformSettingsService
-
-        async with async_session_factory() as session:
-            ps = await PlatformSettingsService(session).load()
-            if not ps.schedule_publish_enabled:
-                return 0
-            posts = await ProcessedPostRepository(session).list_scheduled_due()
-            for post in posts:
-                publish_post_task.delay(post.id)
-            return len(posts)
-
-    count = run_async(_run())
-    if count:
-        logger.info("Scheduled publishes queued", count=count)
-    return count

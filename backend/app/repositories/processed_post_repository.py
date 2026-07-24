@@ -112,7 +112,7 @@ class ProcessedPostRepository:
             )
             .order_by(
                 ProcessedPost.status.desc(),
-                ProcessedPost.scheduled_at.asc().nulls_last(),
+                ProcessedPost.created_at.asc(),
                 ProcessedPost.updated_at.desc(),
             )
         )
@@ -149,29 +149,6 @@ class ProcessedPostRepository:
         )
         return int(result.scalar_one())
 
-    async def list_upcoming_scheduled(self, *, limit: int = 5) -> list[ProcessedPost]:
-        """Одобренные посты с будущим scheduled_at.
-
-        Args:
-            limit: максимум записей.
-
-        Returns:
-            list[ProcessedPost]: посты от ближайших к дальним.
-        """
-        now = datetime.now(UTC)
-        result = await self._session.execute(
-            select(ProcessedPost)
-            .where(
-                ProcessedPost.status == PostStatus.APPROVED.value,
-                ProcessedPost.scheduled_at.isnot(None),
-                ProcessedPost.scheduled_at > now,
-            )
-            .options(joinedload(ProcessedPost.channel))
-            .order_by(ProcessedPost.scheduled_at.asc())
-            .limit(limit)
-        )
-        return list(result.scalars().unique().all())
-
     async def list_approved_by_channel(self, channel_id: int) -> list[ProcessedPost]:
         """Одобренные посты канала по порядку создания.
 
@@ -190,27 +167,6 @@ class ProcessedPostRepository:
             .order_by(ProcessedPost.created_at.asc())
         )
         return list(result.scalars().all())
-
-    async def get_last_scheduled_for_channel(
-        self, channel_id: int
-    ) -> datetime | None:
-        """Последний запланированный слот на канале.
-
-        Args:
-            channel_id: ID канала.
-
-        Returns:
-            datetime | None: максимальный scheduled_at.
-        """
-        result = await self._session.execute(
-            select(func.max(ProcessedPost.scheduled_at)).where(
-                ProcessedPost.channel_id == channel_id,
-                ProcessedPost.status == PostStatus.APPROVED.value,
-                ProcessedPost.scheduled_at.isnot(None),
-            )
-        )
-        value = result.scalar_one_or_none()
-        return value if isinstance(value, datetime) else None
 
     async def delete_by_id(self, post_id: int) -> bool:
         """Удаляет processed_post.
@@ -466,23 +422,28 @@ class ProcessedPostRepository:
         )
         return int(result.scalar_one())
 
-    async def list_scheduled_due(self) -> list[ProcessedPost]:
-        """Посты approved с наступившим scheduled_at.
+    async def get_next_approved_for_channel(
+        self, channel_id: int
+    ) -> ProcessedPost | None:
+        """Самый старый approved-пост канала (FIFO).
+
+        Args:
+            channel_id: ID канала.
 
         Returns:
-            list[ProcessedPost]: посты к публикации.
+            ProcessedPost | None: пост для публикации, если очередь непустая.
         """
-        now = datetime.now(UTC)
         result = await self._session.execute(
             select(ProcessedPost)
             .where(
+                ProcessedPost.channel_id == channel_id,
                 ProcessedPost.status == PostStatus.APPROVED.value,
-                ProcessedPost.scheduled_at.isnot(None),
-                ProcessedPost.scheduled_at <= now,
             )
             .options(joinedload(ProcessedPost.channel))
+            .order_by(ProcessedPost.created_at.asc())
+            .limit(1)
         )
-        return list(result.scalars().unique().all())
+        return result.scalars().first()
 
     async def exists_by_hash(self, channel_id: int, text_hash: str) -> bool:
         """Проверка дубликата публикации по хешу текста.

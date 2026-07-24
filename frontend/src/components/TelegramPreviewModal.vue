@@ -169,13 +169,13 @@ const mockViews = computed(() => {
 })
 
 const mockTime = computed(() => {
-  const iso = props.post?.scheduled_at || props.post?.created_at
+  const iso = props.post?.created_at
   if (!iso) return 'сейчас'
   return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 })
 
 const mockTimeReply = computed(() => {
-  const iso = props.post?.scheduled_at || props.post?.created_at
+  const iso = props.post?.created_at
   if (!iso) return 'сейчас'
   const d = new Date(iso)
   d.setMinutes(d.getMinutes() + 1)

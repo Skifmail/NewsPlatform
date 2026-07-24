@@ -29,16 +29,6 @@ class AttentionItem(BaseModel):
     severity: str = Field(pattern="^(info|warning|danger)$")
 
 
-class UpcomingPublication(BaseModel):
-    """Ближайшая запланированная публикация."""
-
-    id: int
-    channel_id: int
-    channel_name: str
-    scheduled_at: datetime
-    preview: str | None = None
-
-
 class TopChannelItem(BaseModel):
     """Краткая карточка канала для топа."""
 
@@ -82,7 +72,6 @@ class OverviewResponse(BaseModel):
 
     kpis: OverviewKpis
     attention: list[AttentionItem]
-    upcoming: list[UpcomingPublication]
     top_channels: list[TopChannelItem]
     recent_publications: list[RecentPublication]
     trend: list[OverviewTrendPoint]

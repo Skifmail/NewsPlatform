@@ -58,7 +58,6 @@ export const postsApi = {
   reject: (id, data) => api.patch(`/posts/${id}/reject`, data),
   publishNow: (id) => api.post(`/posts/${id}/publish_now`),
   refreshImage: (id) => api.post(`/posts/${id}/refresh-image`),
-  schedule: (id, data) => api.patch(`/posts/${id}/schedule`, data),
   bulkQueue: (data) => api.post('/posts/queue/bulk', data),
 }
 
@@ -75,7 +74,6 @@ export const channelsApi = {
   create: (data) => api.post('/channels', data),
   update: (id, data) => api.patch(`/channels/${id}`, data),
   remove: (id) => api.delete(`/channels/${id}`),
-  recalculateSchedule: (id) => api.post(`/channels/${id}/recalculate-schedule`),
   generateArticle: (id) => api.post(`/channels/${id}/generate-article`),
 }
 

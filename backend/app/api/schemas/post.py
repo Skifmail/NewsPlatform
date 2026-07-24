@@ -37,7 +37,6 @@ class ProcessedPostResponse(OrmSchema):
     image_source: str | None
     ai_model: str | None
     status: str
-    scheduled_at: datetime | None
     published_at: datetime | None
     rejection_reason: str | None
     last_publish_status: str | None = None
@@ -75,18 +74,11 @@ class RejectRequest(BaseModel):
     reason: str = Field(..., min_length=1)
 
 
-class ScheduleRequest(BaseModel):
-    """Запрос планирования."""
-
-    scheduled_at: datetime
-
-
 class UpdatePostRequest(BaseModel):
-    """Обновление текста и расписания поста."""
+    """Обновление текста поста."""
 
     rewritten_text: str | None = None
     generated_image_url: str | None = None
-    scheduled_at: datetime | None = None
 
 
 class ApprovedSummaryResponse(BaseModel):
