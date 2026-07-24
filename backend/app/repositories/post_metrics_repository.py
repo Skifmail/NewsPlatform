@@ -50,6 +50,11 @@ class PostMetricsRepository:
                 metric.comments if metric.comments is not None else existing.comments
             )
             existing.reach = metric.reach if metric.reach is not None else existing.reach
+            existing.reach_subscribers = (
+                metric.reach_subscribers
+                if metric.reach_subscribers is not None
+                else existing.reach_subscribers
+            )
             if metric.published_at is not None:
                 existing.published_at = metric.published_at
             existing.collected_at = metric.collected_at

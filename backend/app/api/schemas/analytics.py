@@ -148,6 +148,7 @@ class PostMetricResponse(OrmSchema):
     reactions: int | None
     comments: int | None
     reach: int | None
+    reach_subscribers: int | None = None
     published_at: datetime | None
     collected_at: datetime
     rewritten_text: str | None = None

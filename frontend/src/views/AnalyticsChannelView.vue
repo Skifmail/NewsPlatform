@@ -420,7 +420,12 @@
                   <td class="font-mono text-sm">{{ formatNum(post.reactions) }}</td>
                   <td class="font-mono text-sm">{{ formatNum(post.forwards) }}</td>
                   <td class="font-mono text-sm">{{ formatNum(post.comments) }}</td>
-                  <td class="font-mono text-sm">{{ formatNum(post.reach) }}</td>
+                  <td class="font-mono text-sm">
+                    <template v-if="post.reach != null && post.reach_subscribers != null">
+                      {{ formatNum(post.reach_subscribers) }}&nbsp;/&nbsp;{{ formatNum(post.reach - post.reach_subscribers) }}
+                    </template>
+                    <template v-else>{{ formatNum(post.reach) }}</template>
+                  </td>
                   <td class="whitespace-nowrap text-xs font-mono text-[var(--text-secondary)]">
                     {{ formatDate(post.collected_at) }}
                   </td>

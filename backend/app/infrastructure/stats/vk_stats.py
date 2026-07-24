@@ -33,7 +33,11 @@ def _vk_post_published_at(item: dict[str, Any]) -> datetime | None:
     return datetime.fromtimestamp(int(ts), tz=UTC)
 
 
-def _with_reach(metric: PostMetricDTO, reach: int | None) -> PostMetricDTO:
+def _with_reach(
+    metric: PostMetricDTO,
+    reach: int | None,
+    reach_subscribers: int | None,
+) -> PostMetricDTO:
     """Возвращает копию метрик с обновлённым охватом."""
     return PostMetricDTO(
         platform_post_id=metric.platform_post_id,
@@ -43,6 +47,7 @@ def _with_reach(metric: PostMetricDTO, reach: int | None) -> PostMetricDTO:
         reactions=metric.reactions,
         comments=metric.comments,
         reach=reach,
+        reach_subscribers=reach_subscribers,
         published_at=metric.published_at,
     )
 
@@ -80,7 +85,14 @@ def parse_vk_wall_post(payload: dict[str, Any]) -> PostMetricDTO | None:
     """
     if "error" in payload:
         return None
-    items = payload.get("response") or []
+    response = payload.get("response")
+    if not response:
+        return None
+    # API v5.199+: {"items": [...], "count": N}; older: [...]
+    if isinstance(response, dict):
+        items = response.get("items") or []
+    else:
+        items = response
     if not items:
         return None
     item = items[0]
@@ -105,22 +117,24 @@ def parse_vk_wall_post(payload: dict[str, Any]) -> PostMetricDTO | None:
     )
 
 
-def parse_vk_post_reach(payload: dict[str, Any]) -> int | None:
-    """Извлекает суммарный охват из stats.getPostReach.
+def parse_vk_post_reach(payload: dict[str, Any]) -> tuple[int | None, int | None]:
+    """Извлекает суммарный охват и охват подписчиков из stats.getPostReach.
 
     Args:
         payload: JSON VK API.
 
     Returns:
-        int | None: reach_total.
+        tuple[int | None, int | None]: (reach_total, reach_subscribers).
     """
     if "error" in payload:
-        return None
+        return None, None
     items = payload.get("response") or []
     if not items:
-        return None
+        return None, None
     stat = items[0]
-    return stat.get("reach_total") or stat.get("reach_subscribers")
+    reach_total = stat.get("reach_total") or stat.get("reach_subscribers")
+    reach_subs = stat.get("reach_subscribers")
+    return reach_total, reach_subs
 
 
 class VkStatsCollector(BaseStatsCollector):
@@ -219,11 +233,11 @@ class VkStatsCollector(BaseStatsCollector):
                 session, token, api_version, owner_id, pid
             )
             if metric:
-                reach = await self._fetch_reach(
+                reach, reach_subs = await self._fetch_reach(
                     session, token, api_version, owner_id, pid
                 )
-                if reach is not None:
-                    metric = _with_reach(metric, reach)
+                if reach is not None or reach_subs is not None:
+                    metric = _with_reach(metric, reach, reach_subs)
                 metrics.append(metric)
                 seen.add(pid)
 
@@ -266,8 +280,8 @@ class VkStatsCollector(BaseStatsCollector):
         api_version: str,
         owner_id: str,
         post_id: str,
-    ) -> int | None:
-        """Охват поста stats.getPostReach."""
+    ) -> tuple[int | None, int | None]:
+        """Охват поста stats.getPostReach. Возвращает (reach_total, reach_subscribers)."""
         params = {
             "access_token": token,
             "v": api_version,
@@ -280,7 +294,7 @@ class VkStatsCollector(BaseStatsCollector):
             logger.debug(
                 "VK stats.getPostReach failed", post_id=post_id, error=data["error"]
             )
-            return None
+            return None, None
         return parse_vk_post_reach(data)
 
     async def _fetch_recent_wall(
@@ -327,10 +341,10 @@ class VkStatsCollector(BaseStatsCollector):
                 else item.get("likes"),
                 published_at=_vk_post_published_at(item),
             )
-            reach = await self._fetch_reach(
+            reach, reach_subs = await self._fetch_reach(
                 session, token, api_version, owner_id, post_id
             )
-            if reach is not None:
-                metric = _with_reach(metric, reach)
+            if reach is not None or reach_subs is not None:
+                metric = _with_reach(metric, reach, reach_subs)
             result.append(metric)
         return result

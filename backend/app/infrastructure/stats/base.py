@@ -18,6 +18,7 @@ class PostMetricDTO:
     reactions: int | None = None
     comments: int | None = None
     reach: int | None = None
+    reach_subscribers: int | None = None
     published_at: datetime | None = None
 
 

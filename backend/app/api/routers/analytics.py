@@ -215,6 +215,7 @@ async def list_channel_post_metrics(
                 reactions=metric.reactions,
                 comments=metric.comments,
                 reach=metric.reach,
+                reach_subscribers=metric.reach_subscribers,
                 published_at=metric.published_at,
                 collected_at=metric.collected_at,
                 rewritten_text=post.rewritten_text if post else None,

@@ -691,6 +691,7 @@ class ChannelAnalyticsService:
             reactions=dto.reactions,
             comments=dto.comments,
             reach=dto.reach,
+            reach_subscribers=dto.reach_subscribers,
             published_at=published_at,
             collected_at=collected_at,
         )

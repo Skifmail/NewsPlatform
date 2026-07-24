@@ -33,6 +33,7 @@ class PostMetric(Base):
     reactions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     comments: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reach: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reach_subscribers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
