@@ -221,7 +221,7 @@ class ArticleWriter:
             user_prompt=prompt,
             max_tokens=_ARTICLE_MAX_TOKENS,
             temperature=0.5,
-            model=settings.deepseek_fast_model,
+            model=settings.deepseek_model,
             json_mode=True,
         )
         draft = self._parse_response(

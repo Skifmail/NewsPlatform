@@ -156,7 +156,7 @@ class TopicIdeationService:
             user_prompt=prompt,
             max_tokens=4000,
             temperature=0.85,
-            model=settings.deepseek_fast_model,
+            model=settings.deepseek_model,
             json_mode=True,
         )
         parsed = self._parse_response(result)

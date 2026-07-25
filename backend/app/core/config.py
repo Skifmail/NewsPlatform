@@ -16,11 +16,16 @@ _ENV_FILES: tuple[str, ...] = tuple(
 )
 
 # DeepSeek с ~24.07.2026 отвечает 400 на устаревшие имена моделей
-# (deepseek-chat / deepseek-reasoner). Ремапим их на актуальные, чтобы
-# устаревший env (в т.ч. восстановленный редеплоем) не ронял весь конвейер.
-_DEPRECATED_DEEPSEEK_MODELS: dict[str, str] = {
-    "deepseek-chat": "deepseek-v4-pro",
-    "deepseek-reasoner": "deepseek-v4-pro",
+# (deepseek-chat / deepseek-reasoner). Ремапим их на актуальные с учётом роли,
+# чтобы устаревший env (в т.ч. восстановленный редеплоем из панели Dokploy)
+# не ронял конвейер: главная модель → pro (качество, статьи), быстрая → flash
+# (дёшево, классификатор новостей).
+_DEPRECATED_DEEPSEEK_MODELS: frozenset[str] = frozenset(
+    {"deepseek-chat", "deepseek-reasoner"}
+)
+_MODEL_REPLACEMENT: dict[str, str] = {
+    "deepseek_model": "deepseek-v4-pro",
+    "deepseek_fast_model": "deepseek-v4-flash",
 }
 
 
@@ -150,10 +155,9 @@ class Settings(BaseSettings):
         Returns:
             Settings: настройки с валидными именами моделей.
         """
-        for attr in ("deepseek_model", "deepseek_fast_model"):
+        for attr, replacement in _MODEL_REPLACEMENT.items():
             current = getattr(self, attr)
-            replacement = _DEPRECATED_DEEPSEEK_MODELS.get(current)
-            if replacement:
+            if current in _DEPRECATED_DEEPSEEK_MODELS:
                 print(
                     f"[config] Устаревшая модель DeepSeek '{current}' "
                     f"заменена на '{replacement}' ({attr})",

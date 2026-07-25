@@ -88,7 +88,7 @@ class TopicPicker:
                 user_prompt=prompt,
                 max_tokens=4000,
                 temperature=0.2,
-                model=settings.deepseek_fast_model,
+                model=settings.deepseek_model,
             )
             parsed = self._parse_pick_response(result, set(post_by_id))
             if parsed is not None:
@@ -99,14 +99,14 @@ class TopicPicker:
                     raw_post_id=parsed.raw_post_id,
                     reason=parsed.reason,
                     candidates=len(candidates),
-                    model=settings.deepseek_fast_model,
+                    model=settings.deepseek_model,
                 )
                 return self._to_result(post, parsed.reason)
             logger.warning(
                 "Curated pick response not parsed: {preview}",
                 topic=topic,
                 candidates=len(candidates),
-                model=settings.deepseek_fast_model,
+                model=settings.deepseek_model,
                 preview=result[:500],
             )
         except Exception as exc:
