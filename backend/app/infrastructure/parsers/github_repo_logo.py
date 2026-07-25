@@ -41,8 +41,19 @@ _DECORATIVE_MARKERS = (
     "showcase",
     "share",
 )
+_THIRD_PARTY_MARKERS = (
+    "sponsor",
+    "sponsors",
+    "backer",
+    "backers",
+    "partner",
+    "partners",
+    "supporter",
+    "supporters",
+)
 _LOGO_MARKER_SET = frozenset(_LOGO_MARKERS)
 _DECORATIVE_MARKER_SET = frozenset(_DECORATIVE_MARKERS)
+_THIRD_PARTY_MARKER_SET = frozenset(_THIRD_PARTY_MARKERS)
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -318,6 +329,13 @@ class GitHubRepoLogoFetcher:
         # Токены по словам, а не substring: иначе "mark" (для wordmark)
         # ложно совпадает внутри "market", "denmark", "bookmark" и т.п.
         tokens = _tokenize(lowered_url) | _tokenize(lowered_alt)
+        # Жёсткое исключение: путь sponsors/backers/partners — это ЧУЖОЙ
+        # логотип (спонсора), даже если в его собственном имени файла есть
+        # слово logo/icon. У популярных репозиториев такие секции в README
+        # часто разрастаются в спам-стену ссылок (казино, "купи подписчиков"
+        # и т.п.) — ни один из этих файлов не может быть логотипом проекта.
+        if tokens & _THIRD_PARTY_MARKER_SET:
+            return 0
         # Без явного сигнала «это логотип» не угадываем — иначе первая же
         # декоративная картинка в README (обложка, скриншот) выигрывает по
         # умолчанию просто потому, что больше нечего сравнивать.

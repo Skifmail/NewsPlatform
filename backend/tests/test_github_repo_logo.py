@@ -42,3 +42,15 @@ def test_mark_does_not_match_inside_market() -> None:
 
 def test_wordmark_still_matches_as_whole_token() -> None:
     assert _score("https://example.com/assets/wordmark.svg", "") > 0
+
+
+def test_sponsor_logo_rejected_even_with_icon_marker() -> None:
+    """Regression: спам-стена спонсоров (Swiper) — 'icon' в имени чужого файла
+    не должен побеждать, путь sponsors/ — жёсткое исключение."""
+    assert (
+        _score(
+            "https://swiperjs.com/images/sponsors/ai-text-humanizer-icon.png",
+            "AI Text Humanizer",
+        )
+        == 0
+    )
