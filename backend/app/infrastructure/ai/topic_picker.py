@@ -86,7 +86,7 @@ class TopicPicker:
                     "Никакого текста до или после JSON."
                 ),
                 user_prompt=prompt,
-                max_tokens=512,
+                max_tokens=4000,
                 temperature=0.2,
                 model=settings.deepseek_fast_model,
             )

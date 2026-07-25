@@ -35,7 +35,7 @@ class TopicClassifier:
         result = await self._client.chat_completion(
             system_prompt=CLASSIFIER_SYSTEM_PROMPT,
             user_prompt=prompt,
-            max_tokens=16,
+            max_tokens=2000,
             temperature=0.0,
             model=settings.deepseek_fast_model,
         )

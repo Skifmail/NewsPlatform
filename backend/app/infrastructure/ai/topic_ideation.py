@@ -154,7 +154,7 @@ class TopicIdeationService:
         result = await self._client.chat_completion(
             system_prompt=_system_prompt(channel),
             user_prompt=prompt,
-            max_tokens=512,
+            max_tokens=4000,
             temperature=0.85,
             model=settings.deepseek_fast_model,
             json_mode=True,

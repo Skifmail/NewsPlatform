@@ -27,7 +27,7 @@ from app.utils.safe_format import safe_format
 
 # Лимит вывода deepseek-chat ≈8192 токена; длинный JSON с HTML не влезает в 12000 символов.
 _ARTICLE_OUTPUT_CHAR_CAP = 7500
-_ARTICLE_MAX_TOKENS = 8192
+_ARTICLE_MAX_TOKENS = 16000
 
 _DEFAULT_WRITING_PROMPT = """Ты — автор познавательных статей для Telegram-канала «{channel_name}».
 Стиль канала: {channel_niche}
