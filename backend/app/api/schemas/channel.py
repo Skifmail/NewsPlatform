@@ -37,6 +37,7 @@ class ChannelCreate(BaseModel):
     cross_promote_url: str | None = Field(None, max_length=512)
     cross_promote_label: str | None = Field(None, max_length=255)
     cross_promote_emoji_id: str | None = Field(None, max_length=32)
+    post_footer: str | None = None
     content_mode: str = Field("news", pattern="^(news|article)$")
     is_active: bool = True
     publish_times: str = Field(..., max_length=255)
@@ -58,6 +59,7 @@ class ChannelUpdate(BaseModel):
     cross_promote_url: str | None = Field(None, max_length=512)
     cross_promote_label: str | None = Field(None, max_length=255)
     cross_promote_emoji_id: str | None = Field(None, max_length=32)
+    post_footer: str | None = None
     content_mode: str | None = Field(None, pattern="^(news|article)$")
     is_active: bool | None = None
     publish_times: str | None = Field(None, max_length=255)
@@ -80,6 +82,7 @@ class ChannelResponse(OrmSchema):
     cross_promote_url: str | None
     cross_promote_label: str | None
     cross_promote_emoji_id: str | None
+    post_footer: str | None
     content_mode: str
     is_active: bool
     publish_times: str

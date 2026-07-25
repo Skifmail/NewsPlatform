@@ -94,6 +94,17 @@
                 class="input w-full mt-2 text-xs"
               />
             </template>
+            <label class="field-label mt-4">Футер поста</label>
+            <p class="field-hint mb-1">
+              Добавляется в конец каждого поста на любой платформе. Например,
+              призыв поставить реакцию и ссылка на канал.
+            </p>
+            <textarea
+              v-model="form.post_footer"
+              rows="3"
+              class="input w-full mt-1 text-xs"
+              placeholder="❤️ Ставьте реакцию, если понравилось!"
+            />
             <button type="submit" class="btn-primary mt-4">Добавить канал</button>
           </form>
         </div>
@@ -237,6 +248,18 @@
               </p>
             </template>
 
+            <label class="field-label mt-5">Футер поста</label>
+            <p class="field-hint mb-1">
+              Добавляется в конец каждого поста на любой платформе. Например,
+              призыв поставить реакцию и ссылка на канал.
+            </p>
+            <textarea
+              v-model="editForms[ch.id].post_footer"
+              rows="3"
+              class="input w-full text-xs mt-1"
+              placeholder="❤️ Ставьте реакцию, если понравилось!"
+            />
+
             <div class="article-schedule mt-5 pt-4 border-t border-panel-border">
               <h4 class="schedule-title">Расписание публикаций</h4>
               <label class="field-mini w-full">
@@ -312,6 +335,7 @@ const form = ref({
   cross_promote_url: '',
   cross_promote_label: '',
   cross_promote_emoji_id: '',
+  post_footer: '',
   publish_times: DEFAULT_PUBLISH_TIMES,
 })
 
@@ -349,6 +373,7 @@ function buildEditForm(ch) {
     cross_promote_url: ch.cross_promote_url || '',
     cross_promote_label: ch.cross_promote_label || '',
     cross_promote_emoji_id: ch.cross_promote_emoji_id || '',
+    post_footer: ch.post_footer || '',
     publish_times: ch.publish_times || '',
   }
 }
@@ -432,6 +457,7 @@ async function create() {
     cross_promote_url: '',
     cross_promote_label: '',
     cross_promote_emoji_id: '',
+    post_footer: '',
     publish_times: DEFAULT_PUBLISH_TIMES,
   }
   showNewForm.value = false
@@ -463,6 +489,7 @@ async function saveChannel(id) {
       cross_promote_url: payload.cross_promote_url?.trim() || null,
       cross_promote_label: payload.cross_promote_label?.trim() || null,
       cross_promote_emoji_id: payload.cross_promote_emoji_id?.trim() || null,
+      post_footer: payload.post_footer?.trim() || null,
       publish_times: payload.publish_times?.trim(),
     })
   } catch (e) {
