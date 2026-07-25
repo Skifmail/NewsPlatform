@@ -1,5 +1,6 @@
 """Выбор и генерация изображений для постов."""
 
+import base64
 from io import BytesIO
 
 import httpx
@@ -19,7 +20,7 @@ from app.infrastructure.ai.image_prompt_builder import (
     QWEN_NO_TEXT_NEGATIVE,
 )
 from app.infrastructure.ai.logo_compositor import build_github_logo_cover
-from app.infrastructure.media_store import is_local_media_url, read_media
+from app.infrastructure.media_store import is_local_media_url, read_media, save_media
 from app.infrastructure.ai.qwen_image_chain import (
     resolve_edit_models,
     resolve_generate_models,
@@ -373,13 +374,13 @@ class ImageService:
         return None
 
     async def _generate_dalle(self, prompt: str) -> str | None:
-        """Генерирует изображение через DALL-E (запасной вариант).
+        """Генерирует изображение через OpenAI gpt-image-1.
 
         Args:
             prompt: описание сцены.
 
         Returns:
-            str | None: URL изображения.
+            str | None: local:// URL изображения.
         """
         api_key = self._openai_db_key or get_settings().openai_api_key.strip()
         if not api_key:
@@ -387,17 +388,23 @@ class ImageService:
         try:
             client = AsyncOpenAI(api_key=api_key)
             response = await client.images.generate(
-                model="dall-e-3",
+                model="gpt-image-1",
                 prompt=(
                     f"{prompt[:900]}. "
                     "Absolutely no text, letters, words, captions or watermarks on the image."
                 ),
                 size="1024x1024",
+                quality="medium",
                 n=1,
             )
-            return response.data[0].url
+            b64 = response.data[0].b64_json
+            if not b64:
+                logger.warning("OpenAI image: empty b64_json")
+                return None
+            image_bytes = base64.b64decode(b64)
+            return save_media(image_bytes, "covers", ".png")
         except Exception as exc:
-            logger.error("DALL-E generation failed", error=str(exc))
+            logger.error("OpenAI image generation failed", error=str(exc))
             return None
 
     @staticmethod
