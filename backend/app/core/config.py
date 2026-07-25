@@ -1,9 +1,10 @@
 """Конфигурация приложения из переменных окружения."""
 
+import sys
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -13,6 +14,14 @@ _ENV_FILES: tuple[str, ...] = tuple(
     for p in (_ROOT_ENV, _BACKEND_DIR / ".env")
     if p.is_file()
 )
+
+# DeepSeek с ~24.07.2026 отвечает 400 на устаревшие имена моделей
+# (deepseek-chat / deepseek-reasoner). Ремапим их на актуальные, чтобы
+# устаревший env (в т.ч. восстановленный редеплоем) не ронял весь конвейер.
+_DEPRECATED_DEEPSEEK_MODELS: dict[str, str] = {
+    "deepseek-chat": "deepseek-v4-pro",
+    "deepseek-reasoner": "deepseek-v4-pro",
+}
 
 
 class Settings(BaseSettings):
@@ -54,7 +63,7 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_api_base: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-pro"
-    deepseek_fast_model: str = "deepseek-chat"
+    deepseek_fast_model: str = "deepseek-v4-flash"
 
     # Tavily (веб-поиск для статей)
     tavily_api_key: str = ""
@@ -129,6 +138,29 @@ class Settings(BaseSettings):
         if value == "" or value is None:
             return 0
         return value
+
+    @model_validator(mode="after")
+    def _remap_deprecated_models(self) -> "Settings":
+        """Заменяет устаревшие имена моделей DeepSeek на актуальные.
+
+        DeepSeek удалил `deepseek-chat`/`deepseek-reasoner` — вызовы с ними
+        падают 400 и останавливают весь конвейер. Ремап делает конфиг
+        самовосстанавливающимся, если такой env вернётся.
+
+        Returns:
+            Settings: настройки с валидными именами моделей.
+        """
+        for attr in ("deepseek_model", "deepseek_fast_model"):
+            current = getattr(self, attr)
+            replacement = _DEPRECATED_DEEPSEEK_MODELS.get(current)
+            if replacement:
+                print(
+                    f"[config] Устаревшая модель DeepSeek '{current}' "
+                    f"заменена на '{replacement}' ({attr})",
+                    file=sys.stderr,
+                )
+                object.__setattr__(self, attr, replacement)
+        return self
 
 
 @lru_cache

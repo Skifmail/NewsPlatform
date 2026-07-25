@@ -2,6 +2,7 @@
 
 from app.infrastructure.models.ad_integration import AdIntegration
 from app.infrastructure.models.ai_balance_snapshot import AiBalanceSnapshot
+from app.infrastructure.models.app_error_log import AppErrorLog
 from app.infrastructure.models.background_job import BackgroundJob
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.channel_stats_snapshot import ChannelStatsSnapshot
@@ -17,6 +18,7 @@ from app.infrastructure.models.telegram_broadcast_stats import TelegramBroadcast
 __all__ = [
     "AdIntegration",
     "AiBalanceSnapshot",
+    "AppErrorLog",
     "BackgroundJob",
     "Source",
     "RawPost",

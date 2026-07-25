@@ -39,3 +39,8 @@ def setup_logging() -> None:
             retention="14 days",
             encoding="utf-8",
         )
+
+    # Ошибки/предупреждения также складываем в БД для окна диагностики в панели.
+    from app.infrastructure.error_log_sink import register_db_error_sink
+
+    register_db_error_sink()

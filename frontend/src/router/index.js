@@ -7,6 +7,7 @@ import ChannelsView from '../views/ChannelsView.vue'
 import HistoryView from '../views/HistoryView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import JobsView from '../views/JobsView.vue'
+import LogsView from '../views/LogsView.vue'
 import MaterialsView from '../views/MaterialsView.vue'
 import ApprovedView from '../views/ApprovedView.vue'
 import AnalyticsView from '../views/AnalyticsView.vue'
@@ -20,6 +21,7 @@ const routes = [
   { path: '/approved', name: 'approved', component: ApprovedView },
   { path: '/materials', name: 'materials', component: MaterialsView },
   { path: '/jobs', name: 'jobs', component: JobsView },
+  { path: '/logs', name: 'logs', component: LogsView },
   { path: '/sources', name: 'sources', component: SourcesView },
   { path: '/channels', name: 'channels', component: ChannelsView },
   { path: '/analytics', name: 'analytics', component: AnalyticsView },

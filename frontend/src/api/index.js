@@ -117,6 +117,11 @@ export const jobsApi = {
   summary: () => api.get('/jobs/summary'),
 }
 
+export const logsApi = {
+  list: (params) => api.get('/logs', { params }),
+  health: () => api.get('/logs/health'),
+}
+
 export const rawPostsApi = {
   summary: () => api.get('/raw-posts/summary'),
   list: (params) => api.get('/raw-posts', { params }),

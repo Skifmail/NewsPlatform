@@ -42,3 +42,10 @@ celery_app.conf.update(
 
 # Статусы задач обновляются в теле задач (job_execution), не через signals:
 # run_async в signal-handler конфликтует с loop prefork worker.
+
+# Воркер/бит не вызывают setup_logging (loguru работает на дефолтном sink),
+# поэтому регистрируем БД-sink ошибок здесь — иначе ошибки конвейера,
+# которые происходят именно в воркере, не попадут в окно диагностики.
+from app.infrastructure.error_log_sink import register_db_error_sink  # noqa: E402
+
+register_db_error_sink()
