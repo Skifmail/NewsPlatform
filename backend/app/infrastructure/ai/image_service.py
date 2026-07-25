@@ -16,6 +16,8 @@ from app.infrastructure.ai.image_prompt_builder import (
     QWEN_NEWS_NEGATIVE,
     QWEN_NO_TEXT_NEGATIVE,
 )
+from app.infrastructure.ai.logo_compositor import build_github_logo_cover
+from app.infrastructure.media_store import is_local_media_url, read_media
 from app.infrastructure.ai.qwen_image_chain import (
     resolve_edit_models,
     resolve_generate_models,
@@ -202,6 +204,14 @@ class ImageService:
             repo_url
             and is_devtools_article_channel(channel.topic, channel.name)
         ):
+            composed = await build_github_logo_cover(repo_url)
+            if composed:
+                logger.info(
+                    "Github cover composed from real logo",
+                    repo_url=repo_url,
+                )
+                return composed, ImageSource.GENERATED.value
+
             parsed = parse_github_repo(repo_url)
             if parsed:
                 owner, repo = parsed
@@ -209,7 +219,7 @@ class ImageService:
                     f"https://opengraph.githubassets.com/1/{owner}/{repo}"
                 )
                 logger.info(
-                    "Using GitHub OG preview as article cover",
+                    "Logo composite unavailable, falling back to GitHub OG preview",
                     owner=owner,
                     repo=repo,
                     og_url=og_url,
@@ -409,6 +419,20 @@ class ImageService:
             bytes | None: JPEG bytes.
         """
         try:
+            if is_local_media_url(image_url):
+                # Обложка, собранная logo_compositor'ом на общем volume —
+                # уже готовый JPEG, без HTTP-скачивания.
+                raw = read_media(image_url)
+                if raw is None:
+                    logger.warning("Local media not found", url=image_url)
+                    return None
+                img = Image.open(BytesIO(raw))
+                img = img.convert("RGB")
+                img.thumbnail(max_size, Image.Resampling.LANCZOS)
+                buffer = BytesIO()
+                img.save(buffer, format="JPEG", quality=85)
+                return buffer.getvalue()
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(image_url)
                 resp.raise_for_status()

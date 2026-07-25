@@ -41,7 +41,9 @@ services:
 
   celery_worker:
     build: ./backend
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
+    # -Q celery,ai: единственный воркер в dev должен слушать обе очереди
+    # (в проде они разведены по разным контейнерам, см. docker-compose.prod.yml).
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q celery,ai
     env_file: .env
     environment:
       SKIP_MIGRATIONS: "1"

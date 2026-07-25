@@ -47,6 +47,7 @@ services:
     env_file: .env
     volumes:
       - telethon_session:/app/telethon_sessions
+      - media_data:/app/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +78,7 @@ services:
     env_file: .env
     volumes:
       - telethon_session:/app/telethon_sessions
+      - media_data:/app/media
     depends_on:
       backend:
         condition: service_healthy
@@ -95,6 +97,7 @@ services:
     env_file: .env
     volumes:
       - telethon_session:/app/telethon_sessions
+      - media_data:/app/media
     depends_on:
       backend:
         condition: service_healthy
@@ -140,3 +143,4 @@ volumes:
   postgres_data:
   redis_data:
   telethon_session:
+  media_data:
