@@ -130,7 +130,7 @@ class ContentRewriter:
             original_text=original[:4000],
         )
         settings = get_settings()
-        model = settings.deepseek_model
+        model = settings.deepseek_fast_model
 
         raw, finish_reason = await self._client.chat_completion_with_meta(
             system_prompt=_REWRITER_SYSTEM_PROMPT,

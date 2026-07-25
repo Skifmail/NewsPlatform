@@ -270,7 +270,7 @@ class ArticleWriter:
             user_prompt=prompt,
             max_tokens=_ARTICLE_MAX_TOKENS,
             temperature=0.5,
-            model=settings.deepseek_model,
+            model=settings.deepseek_fast_model,
             json_mode=True,
         )
         if finish_reason == "length":
