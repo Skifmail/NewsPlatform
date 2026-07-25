@@ -388,7 +388,7 @@ class ImageService:
         try:
             client = AsyncOpenAI(api_key=api_key)
             response = await client.images.generate(
-                model="gpt-image-1",
+                model="gpt-image-2",
                 prompt=(
                     f"{prompt[:900]}. "
                     "Absolutely no text, letters, words, captions or watermarks on the image."
