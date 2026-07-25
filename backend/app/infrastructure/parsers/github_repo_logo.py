@@ -29,6 +29,18 @@ _BADGE_MARKERS = (
     "vercel.app/badge",
 )
 _LOGO_MARKERS = ("logo", "brand", "wordmark", "icon", "emblem", "mark")
+# Декоративные hero/social-preview картинки из README иногда лежат рядом с
+# логотипом и проходят по расширению, но логотипом не являются — Excalidraw
+# и подобные репозитории кладут такой баннер прямо в начало README.
+_DECORATIVE_MARKERS = (
+    "cover",
+    "banner",
+    "hero",
+    "social",
+    "preview",
+    "showcase",
+    "share-",
+)
 _RASTER_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 _USER_AGENT = "Mozilla/5.0 (compatible; NewsPlatform/1.0)"
@@ -295,9 +307,12 @@ class GitHubRepoLogoFetcher:
             return 0
         lowered_url = url.lower()
         lowered_alt = alt.lower()
-        score = 10
-        if any(marker in lowered_url or marker in lowered_alt for marker in _LOGO_MARKERS):
-            score += 80
+        # Без явного сигнала «это логотип» не угадываем — иначе первая же
+        # декоративная картинка в README (обложка, скриншот) выигрывает по
+        # умолчанию просто потому, что больше нечего сравнивать.
+        if not any(marker in lowered_url or marker in lowered_alt for marker in _LOGO_MARKERS):
+            return 0
+        score = 90
         if lowered_url.endswith(_RASTER_SUFFIXES):
             score += 20
         if lowered_url.endswith(".svg"):
@@ -306,6 +321,8 @@ class GitHubRepoLogoFetcher:
             score -= 40
         if "screenshot" in lowered_url or "demo" in lowered_url:
             score -= 30
+        if any(marker in lowered_url for marker in _DECORATIVE_MARKERS):
+            score -= 70
         return max(score, 0)
 
     async def _url_is_raster_image(self, url: str) -> bool:
