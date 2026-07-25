@@ -57,6 +57,23 @@ _WRITER_IMAGE_FIELD_HINT = (
     "текстом на картинке."
 )
 
+# Для открыточного канала: разнообразные художественные стили и палитры под повод.
+_POSTCARD_WRITER_HINT = (
+    "Поле image_prompt: 2–3 предложения на английском — детальное описание "
+    "художественной открытки. "
+    "1) Выбери один стиль под повод: watercolor painting, oil painting, "
+    "soft pastel illustration, gouache illustration, pencil sketch with color wash, "
+    "vintage botanical illustration, folk art, or impressionist painting. "
+    "2) Цветовая палитра под настроение: тёплые золотые/персиковые тона для "
+    "праздников и юбилеев; розово-красные для любви и романтики; "
+    "зелёно-цветочные для весны и природы; серебристо-синие для зимы и Нового года; "
+    "жёлто-оранжевые для осени и уюта. "
+    "3) Конкретные визуальные символы повода: цветы, ветки, листья, свечи, "
+    "природные объекты, предметы интерьера. "
+    "Мягкий свет, уютная атмосфера, профессиональная открыточная композиция. "
+    "Без людей, лиц, текста, цифр, надписей."
+)
+
 _PARAGRAPH_WRITER_HINT = (
     "Поле image_prompt: 3–4 предложения на английском — детальное описание "
     "образовательной иллюстрации с реальными объектами из статьи. "
@@ -85,8 +102,11 @@ class ImagePromptBuilder:
     @staticmethod
     def writer_image_guidelines(channel: Channel) -> str:
         """Краткая инструкция для поля image_prompt в ArticleWriter."""
-        if "параграф" in (channel.name or "").lower():
+        name = (channel.name or "").lower()
+        if "параграф" in name:
             return _PARAGRAPH_WRITER_HINT
+        if "открытк" in name:
+            return _POSTCARD_WRITER_HINT
         return _WRITER_IMAGE_FIELD_HINT
 
     @staticmethod

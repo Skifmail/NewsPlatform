@@ -121,6 +121,25 @@ _POSTCARD_SYSTEM_PROMPT = (
     "Ответь только валидным JSON с ключами title, teaser, body_html, image_prompt."
 )
 
+# Полностью отдельный промпт для открыточного канала — не аппенд к шаблону статьи,
+# чтобы модель не видела конфликтующих инструкций «2500+ символов, 5 разделов».
+_POSTCARD_WRITING_PROMPT = """Ты — автор коротких открыток для Telegram-канала «{channel_name}».
+Стиль канала: {channel_niche}
+
+Повод/тема: {topic}
+
+Напиши открытку-поздравление. Ответь строго одним JSON-объектом с ключами:
+
+"title"     — краткое название повода, 3–7 слов (для внутренней дедупликации тем, в посте не показывается).
+"teaser"    — ОСНОВНОЙ ТЕКСТ ОТКРЫТКИ: 1–2 тёплых живых предложения.
+              Много уместных эмодзи (3–6 штук по тексту, не подряд друг за другом).
+              Без хэштегов. Без канцелярских клише («поздравляем вас с этим замечательным...»).
+              Максимум {teaser_max_length} символов.
+"body_html" — ОДНА короткая строка-продолжение (до 100 символов): строчка стиха, второе
+              пожелание или тёплая фраза. Без тегов <b>/<i>. НЕ повторяет teaser.
+              Если нечего добавить — пустая строка "".
+"image_prompt" — {image_guidelines}"""
+
 
 class ArticleWriter:
     """Генерирует длинную статью по результатам исследования."""
@@ -247,15 +266,24 @@ class ArticleWriter:
         devtools = is_devtools_article_channel(channel.topic, channel.name)
         paragraph = is_paragraph_article_channel(channel.name)
         postcard = is_postcard_article_channel(channel.name)
-        if devtools:
+        if postcard:
+            # Полностью заменяем шаблон статьи — иначе модель видит конфликт
+            # «2500+ символов, 5 разделов» vs «1-2 предложения» и пишет статью.
+            prompt = safe_format(
+                _POSTCARD_WRITING_PROMPT,
+                channel_name=channel.name,
+                channel_niche=niche,
+                topic=topic,
+                teaser_max_length=teaser_max_length,
+                image_guidelines=image_guidelines,
+            )
+        elif devtools:
             prompt = (
                 f"{prompt}\n\n"
                 f"{devtools_writing_instructions(teaser_max_length, recent_hooks=recent_hooks)}"
             )
         elif paragraph:
             prompt = f"{prompt}\n\n{paragraph_writing_instructions(teaser_max_length)}"
-        elif postcard:
-            prompt = f"{prompt}\n\n{postcard_writing_instructions(teaser_max_length)}"
         if devtools:
             system_prompt = _DEVTOOLS_SYSTEM_PROMPT
         elif paragraph:
