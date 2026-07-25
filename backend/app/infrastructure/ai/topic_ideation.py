@@ -2,6 +2,7 @@
 
 import json
 import re
+from datetime import date
 
 from loguru import logger
 
@@ -17,23 +18,17 @@ from app.utils.safe_format import safe_format
 
 _MAX_IDEATION_ATTEMPTS = 5
 
-_POSTCARD_IDEATION_PROMPT = """Ты — редактор канала открыток «{channel_name}».
+_POSTCARD_IDEATION_PROMPT = """Канал открыток «{channel_name}». Сегодня {current_date}.
 
-Недавние поводы (НЕЛЬЗЯ повторять и перефразировать):
+Уже были (НЕ повторять):
 {recent_topics}
 
-Придумай ОДИН свежий повод для тёплой открытки. Поводы из реальной жизни:
-— Утро / хорошего дня / добрый вечер / доброй ночи
-— День рождения, юбилей, именины
-— Начало недели / пятница / выходные
-— Смена сезона или погода (первый снег, летний дождь, осень, весна)
-— «Всё будет хорошо», «ты справишься», «верь в себя»
-— Дружба, любовь, забота, благодарность, «думаю о тебе», «скучаю»
-— Праздники: Новый год, 8 марта, 23 февраля, 14 февраля и др.
-— Просто так: «улыбнись», «ты прекрасна», «ты лучший»
+Придумай ОДИН повод для открытки, подходящий текущему сезону.
+Примеры: доброе утро, хороший день, день рождения, выходные, дружба,
+любовь, «верь в себя», праздники по сезону, просто так.
 
-Ответь строго JSON одной строкой:
-{{"topic": "краткий повод 3–6 слов", "angle": "настроение и пожелание в 1 предложении", "search_queries": []}}"""
+JSON одной строкой:
+{{"topic": "повод 3–6 слов", "angle": "настроение в 1 предложении", "search_queries": []}}"""
 
 _DEFAULT_IDEATION_PROMPT = """Ты — редактор познавательного Telegram-канала «{channel_name}».
 Ниша канала: {channel_niche}
@@ -170,6 +165,7 @@ class TopicIdeationService:
                 channel_name=channel.name,
                 channel_niche=niche,
                 recent_topics=recent,
+                current_date=date.today().strftime("%d.%m.%Y"),
             )
         elif is_devtools_article_channel(channel.topic, channel.name):
             prompt = f"{prompt}\n\n{_devtools_ideation_extra(candidate_repos)}"
@@ -254,13 +250,7 @@ def _system_prompt(channel: Channel) -> str:
         str: системная инструкция.
     """
     if is_postcard_article_channel(channel.name, channel.topic if hasattr(channel, "topic") else ""):
-        return (
-            "Ты редактор канала тёплых открыток. "
-            "Придумывай живые поводы из реальной жизни: праздники, настроение, "
-            "пожелания близким, смена сезона. "
-            "Никогда не повторяй и не перефразируй недавние поводы. "
-            "Ответь только JSON с полями topic, angle, search_queries."
-        )
+        return "Ты придумываешь поводы для открыток. Ответь JSON."
     base = (
         "Ты придумываешь темы для познавательных статей. "
         "Никогда не повторяй и не перефразируй недавние темы. "
