@@ -27,7 +27,34 @@ from app.utils.safe_format import safe_format
 
 # Лимит вывода deepseek-chat ≈8192 токена; длинный JSON с HTML не влезает в 12000 символов.
 _ARTICLE_OUTPUT_CHAR_CAP = 7500
-_ARTICLE_MAX_TOKENS = 16000
+_ARTICLE_MAX_TOKENS = 32000
+
+# Завершающая предложение пунктуация — чтобы не обрывать статью на полуслове.
+_SENTENCE_ENDINGS = ".!?…»"
+
+
+def _trim_to_last_sentence(text: str) -> str:
+    """Обрезает текст до последнего завершённого предложения.
+
+    Применяется, когда тело обрезано по max_tokens или по символьному лимиту —
+    чтобы статья заканчивалась законченной мыслью, а не «…» на полуслове.
+
+    Args:
+        text: тело статьи (HTML).
+
+    Returns:
+        str: тело, оканчивающееся полным предложением.
+    """
+    stripped = text.rstrip()
+    if not stripped or stripped[-1] in _SENTENCE_ENDINGS:
+        return stripped
+    best = max((stripped.rfind(ch) for ch in _SENTENCE_ENDINGS), default=-1)
+    if best == -1:
+        return stripped
+    tail = stripped[best + 1 :]
+    match = re.match(r'["»)]*(?:</[a-zA-Z0-9]+>)*', tail)
+    end = best + 1 + (match.end() if match else 0)
+    return stripped[:end].rstrip()
 
 _DEFAULT_WRITING_PROMPT = """Ты — автор познавательных статей для Telegram-канала «{channel_name}».
 Стиль канала: {channel_niche}
@@ -216,7 +243,7 @@ class ArticleWriter:
         else:
             system_prompt = _SYSTEM_PROMPT
         settings = get_settings()
-        result = await self._client.chat_completion(
+        result, finish_reason = await self._client.chat_completion_with_meta(
             system_prompt=system_prompt,
             user_prompt=prompt,
             max_tokens=_ARTICLE_MAX_TOKENS,
@@ -224,12 +251,19 @@ class ArticleWriter:
             model=settings.deepseek_model,
             json_mode=True,
         )
+        if finish_reason == "length":
+            logger.warning(
+                "Article truncated by max_tokens — обрежем по последнему предложению",
+                chars=len(result),
+                max_tokens=_ARTICLE_MAX_TOKENS,
+            )
         draft = self._parse_response(
             result,
             body_max_length,
             teaser_max_length,
             channel=channel,
             research_context=research_context,
+            truncated=finish_reason == "length",
         )
         if draft is None:
             logger.warning(
@@ -247,6 +281,7 @@ class ArticleWriter:
         *,
         channel: Channel | None = None,
         research_context: str = "",
+        truncated: bool = False,
     ) -> ArticleDraft | None:
         """Парсит JSON-ответ модели.
 
@@ -272,8 +307,10 @@ class ArticleWriter:
         image_prompt = str(data.get("image_prompt", "")).strip()
         if not title or not body:
             return None
+        if truncated:
+            body = _trim_to_last_sentence(body)
         if len(body) > body_max_length:
-            body = f"{body[: body_max_length - 1].rstrip()}…"
+            body = _trim_to_last_sentence(body[:body_max_length])
         if channel and is_devtools_article_channel(channel.topic, channel.name):
             teaser = build_devtools_teaser(
                 data,
@@ -294,6 +331,18 @@ class ArticleWriter:
         repo_url = str(data.get("repo_url") or "").strip()
         if not repo_url and research_context:
             repo_url = extract_github_url(research_context)
+        # Для github-находок ссылка на репозиторий обязана быть в теле статьи,
+        # а не только в тизере — модель её часто не добавляет.
+        if (
+            repo_url
+            and channel is not None
+            and is_devtools_article_channel(channel.topic, channel.name)
+            and "github.com" not in body.lower()
+        ):
+            body = (
+                f'{body}\n\n<b>🔗 Репозиторий:</b> '
+                f'<a href="{repo_url}">{repo_url}</a>'
+            )
         return ArticleDraft(
             title=title,
             teaser=teaser,
