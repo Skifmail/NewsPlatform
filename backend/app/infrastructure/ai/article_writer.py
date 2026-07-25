@@ -19,6 +19,10 @@ from app.infrastructure.ai.paragraph_teaser_formatter import (
     is_paragraph_article_channel,
     paragraph_writing_instructions,
 )
+from app.infrastructure.ai.postcard_teaser_formatter import (
+    is_postcard_article_channel,
+    postcard_writing_instructions,
+)
 from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.models.channel import Channel
 from app.utils.text_format import normalize_telegram_html
@@ -31,6 +35,12 @@ _ARTICLE_MAX_TOKENS = 32000
 
 # Завершающая предложение пунктуация — чтобы не обрывать статью на полуслове.
 _SENTENCE_ENDINGS = ".!?…»"
+
+# Открытка — 1-2 предложения + короткая доп.строка, а не статья. Платформенные
+# лимиты длины (article_body_max_length) общие для всех article-каналов и для
+# devtools/paragraph намного больше — модели нельзя доверять числа из базового
+# шаблона (там всё ещё "2500+ символов"), поэтому режем жёстко в коде.
+_POSTCARD_BODY_HARD_CAP = 150
 
 
 def _trim_to_last_sentence(text: str) -> str:
@@ -102,6 +112,13 @@ _PARAGRAPH_SYSTEM_PROMPT = (
     "Пиши увлекательно, но строго по фактам из исследования. "
     "Ответь только валидным JSON с ключами: title, teaser, body_html, image_prompt, "
     "hook, quote, closing."
+)
+
+_POSTCARD_SYSTEM_PROMPT = (
+    "Ты автор коротких открыток-поздравлений на русском для канала «Открытки». "
+    "Пиши тепло и от души, коротко — это открытка на 1-2 предложения, не статья. "
+    "Много уместных эмодзи. "
+    "Ответь только валидным JSON с ключами title, teaser, body_html, image_prompt."
 )
 
 
@@ -229,6 +246,7 @@ class ArticleWriter:
         )
         devtools = is_devtools_article_channel(channel.topic, channel.name)
         paragraph = is_paragraph_article_channel(channel.name)
+        postcard = is_postcard_article_channel(channel.name)
         if devtools:
             prompt = (
                 f"{prompt}\n\n"
@@ -236,10 +254,14 @@ class ArticleWriter:
             )
         elif paragraph:
             prompt = f"{prompt}\n\n{paragraph_writing_instructions(teaser_max_length)}"
+        elif postcard:
+            prompt = f"{prompt}\n\n{postcard_writing_instructions(teaser_max_length)}"
         if devtools:
             system_prompt = _DEVTOOLS_SYSTEM_PROMPT
         elif paragraph:
             system_prompt = _PARAGRAPH_SYSTEM_PROMPT
+        elif postcard:
+            system_prompt = _POSTCARD_SYSTEM_PROMPT
         else:
             system_prompt = _SYSTEM_PROMPT
         settings = get_settings()
@@ -309,7 +331,10 @@ class ArticleWriter:
             return None
         if truncated:
             body = _trim_to_last_sentence(body)
-        if len(body) > body_max_length:
+        if channel and is_postcard_article_channel(channel.name):
+            if len(body) > _POSTCARD_BODY_HARD_CAP:
+                body = _trim_to_last_sentence(body[:_POSTCARD_BODY_HARD_CAP])
+        elif len(body) > body_max_length:
             body = _trim_to_last_sentence(body[:body_max_length])
         if channel and is_devtools_article_channel(channel.topic, channel.name):
             teaser = build_devtools_teaser(
