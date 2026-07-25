@@ -300,9 +300,9 @@ class ImageService:
         return await self._generate_dalle(prompt)
 
     async def _generate_with_dalle_primary(self, prompt: str | None) -> str | None:
-        """Генерирует изображение: DALL-E 3 → fallback Qwen.
+        """Генерирует изображение: OpenAI gpt-image-2 → fallback Qwen.
 
-        Используется для образовательных каналов (ПАРАГРАФ), где DALL-E 3
+        Используется для образовательных каналов (ПАРАГРАФ), где OpenAI
         значительно лучше справляется с детальными научными иллюстрациями.
 
         Args:
@@ -345,7 +345,7 @@ class ImageService:
         return await self._generate_dalle(prompt)
 
     async def _generate_ai_image(self, prompt: str) -> str | None:
-        """Генерирует изображение: Qwen-Image → fallback DALL-E.
+        """Генерирует изображение: Qwen-Image → fallback OpenAI.
 
         Args:
             prompt: текстовый промпт.
@@ -374,7 +374,7 @@ class ImageService:
         return None
 
     async def _generate_dalle(self, prompt: str) -> str | None:
-        """Генерирует изображение через OpenAI gpt-image-1.
+        """Генерирует изображение через OpenAI gpt-image-2.
 
         Args:
             prompt: описание сцены.

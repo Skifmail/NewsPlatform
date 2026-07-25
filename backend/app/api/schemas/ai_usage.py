@@ -87,9 +87,13 @@ class QwenImageUsage(BaseModel):
 
 
 class OpenAIUsage(BaseModel):
-    """Статус запасного OpenAI (DALL-E)."""
+    """Статус OpenAI (gpt-image-2)."""
 
     configured: bool
+    total_spent_30d: float | None = None
+    currency: str | None = None
+    daily_costs: list[dict] | None = None
+    error: str | None = None
     note: str = ""
 
 

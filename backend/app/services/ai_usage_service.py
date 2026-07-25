@@ -46,6 +46,7 @@ from app.infrastructure.search.tavily_key_chain import (
     parse_bool_setting,
     resolve_keys,
 )
+from app.infrastructure.ai.openai_key_chain import active_openai_key
 from app.services.platform_settings_service import PlatformSettingsService
 
 _CACHE_KEY = "ai_usage:snapshot"
@@ -400,17 +401,72 @@ async def _fetch_qwen_image(session: AsyncSession) -> QwenImageUsage:
     )
 
 
-def _fetch_openai() -> OpenAIUsage:
-    configured = _is_configured(get_settings().openai_api_key)
-    return OpenAIUsage(
-        configured=configured,
-        note=(
-            "Запасной DALL-E. Остаток кредитов OpenAI через API недоступен — "
-            "смотрите billing.openai.com."
-            if configured
-            else "OPENAI_API_KEY не задан (используется только как fallback)."
-        ),
-    )
+async def _fetch_openai(session: AsyncSession) -> OpenAIUsage:
+    settings = get_settings()
+    env_configured = _is_configured(settings.openai_api_key)
+
+    merged = await PlatformSettingsService(session).get_merged()
+    db_key = active_openai_key(merged.get("openai_api_keys"))
+    api_key = db_key or (settings.openai_api_key.strip() if env_configured else "")
+
+    configured = bool(api_key and _is_configured(api_key))
+    if not configured:
+        return OpenAIUsage(configured=False, note="Ключ OpenAI не задан")
+
+    now = datetime.now(UTC)
+    start = int((now - timedelta(days=30)).timestamp())
+    end = int(now.timestamp())
+    url = f"https://api.openai.com/v1/organization/costs?start_time={start}&end_time={end}&bucket_width=1d"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "application/json",
+                },
+            )
+        if resp.status_code in (401, 403):
+            return OpenAIUsage(
+                configured=True,
+                note="Ключ не имеет доступа к billing API — проверяйте расходы на platform.openai.com",
+            )
+        if resp.status_code != 200:
+            return OpenAIUsage(
+                configured=True,
+                error=f"OpenAI API: HTTP {resp.status_code}",
+            )
+        data = resp.json()
+        buckets = data.get("data") or []
+        total = 0.0
+        daily: list[dict] = []
+        currency = "USD"
+        for bucket in buckets:
+            results = bucket.get("results") or []
+            day_total = 0.0
+            for r in results:
+                amount = r.get("amount") or {}
+                val = amount.get("value") or 0.0
+                day_total += float(val)
+                if amount.get("currency"):
+                    currency = amount["currency"]
+            total += day_total
+            daily.append({
+                "date": bucket.get("start_time", ""),
+                "amount": round(day_total, 4),
+            })
+        return OpenAIUsage(
+            configured=True,
+            total_spent_30d=round(total, 2),
+            currency=currency,
+            daily_costs=daily,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("OpenAI costs fetch failed", error=str(exc))
+        return OpenAIUsage(
+            configured=True,
+            error="Не удалось связаться с OpenAI API",
+        )
 
 
 async def _local_stats(session: AsyncSession) -> LocalUsageStats:
@@ -485,7 +541,7 @@ class AiUsageService:
             deepseek=deepseek,
             tavily=await _fetch_tavily(self._session),
             qwen_image=await _fetch_qwen_image(self._session),
-            openai=_fetch_openai(),
+            openai=await _fetch_openai(self._session),
             local=await _local_stats(self._session),
         )
         self._write_cache(payload)

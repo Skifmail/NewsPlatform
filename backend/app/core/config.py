@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # Telegraph (полный текст статей)
     telegraph_access_token: str = ""
 
-    # OpenAI (optional, fallback DALL-E)
+    # OpenAI (optional, gpt-image-2)
     openai_api_key: str = ""
 
     # Qwen-Image (DashScope) — основная генерация обложек

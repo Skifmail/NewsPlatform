@@ -263,21 +263,34 @@
 
         <article class="ai-usage-card ai-usage-card-openai">
           <h3 class="ai-usage-card-title">OpenAI</h3>
-          <p class="ai-usage-card-sub">DALL-E · обложки для открыток и Параграфа</p>
+          <p class="ai-usage-card-sub">GPT Image 2 · обложки для открыток и Параграфа</p>
 
-          <p class="ai-usage-muted">
-            <span :class="(aiUsage.openai.configured || openaiKeys.length) ? 'badge-accent' : 'badge-muted'">
-              {{ (aiUsage.openai.configured || openaiKeys.length) ? 'Ключ задан' : 'Не используется' }}
-            </span>
-            <span v-if="aiUsage.openai.configured" class="ai-usage-muted" style="margin-left:.5em">
-              (.env)
-            </span>
-          </p>
+          <template v-if="aiUsage.openai.error">
+            <p class="ai-usage-error-inline">{{ aiUsage.openai.error }}</p>
+          </template>
+          <template v-else-if="aiUsage.openai.total_spent_30d != null">
+            <p class="ai-usage-balance">
+              {{ aiUsage.openai.total_spent_30d.toFixed(2) }}
+              <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
+              <span class="ai-usage-muted" style="margin-left:.4em">за 30 дней</span>
+            </p>
+          </template>
+          <template v-else>
+            <p class="ai-usage-muted">
+              <span :class="(aiUsage.openai.configured || openaiKeys.length) ? 'badge-accent' : 'badge-muted'">
+                {{ (aiUsage.openai.configured || openaiKeys.length) ? 'Ключ задан' : 'Не используется' }}
+              </span>
+              <span v-if="aiUsage.openai.configured" class="ai-usage-muted" style="margin-left:.5em">
+                (.env)
+              </span>
+            </p>
+          </template>
+          <p v-if="aiUsage.openai.note" class="ai-usage-muted">{{ aiUsage.openai.note }}</p>
 
           <div class="tavily-keys-block">
             <p class="ai-usage-kpi-label">Ключи из панели</p>
             <p class="ai-usage-muted ai-usage-explainer">
-              Первый включённый ключ используется для генерации DALL-E.
+              Первый включённый ключ используется для генерации GPT Image 2.
               Переключайте тумблером — выключенные ключи не расходуются.
             </p>
 
