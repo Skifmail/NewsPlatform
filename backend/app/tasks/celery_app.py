@@ -32,6 +32,16 @@ celery_app.conf.update(
     worker_cancel_long_running_tasks_on_connection_loss=True,
     task_default_retry_delay=60,
     task_max_retries=5,
+    # Тяжёлые AI-вызовы (DeepSeek + веб-ресёрч + генерация картинок) — в свою
+    # очередь, чтобы длинная генерация статьи (~1-2 мин) не держала в очереди
+    # быстрые задачи (публикация, парсинг, аналитика — секунды). Своя очередь
+    # также сохраняет вызовы DeepSeek серийными (rate-limit 1 req/sec общий
+    # на процесс) — параллелить их нельзя.
+    task_default_queue="celery",
+    task_routes={
+        "app.tasks.ai_tasks.process_post": {"queue": "ai"},
+        "app.tasks.article_tasks.generate_article": {"queue": "ai"},
+    },
     beat_schedule={
         "platform-scheduler-tick": {
             "task": "app.tasks.scheduler_tasks.platform_scheduler_tick",

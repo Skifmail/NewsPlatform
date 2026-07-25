@@ -63,6 +63,9 @@ services:
       retries: 5
       start_period: 40s
 
+  # Тяжёлые AI-задачи (рерайт новостей, генерация статей): DeepSeek + веб-ресёрч
+  # + картинки, минуты на задачу. Серийно (concurrency=1) — сохраняет
+  # rate-limit DeepSeek (1 req/sec на процесс) и не даёт AI-вызовам конкурировать.
   celery_worker:
     build:
       context: ./backend
@@ -70,7 +73,25 @@ services:
     restart: unless-stopped
     environment:
       SKIP_MIGRATIONS: "1"
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=1
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=1 -Q ai --hostname=worker-ai@%h
+    env_file: .env
+    volumes:
+      - telethon_session:/app/telethon_sessions
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # Быстрые задачи (публикация, парсинг источников, статистика, ретеншн,
+  # тик планировщика) — секунды на задачу. Отдельный воркер, чтобы они не
+  # ждали за долгой AI-генерацией в celery_worker.
+  celery_worker_fast:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SKIP_MIGRATIONS: "1"
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 -Q celery --hostname=worker-fast@%h
     env_file: .env
     volumes:
       - telethon_session:/app/telethon_sessions
