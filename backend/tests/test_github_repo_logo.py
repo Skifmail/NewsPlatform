@@ -33,3 +33,12 @@ def test_avatar_penalized_below_plain_logo() -> None:
     assert _score("https://example.com/logo-avatar.png", "") < _score(
         "https://example.com/logo.png", ""
     )
+
+
+def test_mark_does_not_match_inside_market() -> None:
+    """Regression: substring-match ловил 'mark' внутри 'market' (sponsor logo)."""
+    assert _score("https://example.com/images/sponsors/ss-market.png", "") == 0
+
+
+def test_wordmark_still_matches_as_whole_token() -> None:
+    assert _score("https://example.com/assets/wordmark.svg", "") > 0

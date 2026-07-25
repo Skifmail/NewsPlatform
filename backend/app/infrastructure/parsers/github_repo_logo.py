@@ -39,8 +39,16 @@ _DECORATIVE_MARKERS = (
     "social",
     "preview",
     "showcase",
-    "share-",
+    "share",
 )
+_LOGO_MARKER_SET = frozenset(_LOGO_MARKERS)
+_DECORATIVE_MARKER_SET = frozenset(_DECORATIVE_MARKERS)
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _tokenize(text: str) -> frozenset[str]:
+    """Разбивает строку на словарные токены (для точного, не substring, matching)."""
+    return frozenset(_TOKEN_RE.findall(text))
 _RASTER_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 _USER_AGENT = "Mozilla/5.0 (compatible; NewsPlatform/1.0)"
@@ -307,10 +315,13 @@ class GitHubRepoLogoFetcher:
             return 0
         lowered_url = url.lower()
         lowered_alt = alt.lower()
+        # Токены по словам, а не substring: иначе "mark" (для wordmark)
+        # ложно совпадает внутри "market", "denmark", "bookmark" и т.п.
+        tokens = _tokenize(lowered_url) | _tokenize(lowered_alt)
         # Без явного сигнала «это логотип» не угадываем — иначе первая же
         # декоративная картинка в README (обложка, скриншот) выигрывает по
         # умолчанию просто потому, что больше нечего сравнивать.
-        if not any(marker in lowered_url or marker in lowered_alt for marker in _LOGO_MARKERS):
+        if not tokens & _LOGO_MARKER_SET:
             return 0
         score = 90
         if lowered_url.endswith(_RASTER_SUFFIXES):
@@ -321,7 +332,7 @@ class GitHubRepoLogoFetcher:
             score -= 40
         if "screenshot" in lowered_url or "demo" in lowered_url:
             score -= 30
-        if any(marker in lowered_url for marker in _DECORATIVE_MARKERS):
+        if tokens & _DECORATIVE_MARKER_SET:
             score -= 70
         return max(score, 0)
 
