@@ -10,7 +10,9 @@ from PIL import Image
 from app.core.config import get_settings
 from app.domain.enums import ImageSource
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
+from app.infrastructure.ai.openai_key_chain import active_openai_key
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
+from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
 from app.infrastructure.ai.image_prompt_builder import (
     ImagePromptBuilder,
     QWEN_NEWS_NEGATIVE,
@@ -61,19 +63,23 @@ class ImageService:
         *,
         generate_models: list[str] | None = None,
         edit_models: list[str] | None = None,
+        openai_db_key: str | None = None,
     ) -> None:
         self._qwen = QwenImageClient()
         self._generate_models = generate_models
         self._edit_models = edit_models
+        self._openai_db_key = openai_db_key
 
     @classmethod
     def from_settings_dict(cls, merged: dict[str, str] | None = None) -> "ImageService":
         """Создаёт сервис с цепочками моделей из настроек платформы."""
         generate_raw = merged.get("qwen_image_models") if merged else None
         edit_raw = merged.get("qwen_image_edit_models") if merged else None
+        openai_key = active_openai_key(merged.get("openai_api_keys")) if merged else None
         return cls(
             generate_models=resolve_generate_models(generate_raw),
             edit_models=resolve_edit_models(edit_raw),
+            openai_db_key=openai_key,
         )
 
     @staticmethod
@@ -237,6 +243,8 @@ class ImageService:
             logger.debug("Article image prompt built", preview=final_prompt[:200])
             if is_paragraph_article_channel(channel.name):
                 generated = await self._generate_with_dalle_primary(final_prompt)
+            elif is_postcard_article_channel(channel.name, channel.topic):
+                generated = await self._generate_with_dalle_primary(final_prompt)
             else:
                 generated = await self._generate_with_qwen_constraints(final_prompt)
         else:
@@ -373,11 +381,11 @@ class ImageService:
         Returns:
             str | None: URL изображения.
         """
-        settings = get_settings()
-        if not settings.openai_api_key.strip():
+        api_key = self._openai_db_key or get_settings().openai_api_key.strip()
+        if not api_key:
             return None
         try:
-            client = AsyncOpenAI(api_key=settings.openai_api_key)
+            client = AsyncOpenAI(api_key=api_key)
             response = await client.images.generate(
                 model="dall-e-3",
                 prompt=(

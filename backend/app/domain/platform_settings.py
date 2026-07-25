@@ -91,6 +91,8 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "tavily_api_keys": "[]",
     "tavily_active_key_id": "",
     "tavily_auto_switch": "true",
+    # OpenAI: ключи для DALL-E (открыточный канал)
+    "openai_api_keys": "[]",
     CURATED_PICK_HISTORY_KEY: "[]",
 }
 

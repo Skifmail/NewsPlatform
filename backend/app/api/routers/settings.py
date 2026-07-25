@@ -10,6 +10,10 @@ from app.api.deps import AuthDep, DbSession
 from app.api.schemas.settings import SettingsResponse, SettingsUpdate
 from app.domain.platform_settings import is_internal_setting_key
 from app.infrastructure.ai.qwen_image_chain import exhausted_models_json
+from app.infrastructure.ai.openai_key_chain import (
+    mask_openai_keys_json,
+    merge_openai_keys_on_update,
+)
 from app.infrastructure.search.tavily_key_chain import (
     clear_key_exhausted,
     mask_api_key,
@@ -49,6 +53,7 @@ def _public_settings(merged: dict[str, str]) -> dict[str, str]:
     public = dict(merged)
     public["qwen_image_exhausted_models"] = exhausted_models_json()
     public["tavily_api_keys"] = mask_keys_json(merged.get("tavily_api_keys"))
+    public["openai_api_keys"] = mask_openai_keys_json(merged.get("openai_api_keys"))
 
     resolved = [
         {
@@ -85,11 +90,22 @@ async def update_settings(
         for key, value in data.settings.items()
         if not is_internal_setting_key(key)
     }
-    # Служебные поля только для GET — не сохраняем.
+    # Служебные/вычисляемые поля только для GET — не сохраняем.
     filtered.pop("tavily_keys_resolved", None)
     filtered.pop("qwen_image_exhausted_models", None)
 
     repo = SettingRepository(session)
+
+    if "openai_api_keys" in filtered:
+        previous_openai = await repo.get("openai_api_keys", "[]")
+        try:
+            filtered["openai_api_keys"] = merge_openai_keys_on_update(
+                previous_raw=previous_openai,
+                incoming_raw=filtered["openai_api_keys"],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if "tavily_api_keys" in filtered:
         previous = await repo.get("tavily_api_keys", "[]")
         try:

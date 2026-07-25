@@ -261,15 +261,85 @@
           </template>
         </article>
 
-        <article class="ai-usage-card">
+        <article class="ai-usage-card ai-usage-card-openai">
           <h3 class="ai-usage-card-title">OpenAI</h3>
-          <p class="ai-usage-card-sub">Fallback DALL-E</p>
-          <p class="ai-usage-muted">{{ aiUsage.openai.note }}</p>
+          <p class="ai-usage-card-sub">DALL-E · обложки для открыток и Параграфа</p>
+
           <p class="ai-usage-muted">
-            <span :class="aiUsage.openai.configured ? 'badge-accent' : 'badge-muted'">
-              {{ aiUsage.openai.configured ? 'Ключ задан' : 'Не используется' }}
+            <span :class="(aiUsage.openai.configured || openaiKeys.length) ? 'badge-accent' : 'badge-muted'">
+              {{ (aiUsage.openai.configured || openaiKeys.length) ? 'Ключ задан' : 'Не используется' }}
+            </span>
+            <span v-if="aiUsage.openai.configured" class="ai-usage-muted" style="margin-left:.5em">
+              (.env)
             </span>
           </p>
+
+          <div class="tavily-keys-block">
+            <p class="ai-usage-kpi-label">Ключи из панели</p>
+            <p class="ai-usage-muted ai-usage-explainer">
+              Первый включённый ключ используется для генерации DALL-E.
+              Переключайте тумблером — выключенные ключи не расходуются.
+            </p>
+
+            <ul v-if="openaiKeys.length" class="tavily-keys-list">
+              <li v-for="item in openaiKeys" :key="item.id" class="tavily-key-row">
+                <label class="tavily-key-select openai-key-select">
+                  <input
+                    type="checkbox"
+                    :checked="item.enabled"
+                    @change="toggleOpenaiKey(item.id, $event.target.checked)"
+                  />
+                  <span class="tavily-key-meta">
+                    <span class="tavily-key-label">{{ item.label }}</span>
+                    <span v-if="item.note" class="openai-key-note">{{ item.note }}</span>
+                    <span class="font-mono tavily-key-masked">{{ item.key }}</span>
+                  </span>
+                </label>
+                <span v-if="item.enabled" class="badge-accent">Вкл</span>
+                <span v-else class="badge-muted">Выкл</span>
+                <button
+                  type="button"
+                  class="btn-secondary btn-compact tavily-key-remove"
+                  :disabled="openaiKeysSaving"
+                  @click="removeOpenaiKey(item.id)"
+                >
+                  Удалить
+                </button>
+              </li>
+            </ul>
+            <p v-else class="ai-usage-muted">Пока нет ключей</p>
+
+            <div class="tavily-add-form openai-add-form">
+              <input
+                v-model="openaiNewLabel"
+                type="text"
+                class="input input-compact-wide"
+                placeholder="Название (напр. Prod ключ)"
+              />
+              <input
+                v-model="openaiNewNote"
+                type="text"
+                class="input input-compact-wide"
+                placeholder="Заметка (напр. для канала Открытки)"
+              />
+              <input
+                v-model="openaiNewKey"
+                type="password"
+                class="input input-compact-wide"
+                placeholder="sk-…"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="btn-secondary btn-compact"
+                :disabled="openaiKeysSaving || !openaiNewKey.trim()"
+                @click="addOpenaiKey"
+              >
+                {{ openaiKeysSaving ? '…' : 'Добавить' }}
+              </button>
+            </div>
+            <p v-if="openaiKeysError" class="ai-usage-error-inline">{{ openaiKeysError }}</p>
+          </div>
         </article>
 
         <article class="ai-usage-card ai-usage-card-wide">
@@ -723,6 +793,13 @@ const tavilyNewKey = ref('')
 const tavilyKeysSaving = ref(false)
 const tavilyKeysError = ref('')
 
+const openaiKeys = ref([])
+const openaiNewLabel = ref('')
+const openaiNewNote = ref('')
+const openaiNewKey = ref('')
+const openaiKeysSaving = ref(false)
+const openaiKeysError = ref('')
+
 const tavilyUsagePercent = computed(() => {
   const t = aiUsage.value?.tavily
   if (!t || t.plan_limit == null || t.plan_usage == null || t.plan_limit <= 0) return null
@@ -875,6 +952,15 @@ function parseTavilyResolved(raw) {
   }
 }
 
+function parseOpenaiKeys(raw) {
+  try {
+    const parsed = JSON.parse(raw || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
 async function loadSettings() {
   const { data } = await settingsApi.get()
   const s = data.settings
@@ -910,6 +996,7 @@ async function loadSettings() {
   tavilyKeys.value = parseTavilyResolved(s.tavily_keys_resolved)
   tavilyActiveKeyId.value = s.tavily_active_key_id || tavilyKeys.value[0]?.id || ''
   tavilyAutoSwitch.value = boolFrom(s.tavily_auto_switch, true)
+  openaiKeys.value = parseOpenaiKeys(s.openai_api_keys)
   markSaved()
 }
 
@@ -1015,6 +1102,106 @@ async function saveTavilyAutoSwitch() {
     })
   } catch {
     /* ошибка уже в tavilyKeysError */
+  }
+}
+
+function dbOpenaiKeysPayload(extra = null) {
+  const list = extra ? [...openaiKeys.value, extra] : [...openaiKeys.value]
+  return JSON.stringify(
+    list.map((item) => ({
+      id: item.id,
+      label: item.label,
+      note: item.note,
+      key: item.key,
+      enabled: item.enabled,
+    })),
+  )
+}
+
+async function patchOpenaiSettings(partial) {
+  openaiKeysSaving.value = true
+  openaiKeysError.value = ''
+  try {
+    await settingsApi.update({ settings: partial })
+    await loadSettings()
+    await loadAiUsage(true)
+  } catch (err) {
+    openaiKeysError.value =
+      err.response?.data?.detail || 'Не удалось сохранить ключи OpenAI'
+    throw err
+  } finally {
+    openaiKeysSaving.value = false
+  }
+}
+
+async function addOpenaiKey() {
+  const key = openaiNewKey.value.trim()
+  if (!key) return
+  if (key.length > 200 || /[^\x20-\x7E]/.test(key) || /\s/.test(key)) {
+    openaiKeysError.value =
+      'Ключ должен быть коротким ASCII (sk-…), без пробелов и эмодзи.'
+    return
+  }
+  const label = openaiNewLabel.value.trim() || `Ключ ${openaiKeys.value.length + 1}`
+  const note = openaiNewNote.value.trim()
+  const id =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `k-${Date.now()}`
+  try {
+    await patchOpenaiSettings({
+      openai_api_keys: dbOpenaiKeysPayload({ id, label, note, key, enabled: true }),
+    })
+    openaiNewKey.value = ''
+    openaiNewLabel.value = ''
+    openaiNewNote.value = ''
+  } catch {
+    /* ошибка уже в openaiKeysError */
+  }
+}
+
+async function removeOpenaiKey(keyId) {
+  const ok = await dialog.confirm({
+    title: 'Удалить ключ OpenAI?',
+    message: 'Ключ будет удалён из панели.',
+  })
+  if (!ok) return
+  const remaining = openaiKeys.value.filter((item) => item.id !== keyId)
+  try {
+    await patchOpenaiSettings({
+      openai_api_keys: JSON.stringify(
+        remaining.map((item) => ({
+          id: item.id,
+          label: item.label,
+          note: item.note,
+          key: item.key,
+          enabled: item.enabled,
+        })),
+      ),
+    })
+  } catch {
+    /* ошибка уже в openaiKeysError */
+  }
+}
+
+async function toggleOpenaiKey(keyId, enabled) {
+  const updated = openaiKeys.value.map((item) =>
+    item.id === keyId ? { ...item, enabled } : item,
+  )
+  try {
+    await patchOpenaiSettings({
+      openai_api_keys: JSON.stringify(
+        updated.map((item) => ({
+          id: item.id,
+          label: item.label,
+          note: item.note,
+          key: item.key,
+          enabled: item.enabled,
+        })),
+      ),
+    })
+  } catch {
+    /* ошибка уже в openaiKeysError */
   }
 }
 
@@ -1399,5 +1586,9 @@ async function save({ silent = false } = {}) {
 
 .input-compact-wide {
   @apply inline-block min-w-[10rem] flex-1;
+}
+
+.openai-key-note {
+  @apply text-[10px] text-[var(--text-secondary)] italic;
 }
 </style>
