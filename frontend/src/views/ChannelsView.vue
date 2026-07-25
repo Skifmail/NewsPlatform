@@ -103,7 +103,7 @@
     <div v-if="!channels.length" class="empty-state">Каналы не добавлены</div>
     <div v-else class="channels-list">
       <article
-        v-for="ch in channels"
+        v-for="ch in sortedChannels"
         :key="ch.id"
         class="channel-card"
         :class="{ 'is-open': expandedId === ch.id }"
@@ -281,7 +281,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import PageHeader from '../components/layout/PageHeader.vue'
 import { channelsApi } from '../api/index.js'
 import { useDialogStore } from '../stores/dialogStore'
@@ -292,6 +292,9 @@ const dialog = useDialogStore()
 const activityStore = useActivityStore()
 
 const channels = ref([])
+const sortedChannels = computed(() =>
+  [...channels.value].sort((a, b) => Number(b.is_active) - Number(a.is_active))
+)
 const editForms = reactive({})
 const originalForms = reactive({})
 const generatingChannel = ref(null)
