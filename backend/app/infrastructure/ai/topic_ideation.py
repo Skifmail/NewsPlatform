@@ -11,10 +11,29 @@ from app.domain.topic_dedup import is_topic_too_similar
 from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
+from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
 from app.infrastructure.models.channel import Channel
 from app.utils.safe_format import safe_format
 
 _MAX_IDEATION_ATTEMPTS = 5
+
+_POSTCARD_IDEATION_PROMPT = """Ты — редактор канала открыток «{channel_name}».
+
+Недавние поводы (НЕЛЬЗЯ повторять и перефразировать):
+{recent_topics}
+
+Придумай ОДИН свежий повод для тёплой открытки. Поводы из реальной жизни:
+— Утро / хорошего дня / добрый вечер / доброй ночи
+— День рождения, юбилей, именины
+— Начало недели / пятница / выходные
+— Смена сезона или погода (первый снег, летний дождь, осень, весна)
+— «Всё будет хорошо», «ты справишься», «верь в себя»
+— Дружба, любовь, забота, благодарность, «думаю о тебе», «скучаю»
+— Праздники: Новый год, 8 марта, 23 февраля, 14 февраля и др.
+— Просто так: «улыбнись», «ты прекрасна», «ты лучший»
+
+Ответь строго JSON одной строкой:
+{{"topic": "краткий повод 3–6 слов", "angle": "настроение и пожелание в 1 предложении", "search_queries": []}}"""
 
 _DEFAULT_IDEATION_PROMPT = """Ты — редактор познавательного Telegram-канала «{channel_name}».
 Ниша канала: {channel_niche}
@@ -145,7 +164,14 @@ class TopicIdeationService:
             channel_niche=niche,
             recent_topics=recent,
         )
-        if is_devtools_article_channel(channel.topic, channel.name):
+        if is_postcard_article_channel(channel.name):
+            prompt = safe_format(
+                _POSTCARD_IDEATION_PROMPT,
+                channel_name=channel.name,
+                channel_niche=niche,
+                recent_topics=recent,
+            )
+        elif is_devtools_article_channel(channel.topic, channel.name):
             prompt = f"{prompt}\n\n{_devtools_ideation_extra(candidate_repos)}"
         elif is_paragraph_article_channel(channel.name):
             prompt = f"{prompt}\n\n{_paragraph_ideation_extra()}"
@@ -227,6 +253,14 @@ def _system_prompt(channel: Channel) -> str:
     Returns:
         str: системная инструкция.
     """
+    if is_postcard_article_channel(channel.name, channel.topic if hasattr(channel, "topic") else ""):
+        return (
+            "Ты редактор канала тёплых открыток. "
+            "Придумывай живые поводы из реальной жизни: праздники, настроение, "
+            "пожелания близким, смена сезона. "
+            "Никогда не повторяй и не перефразируй недавние поводы. "
+            "Ответь только JSON с полями topic, angle, search_queries."
+        )
     base = (
         "Ты придумываешь темы для познавательных статей. "
         "Никогда не повторяй и не перефразируй недавние темы. "

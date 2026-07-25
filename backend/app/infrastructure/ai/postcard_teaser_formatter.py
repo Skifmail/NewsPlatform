@@ -1,16 +1,17 @@
 """Форматирование короткой открытки-поздравления для канала «Открытки»."""
 
 
-def is_postcard_article_channel(channel_name: str) -> bool:
+def is_postcard_article_channel(channel_name: str, topic: str = "") -> bool:
     """Определяет, нужен ли формат короткой открытки.
 
     Args:
         channel_name: название канала.
+        topic: тематика канала (например «postcard»).
 
     Returns:
         bool: True для канала «Открытки».
     """
-    return "открытк" in channel_name.lower()
+    return topic == "postcard" or "открытк" in (channel_name or "").lower()
 
 
 def postcard_writing_instructions(teaser_max_length: int) -> str:

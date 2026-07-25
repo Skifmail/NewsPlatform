@@ -1,12 +1,13 @@
 """Тематики контента платформы."""
 
-TOPIC_PATTERN = r"^(it|auto|russia|sport)$"
+TOPIC_PATTERN = r"^(it|auto|russia|sport|postcard)$"
 
 TOPIC_LABELS: dict[str, str] = {
     "it": "IT",
     "auto": "Авто",
     "russia": "Россия",
     "sport": "Спорт",
+    "postcard": "Открытки",
 }
 
 DEFAULT_CLASSIFICATION_PROMPT = """Определи тематику новости. Ответь ТОЛЬКО одним словом: it, auto, russia или sport.

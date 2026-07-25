@@ -5,6 +5,7 @@ export const TOPIC_LABELS = {
   auto: 'Авто',
   russia: 'Россия',
   sport: 'Спорт',
+  postcard: 'Открытки',
 }
 
 export const TOPIC_OPTIONS = [
@@ -12,6 +13,7 @@ export const TOPIC_OPTIONS = [
   { value: 'auto', label: 'Авто' },
   { value: 'russia', label: 'Россия' },
   { value: 'sport', label: 'Спорт' },
+  { value: 'postcard', label: 'Открытки' },
 ]
 
 /**

@@ -21,6 +21,7 @@ from app.infrastructure.ai.devtools_teaser_formatter import (
     is_devtools_article_channel,
 )
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
+from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
 from app.infrastructure.ai.image_service import ImageService
 from app.infrastructure.ai.topic_ideation import TopicIdeationService
 from app.infrastructure.parsers.github_repo_logo import parse_github_repo
@@ -148,15 +149,19 @@ class ArticleGenerationService:
                 channel, recent, ideation_prompt, candidate_repos=candidate_repos
             )
 
-            await report_job_stage(
-                celery_task_id, "Поиск материалов в интернете…", 42
-            )
-            research_context, sources = await self._research.research(
-                plan.search_queries,
-                keys_raw=tavily_keys_raw,
-                active_key_id=tavily_active_key_id or None,
-                auto_switch=tavily_auto_switch,
-            )
+            if is_postcard_article_channel(channel.name, channel.topic):
+                research_context = ""
+                sources = []
+            else:
+                await report_job_stage(
+                    celery_task_id, "Поиск материалов в интернете…", 42
+                )
+                research_context, sources = await self._research.research(
+                    plan.search_queries,
+                    keys_raw=tavily_keys_raw,
+                    active_key_id=tavily_active_key_id or None,
+                    auto_switch=tavily_auto_switch,
+                )
 
             await report_job_stage(
                 celery_task_id, "Написание статьи через AI…", 62
