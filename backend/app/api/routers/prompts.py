@@ -28,7 +28,7 @@ def _to_out(prompt, *, check_default: bool = True) -> PromptOut:
         default = PROMPT_DEFAULTS.get(prompt.key)
         if default is not None:
             is_default = prompt.template_text.strip() == default.template_text.strip()
-    return PromptOut.model_validate(prompt, update={"is_default": is_default})
+    return PromptOut.model_validate(prompt).model_copy(update={"is_default": is_default})
 
 
 @router.get("", response_model=PromptsResponse)
