@@ -75,12 +75,10 @@ _POSTCARD_WRITER_HINT = (
 )
 
 _PARAGRAPH_WRITER_HINT = (
-    "Поле image_prompt: 3–4 предложения на английском — детальное описание "
-    "драматичной, кинематографичной сцены-метафоры по теме статьи. "
-    "Укажи конкретные предметы, научные элементы, материалы, текстуры, ракурс, "
-    "освещение и цветовую палитру. Стиль: cinematic photorealistic wide shot. "
-    "Запрещено: люди, лица, интерфейсы, экраны. "
-    "НЕ добавляй текст в image_prompt — заголовок будет наложен отдельно."
+    "Поле image_prompt: 5–7 предложений НА РУССКОМ — краткая суть статьи: "
+    "о чём она, какие главные факты, почему это интересно читателю. "
+    "Это описание пойдёт в генератор обложки, который сам выберет визуальный стиль, "
+    "цвета и композицию. НЕ описывай картинку — опиши СОДЕРЖАНИЕ статьи."
 )
 
 # Промпт стилизации НАЙДЕННОГО логотипа репозитория (Qwen Image Edit).
@@ -158,34 +156,36 @@ class ImagePromptBuilder:
         *,
         article_title: str,
         draft_image_prompt: str,
-        tagline: str = "",
+        teaser: str = "",
     ) -> str:
         """Промпт журнальной обложки с заголовком для gpt-image-2.
 
+        Даёт модели суть статьи и творческую свободу — она сама выбирает
+        визуальный стиль, цветовую палитру, типографику и композицию.
         НЕ вырезает кириллицу — gpt-image-2 умеет рендерить русский текст.
         """
-        scene = draft_image_prompt.strip() or "dramatic cinematic scene"
-        scene = scene[:500]
         title = article_title.strip()
-        tag = tagline.strip()
+        summary = draft_image_prompt.strip()
+        if teaser:
+            summary = f"{summary} {teaser.strip()}" if summary else teaser.strip()
+        summary = summary[:800] if summary else title
 
-        parts = [
-            "Create a magazine-style cover image in wide 16:9 landscape format.",
-            f"Background scene: {scene}.",
-            "The scene should be dramatic, cinematic, with rich colors and depth.",
-            f'Overlay the title text "{title}" in large bold white or cream typography '
-            "with subtle shadow, positioned in the lower-left or center-left area.",
-        ]
-        if tag:
-            parts.append(
-                f'Below the title, add a smaller quote: "{tag}" in a contrasting accent color '
-                "(gold, amber, or warm orange) with quotation marks."
-            )
-        parts.append(
-            "Style: editorial cover, professional typography, cinematic lighting, "
-            "no people, no faces, no UI frames, no watermarks."
+        return (
+            "Ты — арт-директор журнала. Создай обложку-иллюстрацию к статье.\n\n"
+            f"Заголовок статьи: «{title}»\n\n"
+            f"Суть статьи: {summary}\n\n"
+            "Требования к обложке:\n"
+            "1. Формат: широкий 16:9 (landscape).\n"
+            "2. Драматичная, кинематографичная фоновая иллюстрация-метафора "
+            "по теме статьи — конкретные предметы, текстуры, глубина.\n"
+            f'3. Крупный заголовок «{title}» — '
+            "типографика должна гармонировать с цветовой палитрой иллюстрации. "
+            "Выбери цвет, шрифт, тень и расположение текста сам — "
+            "главное, чтобы текст читался и выглядел как часть журнальной обложки.\n"
+            "4. Под заголовком — короткая цитата или подзаголовок из статьи "
+            "(1 предложение) контрастным акцентным цветом, меньшим шрифтом.\n"
+            "5. Без людей, лиц, UI-рамок, водяных знаков."
         )
-        return " ".join(parts)
 
     @staticmethod
     def build_for_news(

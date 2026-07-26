@@ -214,6 +214,7 @@ class ArticleGenerationService:
             image_prompt=draft.image_prompt,
             fallback_url=fallback_image,
             repo_url=draft.repo_url,
+            teaser=draft.teaser,
         )
 
         await report_job_stage(

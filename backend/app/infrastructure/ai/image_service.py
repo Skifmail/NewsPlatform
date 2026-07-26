@@ -192,6 +192,7 @@ class ImageService:
         image_prompt: str,
         fallback_url: str | None = None,
         repo_url: str | None = None,
+        teaser: str = "",
     ) -> tuple[str | None, str]:
         """Подбирает обложку для статьи.
 
@@ -238,6 +239,7 @@ class ImageService:
             cover_prompt = ImagePromptBuilder.build_cover_prompt(
                 article_title=article_title,
                 draft_image_prompt=image_prompt,
+                teaser=teaser,
             )
             logger.debug("Paragraph cover prompt", preview=cover_prompt[:200])
             generated = await self._generate_dalle_cover(cover_prompt)
