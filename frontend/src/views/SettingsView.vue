@@ -645,24 +645,10 @@
         <div v-if="articleStatus.length" class="category-meta space-y-1">
           <p v-for="line in articleStatus" :key="line">{{ line }}</p>
         </div>
-        <div class="prompt-grid">
-          <div>
-            <label class="field-label">Промпт выбора темы</label>
-            <textarea
-              v-model="articleIdeationPrompt"
-              rows="6"
-              class="input w-full mt-1 font-mono text-xs"
-            />
-          </div>
-          <div>
-            <label class="field-label">Промпт написания статьи</label>
-            <textarea
-              v-model="articleWritingPrompt"
-              rows="6"
-              class="input w-full mt-1 font-mono text-xs"
-            />
-          </div>
-        </div>
+        <p class="field-hint">
+          Промпты выбора темы и написания статьи редактируются в разделе
+          <RouterLink to="/prompts" class="text-accent underline">«Промпты»</RouterLink>.
+        </p>
       </section>
 
       <div class="settings-grid">
@@ -701,12 +687,10 @@
             <h2 class="category-title">AI и классификация</h2>
             <p class="category-subtitle">Промпт определения тематики материала</p>
           </header>
-          <label class="field-label">Промпт классификации тематики</label>
-          <textarea
-            v-model="classificationPrompt"
-            rows="12"
-            class="input w-full mt-1 font-mono text-xs"
-          />
+          <p class="field-hint">
+            Промпт классификации и остальные AI-промпты редактируются в разделе
+            <RouterLink to="/prompts" class="text-accent underline">«Промпты»</RouterLink>.
+          </p>
         </section>
       </div>
 
@@ -761,8 +745,6 @@ const scheduleAi = ref(true)
 const schedulePublish = ref(true)
 const scheduleRetention = ref(true)
 const scheduleArticle = ref(false)
-const articleIdeationPrompt = ref('')
-const articleWritingPrompt = ref('')
 const articleStatus = ref([])
 const manualFetch = ref(true)
 const manualAi = ref(true)
@@ -775,7 +757,6 @@ const retentionHourUtc = ref(3)
 const retentionMinuteUtc = ref(30)
 const rawPostsRetentionDays = ref(3)
 const postsPerDay = ref(10)
-const classificationPrompt = ref('')
 const qwenImageModels = ref('')
 const qwenImageEditModels = ref('')
 const schedulerLastFetch = ref('')
@@ -896,8 +877,6 @@ function getFormSnapshot() {
     schedule_publish_enabled: schedulePublish.value,
     schedule_retention_enabled: scheduleRetention.value,
     schedule_article_publish_enabled: scheduleArticle.value,
-    article_ideation_prompt: articleIdeationPrompt.value,
-    article_writing_prompt: articleWritingPrompt.value,
     manual_fetch_enabled: manualFetch.value,
     manual_ai_enabled: manualAi.value,
     manual_publish_enabled: manualPublish.value,
@@ -909,7 +888,6 @@ function getFormSnapshot() {
     retention_minute_utc: retentionMinuteUtc.value,
     raw_posts_retention_days: rawPostsRetentionDays.value,
     posts_per_day: postsPerDay.value,
-    classification_prompt: classificationPrompt.value,
     qwen_image_models: qwenImageModels.value,
     qwen_image_edit_models: qwenImageEditModels.value,
   })
@@ -982,8 +960,6 @@ async function loadSettings() {
   schedulePublish.value = boolFrom(s.schedule_publish_enabled, true)
   scheduleRetention.value = boolFrom(s.schedule_retention_enabled, true)
   scheduleArticle.value = boolFrom(s.schedule_article_publish_enabled, false)
-  articleIdeationPrompt.value = s.article_ideation_prompt || ''
-  articleWritingPrompt.value = s.article_writing_prompt || ''
   articleStatus.value = Object.entries(s)
     .filter(([key]) => key.startsWith('scheduler_last_article_'))
     .map(([key, value]) => {
@@ -1001,7 +977,6 @@ async function loadSettings() {
   retentionMinuteUtc.value = parseInt(s.retention_minute_utc || '30', 10)
   rawPostsRetentionDays.value = parseInt(s.raw_posts_retention_days || '3', 10)
   postsPerDay.value = parseInt(s.posts_per_day || '10', 10)
-  classificationPrompt.value = s.classification_prompt || ''
   qwenImageModels.value = s.qwen_image_models || ''
   qwenImageEditModels.value = s.qwen_image_edit_models || ''
   schedulerLastFetch.value = s.scheduler_last_fetch_at || ''
@@ -1228,8 +1203,6 @@ async function save({ silent = false } = {}) {
         schedule_publish_enabled: String(schedulePublish.value),
         schedule_retention_enabled: String(scheduleRetention.value),
         schedule_article_publish_enabled: String(scheduleArticle.value),
-        article_ideation_prompt: articleIdeationPrompt.value,
-        article_writing_prompt: articleWritingPrompt.value,
         manual_fetch_enabled: String(manualFetch.value),
         manual_ai_enabled: String(manualAi.value),
         manual_publish_enabled: String(manualPublish.value),
@@ -1241,7 +1214,6 @@ async function save({ silent = false } = {}) {
         retention_minute_utc: String(retentionMinuteUtc.value),
         raw_posts_retention_days: String(rawPostsRetentionDays.value),
         posts_per_day: String(postsPerDay.value),
-        classification_prompt: classificationPrompt.value,
         qwen_image_models: qwenImageModels.value,
         qwen_image_edit_models: qwenImageEditModels.value,
       },
@@ -1538,10 +1510,6 @@ async function save({ silent = false } = {}) {
 
 .ai-usage-stat-label {
   @apply text-xs text-[var(--text-secondary)];
-}
-
-.prompt-grid {
-  @apply grid gap-4 lg:grid-cols-2;
 }
 
 .settings-footer {

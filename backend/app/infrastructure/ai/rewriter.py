@@ -17,66 +17,28 @@ from app.utils.text_format import (
 
 from app.domain.topics import TOPIC_LABELS as _TOPIC_LABELS
 
-# Дефолт, если в канале промпт не задан. Полный шаблон можно вставить в «Каналы → Промпт рерайта».
-DEFAULT_REWRITE_TEMPLATE = """Ты — редактор Telegram-канала "{channel_name}" с тематикой "{topic_label}".
-Дополнительный стиль: {style_prompt}
-
-Перепиши новость для публикации в канале. Объём: до {max_length} символов.
-
-СТРУКТУРА (строго, каждый блок — отдельный фрагмент, между блоками пустая строка):
-
-1) Заголовок-выжимка:
-<b>Главная мысль новости одной фразой</b>
-
-2) Лид — 2-3 предложения сути:
-Кратко что произошло. Можно 1 уместный эмодзи 🇷🇺 📱 🚗
-
-3) Цитата — ОТДЕЛЬНЫЙ блок:
-<blockquote expandable>«Прямая цитата или ключевая фраза из новости» — имя/должность</blockquote>
-Если прямой цитаты нет — вынеси главный тезис в blockquote.
-
-4) Контекст — 2-4 предложения (фон, цифры, последствия).
-
-5) Вовлечение — вопрос или призыв к обсуждению ... 🤔
-
-6) Ссылка на источник (если URL задан):
-<a href="{source_url}">Читать в источнике →</a>
-
-Правила оформления:
-- Только теги: b, blockquote, a, i (i — только внутри blockquote при необходимости)
-- ЗАПРЕЩЕНО: тег <p> (Telegram Bot API его не принимает)
-- Между блоками 1-2 — пустая строка, не <br> внутри одного абзаца
-- Без вводных «Итак», «Таким образом»
-- Без хэштегов (добавятся при публикации)
-- Сохрани факты, перепиши своими словами под аудиторию канала
-- Отвечай ТОЛЬКО HTML-текстом поста, без пояснений
-
-Ссылка на источник: {source_url_display}
-
-Оригинальная новость:
-{original_text}"""
-
-_REWRITER_SYSTEM_PROMPT = (
-    "Ты редактор Telegram-канала. Пиши блочно: абзацы через пустую строку, "
-    "без тега <p>. Цитаты только в <blockquote expandable>. "
-    "Стиль — как у крупных новостных каналов: заголовок, лид, цитата, контекст, вопрос. "
-    "Отвечай ТОЛЬКО готовым HTML поста. Никогда не выводи черновики, анализ фактов "
-    "или пояснения к заданию."
-)
-
-_STRICT_RETRY_SUFFIX = (
-    "\n\nКРИТИЧНО: в ответе только финальный HTML поста для Telegram. "
-    "Без анализа, без списков фактов, без markdown, без рассуждений."
-)
-
 _REWRITE_MAX_TOKENS = 4096
 
 
 class ContentRewriter:
-    """Рерайтер контента под стиль канала."""
+    """Рерайтер контента под стиль канала.
 
-    def __init__(self, client: DeepSeekClient | None = None) -> None:
+    Промпты (шаблон, системный, суффикс повтора) приходят из панели промптов
+    (таблица prompt_templates) — модуль не содержит захардкоженных текстов.
+    """
+
+    def __init__(
+        self,
+        *,
+        default_template: str,
+        system_prompt: str,
+        retry_suffix: str,
+        client: DeepSeekClient | None = None,
+    ) -> None:
         self._client = client or DeepSeekClient()
+        self._default_template = default_template
+        self._system_prompt = system_prompt
+        self._retry_suffix = retry_suffix
 
     def _resolve_template(self, channel: Channel) -> tuple[str, str]:
         """Выбирает шаблон промпта и доп. стиль канала.
@@ -94,8 +56,8 @@ class ContentRewriter:
         if custom and "{original_text}" in custom:
             return custom, ""
         if custom:
-            return DEFAULT_REWRITE_TEMPLATE, custom
-        return DEFAULT_REWRITE_TEMPLATE, "Нейтральный информативный стиль."
+            return self._default_template, custom
+        return self._default_template, "Нейтральный информативный стиль."
 
     async def rewrite(self, raw_post: RawPost, channel: Channel) -> str:
         """Переписывает пост под канал.
@@ -133,7 +95,7 @@ class ContentRewriter:
         model = settings.deepseek_fast_model
 
         raw, finish_reason = await self._client.chat_completion_with_meta(
-            system_prompt=_REWRITER_SYSTEM_PROMPT,
+            system_prompt=self._system_prompt,
             user_prompt=prompt,
             max_tokens=_REWRITE_MAX_TOKENS,
             model=model,
@@ -151,8 +113,8 @@ class ContentRewriter:
                 preview=raw[:200],
             )
             raw_retry, finish_retry = await self._client.chat_completion_with_meta(
-                system_prompt=_REWRITER_SYSTEM_PROMPT,
-                user_prompt=f"{prompt}{_STRICT_RETRY_SUFFIX}",
+                system_prompt=self._system_prompt,
+                user_prompt=f"{prompt}{self._retry_suffix}",
                 max_tokens=_REWRITE_MAX_TOKENS,
                 model=model,
                 temperature=0.35,

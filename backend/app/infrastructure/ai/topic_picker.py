@@ -11,21 +11,6 @@ from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.models.raw_post import RawPost
 from app.utils.safe_format import safe_format
 
-DEFAULT_CURATED_PICK_PROMPT = """Ты главный редактор Telegram-канала с тематикой «{topic_label}».
-Из списка сырых новостей выбери ОДНУ самую интересную для публикации прямо сейчас.
-
-Критерии (по убыванию важности):
-- актуальность и свежесть;
-- значимость для аудитории канала;
-- небанальность (избегай вторичных пересказов);
-- достаточно фактов для полноценного поста.
-
-Ответь строго JSON одной строкой без markdown:
-{{"id": <число id из списка>, "reason": "<1–2 предложения: почему именно эта новость>"}}
-
-Материалы:
-{candidates}"""
-
 _PREVIEW_LEN = 320
 _SINGLE_CANDIDATE_REASON = "Единственный необработанный материал в очереди."
 _FALLBACK_REASON = "Ответ модели не распознан — выбран самый свежий материал."
@@ -44,6 +29,7 @@ class TopicPicker:
         topic: str,
         candidates: list[RawPost],
         prompt_template: str,
+        system_prompt: str,
     ) -> TopicPickResult | None:
         """Определяет наиболее подходящий материал и обоснование выбора.
 
@@ -51,6 +37,7 @@ class TopicPicker:
             topic: тема it | auto | russia.
             candidates: необработанные raw_posts (новые первыми).
             prompt_template: шаблон с {topic_label} и {candidates}.
+            system_prompt: системный промпт выбора (из панели промптов).
 
         Returns:
             TopicPickResult | None: выбор с причиной или None если список пуст.
@@ -80,11 +67,7 @@ class TopicPicker:
         settings = get_settings()
         try:
             result = await self._client.chat_completion(
-                system_prompt=(
-                    "Ты выбираешь одну лучшую новость. "
-                    'Ответь ТОЛЬКО JSON: {"id": число, "reason": "краткое обоснование"}. '
-                    "Никакого текста до или после JSON."
-                ),
+                system_prompt=system_prompt,
                 user_prompt=prompt,
                 max_tokens=4000,
                 temperature=0.2,

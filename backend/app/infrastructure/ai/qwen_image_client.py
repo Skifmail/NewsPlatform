@@ -7,7 +7,6 @@ import httpx
 from loguru import logger
 
 from app.core.config import get_settings
-from app.infrastructure.ai.image_prompt_builder import QWEN_NO_TEXT_NEGATIVE
 from app.infrastructure.ai.qwen_image_chain import (
     is_invalid_size_error,
     is_model_exhausted,
@@ -17,8 +16,6 @@ from app.infrastructure.ai.qwen_image_chain import (
     resolve_generate_models,
     sizes_for_model,
 )
-
-_DEFAULT_NEGATIVE_PROMPT = QWEN_NO_TEXT_NEGATIVE
 
 
 @dataclass(frozen=True)
@@ -301,7 +298,7 @@ class QwenImageClient:
                 ]
             },
             "parameters": {
-                "negative_prompt": negative_prompt or _DEFAULT_NEGATIVE_PROMPT,
+                "negative_prompt": negative_prompt or "",
                 "prompt_extend": prompt_extend,
                 "watermark": False,
                 "size": size,
@@ -332,7 +329,7 @@ class QwenImageClient:
                 ]
             },
             "parameters": {
-                "negative_prompt": negative_prompt or _DEFAULT_NEGATIVE_PROMPT,
+                "negative_prompt": negative_prompt or "",
                 "prompt_extend": prompt_extend,
                 "watermark": False,
                 "size": size,

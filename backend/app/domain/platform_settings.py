@@ -9,9 +9,7 @@ from app.domain.article import (
 )
 from app.domain.curated_pick import CURATED_PICK_HISTORY_KEY
 from app.domain.enums import Topic
-from app.infrastructure.ai.topic_picker import DEFAULT_CURATED_PICK_PROMPT
 
-from app.domain.topics import DEFAULT_CLASSIFICATION_PROMPT
 
 def curated_scheduler_key(topic: str) -> str:
     """Ключ БД для времени последнего curated-запуска по теме.
@@ -78,8 +76,6 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "auto_approve": "false",
     "posts_per_day": "10",
     "rewrite_language": "ru",
-    "classification_prompt": DEFAULT_CLASSIFICATION_PROMPT,
-    "curated_pick_prompt": DEFAULT_CURATED_PICK_PROMPT,
     "qwen_image_models": (
         "qwen-image-plus,qwen-image-max,qwen-image,"
         "qwen-image-2.0-pro,qwen-image-2.0,z-image-turbo"
@@ -138,8 +134,6 @@ class PlatformSettings:
     fetch_max_age_days: int
     posts_per_day: int
     rewrite_language: str
-    classification_prompt: str
-    curated_pick_prompt: str
     scheduler_last_fetch_at: datetime | None
     scheduler_last_retention_at: str | None
     scheduler_last_analytics_at: datetime | None
@@ -224,12 +218,6 @@ class PlatformSettings:
             fetch_max_age_days=_parse_int(merged.get("fetch_max_age_days", "1"), 1),
             posts_per_day=_parse_int(merged.get("posts_per_day", "10"), 10),
             rewrite_language=merged.get("rewrite_language", "ru"),
-            classification_prompt=merged.get(
-                "classification_prompt", DEFAULT_CLASSIFICATION_PROMPT
-            ),
-            curated_pick_prompt=merged.get(
-                "curated_pick_prompt", DEFAULT_CURATED_PICK_PROMPT
-            ),
             scheduler_last_fetch_at=last_fetch,
             scheduler_last_retention_at=last_retention,
             scheduler_last_analytics_at=last_analytics,

@@ -1,5 +1,6 @@
 """Тесты форматирования devtools-анонсов."""
 
+from app.domain.prompt_defaults import PROMPT_DEFAULTS
 from app.infrastructure.ai.devtools_teaser_formatter import (
     build_devtools_teaser,
     devtools_writing_instructions,
@@ -7,6 +8,10 @@ from app.infrastructure.ai.devtools_teaser_formatter import (
     is_banned_hook_opening,
     is_devtools_article_channel,
 )
+
+_INSTRUCTIONS_TEMPLATE = PROMPT_DEFAULTS[
+    "writing.devtools_instructions"
+].template_text
 
 
 def test_is_devtools_article_channel() -> None:
@@ -27,7 +32,7 @@ def test_is_banned_hook_opening() -> None:
 
 def test_devtools_writing_instructions_includes_recent_hooks() -> None:
     text = devtools_writing_instructions(
-        900,
+        _INSTRUCTIONS_TEMPLATE,
         recent_hooks=["Передавайте файлы одной командой"],
     )
     assert "Устали от" in text
@@ -56,11 +61,7 @@ def test_build_devtools_teaser() -> None:
 
 def test_writing_instructions_suppress_engagement_question() -> None:
     """Для Github-находок инструкция запрещает вопрос-вовлечение и 👇."""
-    from app.infrastructure.ai.devtools_teaser_formatter import (
-        devtools_writing_instructions,
-    )
-
-    text = devtools_writing_instructions(900)
+    text = devtools_writing_instructions(_INSTRUCTIONS_TEMPLATE)
     low = text.lower()
     assert "не добавляй" in low
     assert "вопрос-вовлечение" in low

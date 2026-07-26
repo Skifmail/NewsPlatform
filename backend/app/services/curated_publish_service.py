@@ -14,7 +14,8 @@ from app.repositories.raw_post_repository import RawPostRepository
 from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import JobTracker
 from app.services.platform_settings_service import PlatformSettingsService
-from app.infrastructure.ai.topic_picker import DEFAULT_CURATED_PICK_PROMPT, TopicPicker
+from app.services.prompt_service import PromptService
+from app.infrastructure.ai.topic_picker import TopicPicker
 from app.tasks.ai_tasks import process_post_task
 
 _CANDIDATE_LIMIT = 25
@@ -30,6 +31,7 @@ class CuratedPublishService:
         self._processed = ProcessedPostRepository(session)
         self._settings = SettingRepository(session)
         self._platform = PlatformSettingsService(session)
+        self._prompts = PromptService(session)
         self._picker = TopicPicker()
         self._jobs = JobTracker(session)
 
@@ -43,11 +45,8 @@ class CuratedPublishService:
         if not platform.schedule_curated_publish_enabled:
             return {}
 
-        pick_prompt = await self._settings.get(
-            "curated_pick_prompt", DEFAULT_CURATED_PICK_PROMPT
-        )
-        if not pick_prompt.strip():
-            pick_prompt = DEFAULT_CURATED_PICK_PROMPT
+        pick_prompt = await self._prompts.get("topic_selection.curated_pick")
+        pick_system = await self._prompts.get("topic_selection.curated_pick_system")
 
         now = datetime.now(UTC)
         interval_minutes = max(1, platform.fetch_interval_minutes)
@@ -57,6 +56,7 @@ class CuratedPublishService:
                 topic=topic.value,
                 now=now,
                 pick_prompt=pick_prompt,
+                pick_system=pick_system,
                 interval_minutes=interval_minutes,
             )
             result[topic.value] = raw_id
@@ -68,6 +68,7 @@ class CuratedPublishService:
         topic: str,
         now: datetime,
         pick_prompt: str,
+        pick_system: str,
         interval_minutes: int,
     ) -> int | None:
         """Пытается поставить в очередь лучший материал одной темы.
@@ -76,6 +77,7 @@ class CuratedPublishService:
             topic: it | auto | russia | sport.
             now: текущий момент UTC.
             pick_prompt: шаблон промпта выбора.
+            pick_system: системный промпт выбора.
             interval_minutes: минимальный интервал между публикациями темы
                 (совпадает с fetch_interval_minutes платформы).
 
@@ -105,7 +107,9 @@ class CuratedPublishService:
         if not candidates:
             return None
 
-        pick = await self._picker.pick_best(topic, candidates, pick_prompt)
+        pick = await self._picker.pick_best(
+            topic, candidates, pick_prompt, pick_system
+        )
         if pick is None:
             return None
 

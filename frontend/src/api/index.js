@@ -82,6 +82,12 @@ export const settingsApi = {
   update: (data) => api.patch('/settings', data),
 }
 
+export const promptsApi = {
+  list: () => api.get('/prompts'),
+  update: (key, data) => api.patch(`/prompts/${key}`, data),
+  reset: (key) => api.post(`/prompts/${key}/reset`),
+}
+
 export const aiUsageApi = {
   get: (params) => api.get('/ai-usage', { params }),
 }

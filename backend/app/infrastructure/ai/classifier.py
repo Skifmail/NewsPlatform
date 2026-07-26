@@ -4,7 +4,6 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.domain.enums import Topic
-from app.domain.topics import CLASSIFIER_SYSTEM_PROMPT
 from app.infrastructure.ai.deepseek_client import DeepSeekClient
 
 
@@ -18,13 +17,15 @@ class TopicClassifier:
         self,
         text: str,
         prompt_template: str,
+        system_prompt: str,
         fallback_topic: str | None = None,
     ) -> str:
         """Классифицирует текст.
 
         Args:
             text: текст новости.
-            prompt_template: шаблон с {text}.
+            prompt_template: шаблон с {text} (из панели промптов).
+            system_prompt: системный промпт классификатора (из панели промптов).
             fallback_topic: тема источника, если модель вернула пустой ответ.
 
         Returns:
@@ -33,7 +34,7 @@ class TopicClassifier:
         prompt = prompt_template.replace("{text}", text[:3000])
         settings = get_settings()
         result = await self._client.chat_completion(
-            system_prompt=CLASSIFIER_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=prompt,
             max_tokens=2000,
             temperature=0.0,

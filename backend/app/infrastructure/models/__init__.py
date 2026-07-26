@@ -9,6 +9,7 @@ from app.infrastructure.models.channel_stats_snapshot import ChannelStatsSnapsho
 from app.infrastructure.models.max_member import MaxMember
 from app.infrastructure.models.post_metric import PostMetric
 from app.infrastructure.models.processed_post import ProcessedPost
+from app.infrastructure.models.prompt_template import PromptTemplate
 from app.infrastructure.models.publish_log import PublishLog
 from app.infrastructure.models.raw_post import RawPost
 from app.infrastructure.models.setting import Setting
@@ -27,6 +28,7 @@ __all__ = [
     "MaxMember",
     "PostMetric",
     "ProcessedPost",
+    "PromptTemplate",
     "PublishLog",
     "Setting",
     "TelegramBroadcastStats",

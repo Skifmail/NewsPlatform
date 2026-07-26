@@ -15,15 +15,15 @@ from app.domain.article import (
 from app.domain.topic_dedup import is_topic_too_similar, merge_topic_lists
 from app.domain.tool_category import is_ai_tool
 from app.domain.enums import ContentMode, PostStatus
-from app.infrastructure.ai.article_writer import ArticleWriter
+from app.infrastructure.ai.article_writer import ArticleWriter, WriterPrompts
 from app.infrastructure.ai.devtools_teaser_formatter import (
     extract_devtools_hook,
     is_devtools_article_channel,
 )
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
-from app.infrastructure.ai.image_service import ImageService
-from app.infrastructure.ai.topic_ideation import TopicIdeationService
+from app.infrastructure.ai.image_service import ImageGenPrompts, ImageService
+from app.infrastructure.ai.topic_ideation import IdeationPrompts, TopicIdeationService
 from app.infrastructure.parsers.github_repo_logo import parse_github_repo
 from app.infrastructure.search.github_trending_client import (
     GitHubTrendingClient,
@@ -36,6 +36,7 @@ from app.repositories.processed_post_repository import ProcessedPostRepository
 from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import report_job_stage
 from app.services.platform_settings_service import PlatformSettingsService
+from app.services.prompt_service import PromptService
 from app.services.web_research_service import WebResearchService
 from app.utils.telegram_channels import is_telegram_long_form_channel
 from app.utils.text_format import long_form_body_limit
@@ -52,10 +53,55 @@ class ArticleGenerationService:
         self._channels = ChannelRepository(session)
         self._processed = ProcessedPostRepository(session)
         self._settings = SettingRepository(session)
-        self._ideation = TopicIdeationService()
+        self._prompts = PromptService(session)
         self._research = WebResearchService()
-        self._writer = ArticleWriter()
         self._trending = GitHubTrendingClient()
+
+    async def _load_ideation_prompts(self) -> IdeationPrompts:
+        """Загружает промпты идеации из БД (падает PromptNotFoundError)."""
+        return IdeationPrompts(
+            default_template=await self._prompts.get("ideation.default"),
+            postcard_template=await self._prompts.get("ideation.postcard"),
+            system_default=await self._prompts.get("ideation.system_default"),
+            system_postcard=await self._prompts.get("ideation.system_postcard"),
+            system_paragraph=await self._prompts.get("ideation.system_paragraph"),
+            devtools_extra=await self._prompts.get("ideation.devtools_extra"),
+            devtools_with_repos=await self._prompts.get(
+                "ideation.devtools_with_repos"
+            ),
+            devtools_no_repos=await self._prompts.get("ideation.devtools_no_repos"),
+            paragraph_extra=await self._prompts.get("ideation.paragraph_extra"),
+        )
+
+    async def _load_writer_prompts(self) -> WriterPrompts:
+        """Загружает промпты написания статей из БД."""
+        return WriterPrompts(
+            default_template=await self._prompts.get("writing.default"),
+            postcard_template=await self._prompts.get("writing.postcard"),
+            system_default=await self._prompts.get("writing.system_default"),
+            system_devtools=await self._prompts.get("writing.system_devtools"),
+            system_paragraph=await self._prompts.get("writing.system_paragraph"),
+            system_postcard=await self._prompts.get("writing.system_postcard"),
+            devtools_instructions=await self._prompts.get(
+                "writing.devtools_instructions"
+            ),
+            paragraph_instructions=await self._prompts.get(
+                "writing.paragraph_instructions"
+            ),
+            image_hint_default=await self._prompts.get("image.writer_hint_default"),
+            image_hint_postcard=await self._prompts.get("image.writer_hint_postcard"),
+            image_hint_paragraph=await self._prompts.get(
+                "image.writer_hint_paragraph"
+            ),
+        )
+
+    async def _load_image_prompts(self) -> ImageGenPrompts:
+        """Загружает негативы и шаблон обложки из БД."""
+        return ImageGenPrompts(
+            no_text_negative=await self._prompts.get("negative.qwen_no_text"),
+            news_negative=await self._prompts.get("negative.qwen_news"),
+            cover_template=await self._prompts.get("image.cover_prompt"),
+        )
 
     async def generate_for_channel(
         self, channel_id: int, *, celery_task_id: str | None = None
@@ -86,8 +132,8 @@ class ArticleGenerationService:
         )
 
         platform_settings = await PlatformSettingsService(self._session).get_merged()
-        ideation_prompt = await self._settings.get("article_ideation_prompt", "")
-        writing_prompt = await self._settings.get("article_writing_prompt", "")
+        ideation = TopicIdeationService(await self._load_ideation_prompts())
+        writer = ArticleWriter(await self._load_writer_prompts())
         teaser_max = int(await self._settings.get("article_teaser_max_length", "900"))
         body_max = int(await self._settings.get("article_body_max_length", "12000"))
         telegram_max = int(await self._settings.get("article_telegram_max_length", "3800"))
@@ -145,8 +191,8 @@ class ArticleGenerationService:
             await report_job_stage(
                 celery_task_id, "Выбор темы и угла статьи…", 25
             )
-            plan = await self._ideation.plan_topic(
-                channel, recent, ideation_prompt, candidate_repos=candidate_repos
+            plan = await ideation.plan_topic(
+                channel, recent, candidate_repos=candidate_repos
             )
 
             if is_postcard_article_channel(channel.name, channel.topic):
@@ -166,12 +212,11 @@ class ArticleGenerationService:
             await report_job_stage(
                 celery_task_id, "Написание статьи через AI…", 62
             )
-            draft = await self._writer.write(
+            draft = await writer.write(
                 channel,
                 topic=plan.topic,
                 angle=plan.angle,
                 research_context=research_context,
-                prompt_template=writing_prompt,
                 body_max_length=body_max,
                 teaser_max_length=teaser_max,
                 recent_hooks=recent_hooks,
@@ -205,7 +250,9 @@ class ArticleGenerationService:
         await report_job_stage(
             celery_task_id, "Генерация обложки…", 80
         )
-        images = ImageService.from_settings_dict(platform_settings)
+        images = ImageService.from_settings_dict(
+            platform_settings, prompts=await self._load_image_prompts()
+        )
         fallback_image = sources[0].url if sources else None
         image_url, image_source = await images.resolve_article_image(
             channel=channel,

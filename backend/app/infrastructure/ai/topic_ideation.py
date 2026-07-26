@@ -2,6 +2,7 @@
 
 import json
 import re
+from dataclasses import dataclass
 from datetime import date
 
 from loguru import logger
@@ -18,49 +19,41 @@ from app.utils.safe_format import safe_format
 
 _MAX_IDEATION_ATTEMPTS = 5
 
-_POSTCARD_IDEATION_PROMPT = """Канал открыток «{channel_name}». Сегодня {current_date}.
 
-Уже были (НЕ повторять):
-{recent_topics}
+@dataclass(frozen=True)
+class IdeationPrompts:
+    """Промпты идеации из панели промптов (prompt_templates: ideation.*)."""
 
-Придумай ОДИН повод для открытки, подходящий текущему сезону.
-Примеры: доброе утро, хороший день, день рождения, выходные, дружба,
-любовь, «верь в себя», праздники по сезону, просто так.
-
-JSON одной строкой:
-{{"topic": "повод 3–6 слов", "angle": "настроение в 1 предложении", "search_queries": []}}"""
-
-_DEFAULT_IDEATION_PROMPT = """Ты — редактор познавательного Telegram-канала «{channel_name}».
-Ниша канала: {channel_niche}
-
-Недавние темы и заголовки (СТРОГО ЗАПРЕЩЕНО повторять и близкие по смыслу):
-{recent_topics}
-
-Правила выбора темы:
-- Одна конкретная концепция = одна статья. Нельзя перефразировать недавнюю тему другими словами.
-- Если недавно был «эффект плацебо» — запрещены сахарная таблетка, сила внушения, самовнушение и т.п.
-- Если недавно было «дежавю» — запрещены ложные воспоминания, déjà vu, «уже здесь были».
-- Чередуй области знаний: космос, история, биология, физика, технологии, культура, экономика, язык, археология.
-- Не выбирай подряд несколько тем из одной области (психология мозга, оптические иллюзии и т.д.).
-- Тема должна быть интересной широкой аудитории, с потенциалом для фактов из интернета.
-
-Придумай ОДНУ свежую познавательную тему для длинной статьи на русском.
-
-Ответь строго JSON одной строкой:
-{{"topic": "краткое название темы", "angle": "угол подачи в 1-2 предложения", "search_queries": ["запрос 1", "запрос 2", "запрос 3"]}}"""
+    default_template: str
+    postcard_template: str
+    system_default: str
+    system_postcard: str
+    system_paragraph: str
+    devtools_extra: str
+    devtools_with_repos: str
+    devtools_no_repos: str
+    paragraph_extra: str
 
 
 class TopicIdeationService:
-    """Придумывает тему и поисковые запросы для статьи."""
+    """Придумывает тему и поисковые запросы для статьи.
 
-    def __init__(self, client: DeepSeekClient | None = None) -> None:
+    Все тексты промптов приходят из БД через ``IdeationPrompts`` —
+    модуль не содержит захардкоженных промптов.
+    """
+
+    def __init__(
+        self,
+        prompts: IdeationPrompts,
+        client: DeepSeekClient | None = None,
+    ) -> None:
         self._client = client or DeepSeekClient()
+        self._prompts = prompts
 
     async def plan_topic(
         self,
         channel: Channel,
         recent_topics: list[str],
-        prompt_template: str,
         candidate_repos: list[str] | None = None,
     ) -> ArticleTopicPlan:
         """Генерирует план темы статьи с проверкой на повторы.
@@ -68,7 +61,6 @@ class TopicIdeationService:
         Args:
             channel: канал публикации.
             recent_topics: недавние темы для антиповтора.
-            prompt_template: шаблон промпта из settings.
             candidate_repos: живой список трендовых репозиториев (GitHub
                 Trending) для devtools-канала. Если задан — модель выбирает
                 тему из него, а не выдумывает из памяти.
@@ -91,7 +83,6 @@ class TopicIdeationService:
             plan = await self._request_topic(
                 channel,
                 blocked_topics=blocked,
-                prompt_template=prompt_template,
                 candidate_repos=candidate_repos,
             )
             last_plan = plan
@@ -133,7 +124,6 @@ class TopicIdeationService:
         channel: Channel,
         *,
         blocked_topics: list[str],
-        prompt_template: str,
         candidate_repos: list[str] | None = None,
     ) -> ArticleTopicPlan:
         """Один запрос к модели за темой статьи.
@@ -141,7 +131,6 @@ class TopicIdeationService:
         Args:
             channel: канал публикации.
             blocked_topics: темы, которые нельзя предлагать.
-            prompt_template: шаблон промпта из settings.
             candidate_repos: живой список трендовых репозиториев для выбора.
 
         Returns:
@@ -152,29 +141,28 @@ class TopicIdeationService:
         """
         niche = (channel.style_prompt or "познавательные статьи").strip()
         recent = _format_recent_topics(blocked_topics)
-        template = prompt_template.strip() or _DEFAULT_IDEATION_PROMPT
         prompt = safe_format(
-            template,
+            self._prompts.default_template,
             channel_name=channel.name,
             channel_niche=niche,
             recent_topics=recent,
         )
         if is_postcard_article_channel(channel.name):
             prompt = safe_format(
-                _POSTCARD_IDEATION_PROMPT,
+                self._prompts.postcard_template,
                 channel_name=channel.name,
                 channel_niche=niche,
                 recent_topics=recent,
                 current_date=date.today().strftime("%d.%m.%Y"),
             )
         elif is_devtools_article_channel(channel.topic, channel.name):
-            prompt = f"{prompt}\n\n{_devtools_ideation_extra(candidate_repos)}"
+            prompt = f"{prompt}\n\n{self._devtools_extra(candidate_repos)}"
         elif is_paragraph_article_channel(channel.name):
-            prompt = f"{prompt}\n\n{_paragraph_ideation_extra()}"
+            prompt = f"{prompt}\n\n{self._prompts.paragraph_extra}"
 
         settings = get_settings()
         result = await self._client.chat_completion(
-            system_prompt=_system_prompt(channel),
+            system_prompt=self._system_prompt(channel),
             user_prompt=prompt,
             max_tokens=4000,
             temperature=0.85,
@@ -187,6 +175,39 @@ class TopicIdeationService:
             msg = "Не удалось распознать тему статьи от модели"
             raise RuntimeError(msg)
         return parsed
+
+    def _devtools_extra(self, candidate_repos: list[str] | None) -> str:
+        """Собирает блок инструкций devtools: общие правила + ветка по трендам.
+
+        Args:
+            candidate_repos: живой список трендовых репозиториев или None.
+
+        Returns:
+            str: блок инструкций для промпта идеации.
+        """
+        base = self._prompts.devtools_extra
+        if candidate_repos:
+            with_repos = safe_format(
+                self._prompts.devtools_with_repos,
+                repos_block=_format_repo_lines(candidate_repos),
+            )
+            return f"{base}\n\n{with_repos}"
+        return f"{base}\n{self._prompts.devtools_no_repos}"
+
+    def _system_prompt(self, channel: Channel) -> str:
+        """Выбирает системный промпт по типу канала.
+
+        Args:
+            channel: канал публикации.
+
+        Returns:
+            str: системная инструкция из панели промптов.
+        """
+        if is_postcard_article_channel(channel.name):
+            return self._prompts.system_postcard
+        if is_paragraph_article_channel(channel.name):
+            return self._prompts.system_paragraph
+        return self._prompts.system_default
 
     @staticmethod
     def _parse_response(result: str) -> ArticleTopicPlan | None:
@@ -240,106 +261,16 @@ def _format_recent_topics(topics: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _system_prompt(channel: Channel) -> str:
-    """Возвращает системный промпт для выбора темы.
+def _format_repo_lines(candidate_repos: list[str]) -> str:
+    """Форматирует живой список репозиториев для подстановки в {repos_block}.
+
+    Только форматирование данных GitHub Trending — текст инструкций вокруг
+    списка редактируется в панели промптов (ideation.devtools_with_repos).
 
     Args:
-        channel: канал публикации.
+        candidate_repos: строки-описания репозиториев.
 
     Returns:
-        str: системная инструкция.
+        str: список в виде «- строка» через перевод строки.
     """
-    if is_postcard_article_channel(channel.name, channel.topic if hasattr(channel, "topic") else ""):
-        return "Ты придумываешь поводы для открыток. Ответь JSON."
-    base = (
-        "Ты придумываешь темы для познавательных статей. "
-        "Никогда не повторяй и не перефразируй недавние темы. "
-        "Ответь только JSON с полями topic, angle, search_queries."
-    )
-    if is_paragraph_article_channel(channel.name):
-        return (
-            f"{base} "
-            "Для канала «Параграф» чередуй разные области знаний — "
-            "не предлагай подряд психологию мозга и когнитивные эффекты."
-        )
-    return base
-
-
-def _devtools_ideation_extra(candidate_repos: list[str] | None) -> str:
-    """Инструкции идеации для канала GitHub-находок.
-
-    Args:
-        candidate_repos: живой список трендовых репозиториев (строки-описания).
-            Если задан — модель выбирает из него; иначе выбирает из своих знаний.
-
-    Returns:
-        str: блок инструкций для промпта.
-    """
-    base = (
-        "Канал — подборка находок с GitHub. "
-        "Тема = один конкретный репозиторий (не обзор «топ-10»).\n"
-        "Отбирай только то, что зацепит широкую техно-аудиторию и что "
-        "хочется переслать. Приоритет:\n"
-        "- популярные или трендовые репозитории (тысячи звёзд или бурный "
-        "рост в последние недели);\n"
-        "- ИИ/LLM/агенты, кодинг-ассистенты, интеграции с Claude Code / "
-        "Cursor / Codex;\n"
-        "- потребительские open-source приложения и «бесплатная "
-        "альтернатива <известному продукту>» (CapCut, Notion, Postman и т.п.).\n"
-        "Избегай узких CLI-утилит без явного вау и безвестных обёрток — "
-        "из двух проектов выбирай более популярный и понятный.\n"
-        "РАЗНООБРАЗИЕ: не бери инструмент с той же задачей, что уже был в "
-        "последних постах (список недавних тем выше). Не более 1 AI/LLM-"
-        "инструмента из 3 подряд — если последние посты были про AI/агентов/"
-        "экономию токенов, выбери НЕ-AI категорию (CLI, self-hosted, базы, "
-        "сеть, мониторинг, редакторы, форматы данных).\n"
-        "ПРАВДИВОСТЬ: формат «альтернатива X» используй только если X — реально "
-        "существующий продукт. Не выдумывай продукты для сравнения (нет продукта "
-        "«Claude Design» и т.п.)."
-    )
-    if candidate_repos:
-        repos_block = "\n".join(f"- {line}" for line in candidate_repos)
-        return (
-            f"{base}\n\n"
-            "Ниже — ЖИВОЙ список трендовых репозиториев GitHub прямо сейчас. "
-            "Выбери РОВНО ОДИН из этого списка (не выдумывай свой), тот, что "
-            "будет интереснее всего аудитории и ещё не выходил в канале.\n"
-            f"{repos_block}\n\n"
-            'Поле topic — «owner/repo: суть», в angle укажи, чем цепляет. '
-            "В search_queries укажи запросы именно про выбранный репозиторий: "
-            '"<repo> github", "<repo> features", "<repo> alternative".'
-        )
-    return (
-        f"{base}\n"
-        "В search_queries обязательно добавь запросы, подтверждающие "
-        "актуальность и популярность, например: "
-        '"<repo> github stars", "<repo> github trending 2026", '
-        '"<repo> open source alternative".'
-    )
-
-
-def _paragraph_ideation_extra() -> str:
-    """Дополнительные правила идеации для канала «Параграф».
-
-    Returns:
-        str: блок инструкций.
-    """
-    return """Канал «Параграф» — познавательные статьи для широкой аудитории.
-
-Обязательно:
-- Тема из ДРУГОЙ области, чем последние 3–5 статей в списке выше.
-- Запрещены синонимы и перефразировки недавних тем (плацебо ≠ сахарная таблетка ≠ сила внушения).
-- Хорошие области для разнообразия: космос, древний мир, животные, физика, язык, архитектура,
-  экономические парадоксы, редкие профессии, географические аномалии, изобретения.
-- Плохо: подряд несколько статей про мозг, память, иллюзии, плацебо, дежавю, сны.
-
-Баланс (смотри список недавних тем выше):
-- ГЕОГРАФИЯ: не бери страну/регион, уже мелькавшие в последних темах. Особенно
-  не зацикливайся на одной стране (например Япония) — если она уже была недавно,
-  выбери другую часть света или тему без гео-привязки.
-- СУБЪЕКТ: не бери того же героя (животное, здание, явление, изобретение), что
-  уже был недавно, даже под другим названием (шмель ≠ пчела-нарушитель;
-  пирамиды Гизы ≠ пирамиды Амазонии).
-- ЗАГОЛОВОК: разнообразь зачин. Если последние 2–3 заголовка начинались с
-  «Почему» — начни иначе (факт-парадокс, «Как…», число, утверждение, вопрос без
-  «почему»). Не более чем каждый третий заголовок может начинаться с «Почему»."""
+    return "\n".join(f"- {line}" for line in candidate_repos)

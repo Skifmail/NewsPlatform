@@ -1,117 +1,51 @@
-"""Сборка промптов для генерации обложек."""
+"""Сборка промптов для генерации обложек.
+
+Тексты промптов и негативов живут в БД (prompt_templates: image.*, negative.*)
+и приходят сюда аргументами — модуль содержит только логику подстановки.
+"""
 
 import re
 
 from loguru import logger
 
 from app.infrastructure.models.channel import Channel
-
-# Тех-клише, которые Qwen любит пихать в обложки dev-инструментов
-# (источник «дорожек микросхем» на фоне).
-_NO_TECH_CLICHE = (
-    "circuit board, PCB, circuit traces, printed circuit, motherboard, "
-    "microchip pattern, chip traces, tech grid, glowing wires, data streams, "
-    "matrix code rain, cyberpunk, neon grid, hologram, holographic HUD, "
-    "sci-fi interface, futuristic dashboard, busy techy background"
-)
-
-# Общий негативный промпт Qwen — усиленный запрет текста.
-QWEN_NO_TEXT_NEGATIVE = (
-    "text, letters, words, numbers, typography, caption, headline, title, subtitle, "
-    "label, watermark, logo, banner, sign, poster with writing, speech bubble, "
-    "channel name, app icon, telegram logo, science-pop, audience, "
-    # Запрет UI-рамки/карточки по центру (модель рисует их из-за слова thumbnail).
-    "frame, border, rounded rectangle, rounded square, card, UI card, "
-    "thumbnail frame, thumbnail card, picture-in-picture, inset panel, "
-    "framed image, image inside a frame, translucent overlay, glass panel, "
-    "floating window, glassmorphism panel, vignette box, "
-    # Тех-клише (микросхемы/матрица/киберпанк) — источник «дорожек» на фоне.
-    f"{_NO_TECH_CLICHE}, "
-    "Cyrillic, Latin alphabet, Chinese characters, gibberish text, "
-    "low resolution, low quality, distorted limbs, malformed fingers, "
-    "oversaturated colors, blurry."
-)
-
-QWEN_NEWS_NEGATIVE = (
-    f"{QWEN_NO_TEXT_NEGATIVE}, "
-    "portrait, headshot, close-up face, generic man, generic woman, stock photo person, "
-    "news anchor, reporter, businessman, office worker, person looking at camera, "
-    "selfie, mugshot, passport photo."
-)
-
-QWEN_LOGO_EDIT_NEGATIVE = (
-    "blurry, low quality, distorted logo, unrecognizable brand, "
-    "cluttered background, extra watermark, random gibberish text, "
-    "multiple competing logos, meme style, oversaturated, ugly composition, "
-    f"{_NO_TECH_CLICHE}, "
-    "frame, border, rounded rectangle, card, thumbnail frame, "
-    "picture-in-picture, translucent overlay."
-)
-
-_WRITER_IMAGE_FIELD_HINT = (
-    "Поле image_prompt: одно предложение на английском — ОДИН конкретный "
-    "осязаемый объект или сцена как визуальная метафора работы инструмента "
-    "(например, для файлового менеджера — папка-дерево с лупой). Только "
-    "физические предметы и формы. НЕ упоминай файлы с текстом, код, команды, "
-    "терминал, интерфейс, экраны, надписи и названия — Qwen рисует их буквально "
-    "текстом на картинке."
-)
-
-# Для открыточного канала: яркий праздничный стиль под конкурентный канал.
-_POSTCARD_WRITER_HINT = (
-    "Поле image_prompt: 2–3 предложения на английском — детальное описание "
-    "праздничной открыточной картинки. "
-    "1) Выбери стиль под повод: photorealistic flowers and decor with bokeh, "
-    "vibrant 3D render with soft glow, lush garden scene with celebration mood, "
-    "или soft digital art with glowing elements and warm bokeh. "
-    "2) Цвета яркие и насыщенные: красные/розовые розы и сердечки для любви; "
-    "золотые/белые для поздравлений и юбилеев; фиолетово-синие для вечера/ночи; "
-    "зелёно-жёлтые для весны/утра; тёплые оранжевые/жёлтые для уюта/дружбы. "
-    "3) Конкретные объекты повода: розы, тюльпаны, сердечки, звёздочки, бабочки, "
-    "листья, снежинки — много, пышно, празднично. "
-    "Мягкое тёплое свечение, боке на фоне, праздничная атмосфера. "
-    "Композиция edge-to-edge, заполняет весь холст без полей и рамок. "
-    "Без людей, лиц, текста, цифр, надписей."
-)
-
-_PARAGRAPH_WRITER_HINT = (
-    "Поле image_prompt: 5–7 предложений НА РУССКОМ — краткая суть статьи: "
-    "о чём она, какие главные факты, почему это интересно читателю. "
-    "Это описание пойдёт в генератор обложки, который сам выберет визуальный стиль, "
-    "цвета и композицию. НЕ описывай картинку — опиши СОДЕРЖАНИЕ статьи."
-)
-
-# Промпт стилизации НАЙДЕННОГО логотипа репозитория (Qwen Image Edit).
-# ВАЖНО: только УТВЕРДИТЕЛЬНЫЕ формулировки. Отрицания («no circuit boards»)
-# давать НЕЛЬЗЯ — Qwen игнорирует «no» и рисует упомянутый объект (микросхемы,
-# текст). Всё нежелательное — только в negative_prompt (QWEN_LOGO_EDIT_NEGATIVE).
-# Проверено генерацией: этот стиль даёт чистую премиальную обложку без клише.
-LOGO_EDIT_TEMPLATE = (
-    "Place this logo as the clear centered hero on a smooth dark navy background "
-    "with soft studio lighting and a subtle glow. Around it arrange a few small "
-    "elegant minimalist 3D shapes suggesting {scene}, kept subtle and secondary "
-    "to the logo. Premium modern product render, generous empty space, tasteful, "
-    "keep the logo clean, sharp and unchanged."
-)
+from app.utils.safe_format import safe_format
 
 
 class ImagePromptBuilder:
     """Формирует промпты обложек только из настроек канала."""
 
     @staticmethod
-    def writer_image_guidelines(channel: Channel) -> str:
-        """Краткая инструкция для поля image_prompt в ArticleWriter."""
+    def writer_image_guidelines(
+        channel: Channel,
+        *,
+        default_hint: str,
+        postcard_hint: str,
+        paragraph_hint: str,
+    ) -> str:
+        """Краткая инструкция для поля image_prompt в ArticleWriter.
+
+        Args:
+            channel: канал публикации.
+            default_hint: инструкция по умолчанию (image.writer_hint_default).
+            postcard_hint: инструкция для открыток (image.writer_hint_postcard).
+            paragraph_hint: инструкция для «Параграф» (image.writer_hint_paragraph).
+
+        Returns:
+            str: инструкция для поля image_prompt.
+        """
         name = (channel.name or "").lower()
         if "параграф" in name:
-            return _PARAGRAPH_WRITER_HINT
+            return paragraph_hint
         if channel.topic == "postcard" or "открытк" in name:
-            return _POSTCARD_WRITER_HINT
-        return _WRITER_IMAGE_FIELD_HINT
+            return postcard_hint
+        return default_hint
 
     @staticmethod
     def build_logo_edit(
         channel: Channel,
         *,
+        template: str,
         scene: str,
         tool_name: str = "",
     ) -> str:
@@ -119,6 +53,7 @@ class ImagePromptBuilder:
 
         Args:
             channel: канал (для будущей кастомизации).
+            template: шаблон с {scene} (image.logo_edit_template).
             scene: метафора работы инструмента (англ., от ArticleWriter).
             tool_name: имя инструмента.
 
@@ -129,7 +64,7 @@ class ImagePromptBuilder:
         safe_scene = ImagePromptBuilder._sanitize_scene_for_qwen(scene) or (
             "how the tool works"
         )
-        return LOGO_EDIT_TEMPLATE.format(scene=safe_scene)
+        return safe_format(template, scene=safe_scene)
 
     @staticmethod
     def build_for_qwen(
@@ -154,38 +89,32 @@ class ImagePromptBuilder:
     @staticmethod
     def build_cover_prompt(
         *,
+        template: str,
         article_title: str,
         draft_image_prompt: str,
         teaser: str = "",
     ) -> str:
         """Промпт журнальной обложки с заголовком для gpt-image-2.
 
-        Даёт модели суть статьи и творческую свободу — она сама выбирает
-        визуальный стиль, цветовую палитру, типографику и композицию.
+        Текст редактируется в панели промптов (image.cover_prompt,
+        переменные {title} и {summary}).
         НЕ вырезает кириллицу — gpt-image-2 умеет рендерить русский текст.
+
+        Args:
+            template: шаблон с {title} и {summary}.
+            article_title: заголовок статьи.
+            draft_image_prompt: описание сути статьи от ArticleWriter.
+            teaser: анонс статьи (дополняет summary).
+
+        Returns:
+            str: промпт для генератора обложки.
         """
         title = article_title.strip()
         summary = draft_image_prompt.strip()
         if teaser:
             summary = f"{summary} {teaser.strip()}" if summary else teaser.strip()
         summary = summary[:800] if summary else title
-
-        return (
-            "Ты — арт-директор журнала. Создай обложку-иллюстрацию к статье.\n\n"
-            f"Заголовок статьи: «{title}»\n\n"
-            f"Суть статьи: {summary}\n\n"
-            "Требования к обложке:\n"
-            "1. Формат: широкий 16:9 (landscape).\n"
-            "2. Драматичная, кинематографичная фоновая иллюстрация-метафора "
-            "по теме статьи — конкретные предметы, текстуры, глубина.\n"
-            f'3. Крупный заголовок «{title}» — '
-            "типографика должна гармонировать с цветовой палитрой иллюстрации. "
-            "Выбери цвет, шрифт, тень и расположение текста сам — "
-            "главное, чтобы текст читался и выглядел как часть журнальной обложки.\n"
-            "4. Под заголовком — короткая цитата или подзаголовок из статьи "
-            "(1 предложение) контрастным акцентным цветом, меньшим шрифтом.\n"
-            "5. Без людей, лиц, UI-рамок, водяных знаков."
-        )
+        return safe_format(template, title=title, summary=summary)
 
     @staticmethod
     def build_for_news(

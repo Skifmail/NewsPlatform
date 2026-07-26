@@ -79,8 +79,11 @@ def test_sanitize_scene_removes_text_triggers() -> None:
 
 def test_logo_edit_prompt_is_affirmative_with_scene() -> None:
     """Промпт логотипа: утвердительный (без «no»), с метафорой сцены."""
+    from app.domain.prompt_defaults import PROMPT_DEFAULTS
+
     prompt = ImagePromptBuilder.build_logo_edit(
         _channel(),
+        template=PROMPT_DEFAULTS["image.logo_edit_template"].template_text,
         scene="a folder tree with a magnifier",
         tool_name="broot",
     )
@@ -94,12 +97,10 @@ def test_logo_edit_prompt_is_affirmative_with_scene() -> None:
 
 
 def test_negatives_ban_circuit_clichE() -> None:
-    from app.infrastructure.ai.image_prompt_builder import (
-        QWEN_LOGO_EDIT_NEGATIVE,
-        QWEN_NO_TEXT_NEGATIVE,
-    )
+    from app.domain.prompt_defaults import PROMPT_DEFAULTS
 
-    for neg in (QWEN_LOGO_EDIT_NEGATIVE, QWEN_NO_TEXT_NEGATIVE):
+    for key in ("negative.qwen_logo_edit", "negative.qwen_no_text"):
+        neg = PROMPT_DEFAULTS[key].template_text
         assert "circuit board" in neg
         assert "matrix code" in neg
 

@@ -1,6 +1,7 @@
 """Выбор и генерация изображений для постов."""
 
 import base64
+from dataclasses import dataclass
 from io import BytesIO
 
 import httpx
@@ -14,11 +15,7 @@ from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_
 from app.infrastructure.ai.openai_key_chain import active_openai_key
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
-from app.infrastructure.ai.image_prompt_builder import (
-    ImagePromptBuilder,
-    QWEN_NEWS_NEGATIVE,
-    QWEN_NO_TEXT_NEGATIVE,
-)
+from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.ai.logo_compositor import build_github_logo_cover
 from app.infrastructure.media_store import is_local_media_url, read_media, save_media
 from app.infrastructure.ai.qwen_image_chain import (
@@ -56,8 +53,21 @@ def _is_raster_image_url(url: str) -> bool:
     return not path.endswith(_NON_RASTER_SUFFIXES)
 
 
+@dataclass(frozen=True)
+class ImageGenPrompts:
+    """Промпты генерации обложек из панели промптов (negative.*, image.cover_prompt)."""
+
+    no_text_negative: str
+    news_negative: str
+    cover_template: str
+
+
 class ImageService:
-    """Определяет изображение для публикации."""
+    """Определяет изображение для публикации.
+
+    Для путей генерации требуется ``prompts`` (негативы и шаблон обложки из БД);
+    без них доступны только скачивание/обработка готовых изображений.
+    """
 
     def __init__(
         self,
@@ -65,14 +75,21 @@ class ImageService:
         generate_models: list[str] | None = None,
         edit_models: list[str] | None = None,
         openai_db_key: str | None = None,
+        prompts: ImageGenPrompts | None = None,
     ) -> None:
         self._qwen = QwenImageClient()
         self._generate_models = generate_models
         self._edit_models = edit_models
         self._openai_db_key = openai_db_key
+        self._prompts = prompts
 
     @classmethod
-    def from_settings_dict(cls, merged: dict[str, str] | None = None) -> "ImageService":
+    def from_settings_dict(
+        cls,
+        merged: dict[str, str] | None = None,
+        *,
+        prompts: ImageGenPrompts | None = None,
+    ) -> "ImageService":
         """Создаёт сервис с цепочками моделей из настроек платформы."""
         generate_raw = merged.get("qwen_image_models") if merged else None
         edit_raw = merged.get("qwen_image_edit_models") if merged else None
@@ -81,7 +98,22 @@ class ImageService:
             generate_models=resolve_generate_models(generate_raw),
             edit_models=resolve_edit_models(edit_raw),
             openai_db_key=openai_key,
+            prompts=prompts,
         )
+
+    def _require_prompts(self) -> ImageGenPrompts:
+        """Промпты генерации, обязательные для AI-путей.
+
+        Raises:
+            RuntimeError: сервис создан без промптов (проверьте панель промптов).
+        """
+        if self._prompts is None:
+            msg = (
+                "ImageService создан без промптов генерации (negative.*, "
+                "image.cover_prompt) — передайте prompts из PromptService."
+            )
+            raise RuntimeError(msg)
+        return self._prompts
 
     @staticmethod
     def ai_generation_available() -> bool:
@@ -237,6 +269,7 @@ class ImageService:
         generated = None
         if is_paragraph_article_channel(channel.name):
             cover_prompt = ImagePromptBuilder.build_cover_prompt(
+                template=self._require_prompts().cover_template,
                 article_title=article_title,
                 draft_image_prompt=image_prompt,
                 teaser=teaser,
@@ -307,7 +340,7 @@ class ImageService:
                 url = await self._qwen.generate(
                     prompt,
                     prompt_extend=False,
-                    negative_prompt=QWEN_NEWS_NEGATIVE,
+                    negative_prompt=self._require_prompts().news_negative,
                     models=self._generate_models,
                 )
                 if url:
@@ -352,7 +385,7 @@ class ImageService:
                 url = await self._qwen.generate(
                     prompt,
                     prompt_extend=False,
-                    negative_prompt=QWEN_NO_TEXT_NEGATIVE,
+                    negative_prompt=self._require_prompts().no_text_negative,
                     models=self._generate_models,
                 )
                 if url:
@@ -376,7 +409,7 @@ class ImageService:
                 url = await self._qwen.generate(
                     prompt,
                     prompt_extend=False,
-                    negative_prompt=QWEN_NO_TEXT_NEGATIVE,
+                    negative_prompt=self._require_prompts().no_text_negative,
                     models=self._generate_models,
                 )
                 if url:

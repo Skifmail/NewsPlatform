@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.infrastructure.ai.topic_ideation import _devtools_ideation_extra
+from app.infrastructure.ai.topic_ideation import _format_repo_lines
 from app.infrastructure.search.github_trending_client import (
     GitHubTrendingClient,
     TrendingRepo,
@@ -122,14 +122,48 @@ async def test_fetch_trending_handles_rate_limit() -> None:
     assert repos == []
 
 
+def test_format_repo_lines_bullets_candidates() -> None:
+    lines = _format_repo_lines(["owner/repo — ⭐9000, Go — desc (url)", "a/b — ⭐1"])
+    assert lines == "- owner/repo — ⭐9000, Go — desc (url)\n- a/b — ⭐1"
+
+
+def _devtools_service():
+    from app.domain.prompt_defaults import PROMPT_DEFAULTS
+    from app.infrastructure.ai.topic_ideation import (
+        IdeationPrompts,
+        TopicIdeationService,
+    )
+
+    def text(key: str) -> str:
+        return PROMPT_DEFAULTS[key].template_text
+
+    prompts = IdeationPrompts(
+        default_template=text("ideation.default"),
+        postcard_template=text("ideation.postcard"),
+        system_default=text("ideation.system_default"),
+        system_postcard=text("ideation.system_postcard"),
+        system_paragraph=text("ideation.system_paragraph"),
+        devtools_extra=text("ideation.devtools_extra"),
+        devtools_with_repos=text("ideation.devtools_with_repos"),
+        devtools_no_repos=text("ideation.devtools_no_repos"),
+        paragraph_extra=text("ideation.paragraph_extra"),
+    )
+    return TopicIdeationService(prompts, client=object())
+
+
 def test_devtools_extra_with_candidates_forces_choice() -> None:
-    extra = _devtools_ideation_extra(["owner/repo — ⭐9000, Go — desc (url)"])
+    extra = _devtools_service()._devtools_extra(["owner/repo — ⭐9000, Go — desc (url)"])
     assert "ЖИВОЙ список" in extra
-    assert "owner/repo" in extra
+    assert "- owner/repo" in extra
     assert "Выбери РОВНО ОДИН" in extra
+    assert "{repos_block}" not in extra
 
 
 def test_devtools_extra_without_candidates_falls_back() -> None:
-    extra = _devtools_ideation_extra(None)
+    """Фолбэк-ветка: без живого списка нет инструкции «выбери из списка»."""
+    extra = _devtools_service()._devtools_extra(None)
     assert "ЖИВОЙ список" not in extra
-    assert "search_queries" in extra
+    assert "github stars" in extra
+    # В фолбэке не должно быть инструкции формата topic из ветки с репозиториями,
+    # иначе модель получает два противоречащих правила про search_queries.
+    assert "«owner/repo: суть»" not in extra

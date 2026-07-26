@@ -1,7 +1,7 @@
 """Тесты усиленного дедупа тем: общий субъект и защита от ложных совпадений."""
 
 from app.domain.topic_dedup import is_topic_too_similar
-from app.infrastructure.ai.topic_ideation import _paragraph_ideation_extra
+from app.domain.prompt_defaults import PROMPT_DEFAULTS
 
 
 def test_bumblebee_near_duplicate_caught() -> None:
@@ -66,7 +66,7 @@ def test_distinct_topics_stay_distinct() -> None:
 
 
 def test_paragraph_prompt_has_balancing_rules() -> None:
-    extra = _paragraph_ideation_extra()
+    extra = PROMPT_DEFAULTS["ideation.paragraph_extra"].template_text
     assert "ГЕОГРАФИЯ" in extra
     assert "СУБЪЕКТ" in extra
     assert "ЗАГОЛОВОК" in extra

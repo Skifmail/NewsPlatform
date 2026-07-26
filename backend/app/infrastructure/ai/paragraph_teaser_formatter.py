@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from app.utils.safe_format import safe_format
+
 
 def is_paragraph_article_channel(channel_name: str) -> bool:
     """Определяет, нужен ли формат анонса канала «Параграф».
@@ -15,38 +17,20 @@ def is_paragraph_article_channel(channel_name: str) -> bool:
     return "параграф" in channel_name.lower()
 
 
-def paragraph_writing_instructions(teaser_max_length: int) -> str:
-    """Возвращает дополнительные инструкции для ArticleWriter (Параграф).
+def paragraph_writing_instructions(template: str, teaser_max_length: int) -> str:
+    """Собирает инструкции для ArticleWriter (Параграф) из шаблона панели промптов.
+
+    Текст редактируется в панели промптов
+    (prompt_templates: writing.paragraph_instructions, переменная {teaser_max_length}).
 
     Args:
+        template: шаблон инструкций.
         teaser_max_length: лимит анонса в Telegram.
 
     Returns:
         str: блок инструкций на русском.
     """
-    return f"""Формат Telegram-анонса (поле teaser соберёт платформа — заполни структурные поля):
-
-Ответь JSON с ключами:
-title, body_html, image_prompt, hook, quote, closing.
-
-- hook — 2–3 предложения-крючок; начни с 1 уместного эмодзи (🧠 💡 🔬 ✨ 🧪).
-- quote — короткая яркая цитата или ключевая фраза из исследования (только реальные факты).
-- closing — 1–2 предложения интриги, без спойлеров всей статьи.
-- teaser — оставь пустой строкой "" (соберём автоматически).
-
-body_html — основной текст для публикации в Telegram (не Telegraph): развёрнутая статья.
-ЗАПРЕЩЕНО в body_html использовать служебные заголовки разделов:
-«Крючок», «Hook», «Quote», «Цитата», «Closing», «Вывод», «Лид», «Неожиданный поворот»,
-«Источники» и другие метки из этого списка полей JSON.
-Содержимое hook/quote/closing — ТОЛЬКО в соответствующих JSON-полях, не дублируй в body_html.
-Подзаголовки разделов — осмысленные формулировки по теме (<b>...</b>), не названия полей промпта.
-
-image_prompt — только английский, 3–4 предложения.
-Опиши детальную образовательную иллюстрацию с конкретными объектами из статьи:
-точные предметы, научные элементы, материалы и текстуры, ракурс, освещение (мягкий студийный или натуральный), цветовая палитра.
-Стиль: photorealism или high-quality 3D render, насыщенный деталями, передающий суть темы.
-Абсолютно запрещено: люди, лица, тела, текст / буквы / цифры на изображении, интерфейсы, экраны.
-Лимит карточки teaser после сборки: до {teaser_max_length} символов."""
+    return safe_format(template, teaser_max_length=teaser_max_length)
 
 
 def build_paragraph_teaser(

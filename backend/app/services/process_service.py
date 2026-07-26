@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.domain.enums import ImageSource, PostStatus
 from app.domain.process_result import ProcessResult
 from app.infrastructure.ai.classifier import TopicClassifier
-from app.infrastructure.ai.image_service import ImageService
+from app.infrastructure.ai.image_service import ImageGenPrompts, ImageService
 from app.infrastructure.ai.rewriter import ContentRewriter
 from app.services.activity_notifier import notify_simple
 from app.infrastructure.models.processed_post import ProcessedPost
@@ -18,6 +18,7 @@ from app.repositories.raw_post_repository import RawPostRepository
 from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import report_job_stage
 from app.services.platform_settings_service import PlatformSettingsService
+from app.services.prompt_service import PromptService
 
 from app.domain.topics import TOPIC_LABELS as _TOPIC_LABELS
 
@@ -31,8 +32,8 @@ class ProcessService:
         self._channels = ChannelRepository(session)
         self._processed = ProcessedPostRepository(session)
         self._settings = SettingRepository(session)
+        self._prompts = PromptService(session)
         self._classifier = TopicClassifier()
-        self._rewriter = ContentRewriter()
 
     async def process_raw_post(
         self,
@@ -62,16 +63,16 @@ class ProcessService:
                 return ProcessResult([], raw_post.topic, "Пост уже в очереди или опубликован")
 
         source_topic = raw_post.topic
-        classification_prompt = await self._settings.get(
-            "classification_prompt", ""
-        )
-        if classification_prompt:
+        classification_prompt = await self._prompts.get("classification.user")
+        classification_system = await self._prompts.get("classification.system")
+        if classification_prompt.strip():
             await report_job_stage(
                 celery_task_id, "Классификация темы через AI…", 28
             )
             detected_topic = await self._classifier.classify(
                 raw_post.content,
                 classification_prompt,
+                classification_system,
                 fallback_topic=source_topic,
             )
             raw_post.topic = detected_topic
@@ -103,7 +104,19 @@ class ProcessService:
 
         settings = get_settings()
         platform_settings = await PlatformSettingsService(self._session).get_merged()
-        images = ImageService.from_settings_dict(platform_settings)
+        image_prompts = ImageGenPrompts(
+            no_text_negative=await self._prompts.get("negative.qwen_no_text"),
+            news_negative=await self._prompts.get("negative.qwen_news"),
+            cover_template=await self._prompts.get("image.cover_prompt"),
+        )
+        images = ImageService.from_settings_dict(
+            platform_settings, prompts=image_prompts
+        )
+        rewriter = ContentRewriter(
+            default_template=await self._prompts.get("rewrite.default"),
+            system_prompt=await self._prompts.get("rewrite.system"),
+            retry_suffix=await self._prompts.get("rewrite.strict_retry_suffix"),
+        )
         created_ids: list[int] = []
 
         for channel in channels:
@@ -113,7 +126,7 @@ class ProcessService:
                     f"Рерайт текста для «{channel.name}»…",
                     55,
                 )
-                rewritten = await self._rewriter.rewrite(raw_post, channel)
+                rewritten = await rewriter.rewrite(raw_post, channel)
                 await report_job_stage(
                     celery_task_id,
                     f"Подбор изображения для «{channel.name}»…",

@@ -6,6 +6,7 @@ import SourcesView from '../views/SourcesView.vue'
 import ChannelsView from '../views/ChannelsView.vue'
 import HistoryView from '../views/HistoryView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import PromptsView from '../views/PromptsView.vue'
 import JobsView from '../views/JobsView.vue'
 import LogsView from '../views/LogsView.vue'
 import MaterialsView from '../views/MaterialsView.vue'
@@ -31,6 +32,7 @@ const routes = [
     component: AnalyticsChannelView,
   },
   { path: '/history', name: 'history', component: HistoryView },
+  { path: '/prompts', name: 'prompts', component: PromptsView },
   { path: '/settings', name: 'settings', component: SettingsView },
 ]
 

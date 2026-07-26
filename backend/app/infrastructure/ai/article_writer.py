@@ -2,6 +2,7 @@
 
 import json
 import re
+from dataclasses import dataclass
 
 from loguru import logger
 
@@ -21,7 +22,6 @@ from app.infrastructure.ai.paragraph_teaser_formatter import (
 )
 from app.infrastructure.ai.postcard_teaser_formatter import (
     is_postcard_article_channel,
-    postcard_writing_instructions,
 )
 from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.models.channel import Channel
@@ -66,86 +66,37 @@ def _trim_to_last_sentence(text: str) -> str:
     end = best + 1 + (match.end() if match else 0)
     return stripped[:end].rstrip()
 
-_DEFAULT_WRITING_PROMPT = """Ты — автор познавательных статей для Telegram-канала «{channel_name}».
-Стиль канала: {channel_niche}
+@dataclass(frozen=True)
+class WriterPrompts:
+    """Промпты написания статей из панели промптов (prompt_templates)."""
 
-Напиши статью на русском по теме «{topic}» ({angle}).
-Используй ТОЛЬКО факты из блока «Исследование» ниже. Не выдумывай цитаты и цифры.
-
-Структура body_html (без служебных меток «Крючок», «Вывод», «Лид», «Источники» — только содержательные подзаголовки):
-1) Лид — 2-3 предложения (без заголовка «Лид»)
-2) 3-5 разделов с подзаголовками <b>...</b> по теме
-3) Заключительный абзац — 2-3 предложения (без заголовка «Вывод»)
-4) Ссылки на источники — список <a href="...">название</a> (без заголовка «Источники»)
-
-HTML в body_html: только теги b, i, a, blockquote. Без <p>. Абзацы — через \\n\\n внутри строки JSON.
-Объём body_html: {min_length}–{max_length} символов.
-Teaser (анонс для Telegram): до {teaser_max_length} символов, интригует, без спойлеров всей статьи.
-
-Правила обложки (поле image_prompt, только английский):
-{image_guidelines}
-
-image_prompt — 1–2 предложения: ОДНА конкретная визуальная метафора инструмента или темы.
-Запрещено: нейросети, матричный дождь, голограммы, множество окон, нечитаемый код, любой текст на картинке.
-
-Ответь строго одним JSON-объектом с ключами title, teaser, body_html, image_prompt.
-
-Исследование:
-{research_context}"""
-
-_SYSTEM_PROMPT = (
-    "Ты автор познавательных статей на русском. "
-    "Пиши увлекательно, но строго по фактам из исследования. "
-    "Ответь только валидным JSON с ключами title, teaser, body_html, image_prompt."
-)
-
-_DEVTOOLS_SYSTEM_PROMPT = (
-    "Ты автор карточек GitHub-находок на русском. "
-    "Строго по фактам из исследования — не выдумывай stars, forks и язык. "
-    "Крючок (hook) — разный заход в каждой карточке; не начинай с «Устали от» и похожих шаблонов. "
-    "Ответь только валидным JSON с ключами: title, teaser, body_html, image_prompt, "
-    "project_name, repo_url, language, stars, forks, hook, features, insight."
-)
-
-_PARAGRAPH_SYSTEM_PROMPT = (
-    "Ты автор познавательных статей на русском для канала «Параграф». "
-    "Пиши увлекательно, но строго по фактам из исследования. "
-    "Ответь только валидным JSON с ключами: title, teaser, body_html, image_prompt, "
-    "hook, quote, closing."
-)
-
-_POSTCARD_SYSTEM_PROMPT = (
-    "Ты автор коротких открыток-поздравлений на русском для канала «Открытки». "
-    "Пиши тепло и от души, коротко — это открытка на 1-2 предложения, не статья. "
-    "Много уместных эмодзи. "
-    "Ответь только валидным JSON с ключами title, teaser, body_html, image_prompt."
-)
-
-# Полностью отдельный промпт для открыточного канала — не аппенд к шаблону статьи,
-# чтобы модель не видела конфликтующих инструкций «2500+ символов, 5 разделов».
-_POSTCARD_WRITING_PROMPT = """Ты — автор коротких открыток для Telegram-канала «{channel_name}».
-Стиль канала: {channel_niche}
-
-Повод/тема: {topic}
-
-Напиши открытку-поздравление. Ответь строго одним JSON-объектом с ключами:
-
-"title"     — краткое название повода, 3–7 слов (для внутренней дедупликации тем, в посте не показывается).
-"teaser"    — ОСНОВНОЙ ТЕКСТ ОТКРЫТКИ: 1–2 тёплых живых предложения.
-              Много уместных эмодзи (3–6 штук по тексту, не подряд друг за другом).
-              Без хэштегов. Без канцелярских клише («поздравляем вас с этим замечательным...»).
-              Максимум {teaser_max_length} символов.
-"body_html" — ОДНА короткая строка-продолжение (до 100 символов): строчка стиха, второе
-              пожелание или тёплая фраза. Без тегов <b>/<i>. НЕ повторяет teaser.
-              Если нечего добавить — пустая строка "".
-"image_prompt" — {image_guidelines}"""
+    default_template: str
+    postcard_template: str
+    system_default: str
+    system_devtools: str
+    system_paragraph: str
+    system_postcard: str
+    devtools_instructions: str
+    paragraph_instructions: str
+    image_hint_default: str
+    image_hint_postcard: str
+    image_hint_paragraph: str
 
 
 class ArticleWriter:
-    """Генерирует длинную статью по результатам исследования."""
+    """Генерирует длинную статью по результатам исследования.
 
-    def __init__(self, client: DeepSeekClient | None = None) -> None:
+    Все тексты промптов приходят из БД через ``WriterPrompts`` —
+    модуль не содержит захардкоженных промптов.
+    """
+
+    def __init__(
+        self,
+        prompts: WriterPrompts,
+        client: DeepSeekClient | None = None,
+    ) -> None:
         self._client = client or DeepSeekClient()
+        self._prompts = prompts
 
     async def write(
         self,
@@ -154,7 +105,6 @@ class ArticleWriter:
         topic: str,
         angle: str,
         research_context: str,
-        prompt_template: str,
         body_max_length: int,
         teaser_max_length: int,
         recent_hooks: list[str] | None = None,
@@ -166,7 +116,6 @@ class ArticleWriter:
             topic: тема статьи.
             angle: угол подачи.
             research_context: текст исследования.
-            prompt_template: шаблон промпта.
             body_max_length: лимит тела статьи.
             teaser_max_length: лимит анонса.
             recent_hooks: недавние крючки devtools-канала (антиповтор).
@@ -190,7 +139,6 @@ class ArticleWriter:
             topic=topic,
             angle=angle,
             research_context=research_context,
-            prompt_template=prompt_template,
             body_max_length=effective_body_max,
             teaser_max_length=teaser_max_length,
             recent_hooks=recent_hooks,
@@ -210,7 +158,6 @@ class ArticleWriter:
             topic=topic,
             angle=angle,
             research_context=research_context,
-            prompt_template=prompt_template,
             body_max_length=shorter_max,
             teaser_max_length=teaser_max_length,
             recent_hooks=recent_hooks,
@@ -227,7 +174,6 @@ class ArticleWriter:
         topic: str,
         angle: str,
         research_context: str,
-        prompt_template: str,
         body_max_length: int,
         teaser_max_length: int,
         recent_hooks: list[str] | None = None,
@@ -239,7 +185,6 @@ class ArticleWriter:
             topic: тема.
             angle: угол.
             research_context: контекст исследования.
-            prompt_template: шаблон промпта.
             body_max_length: лимит тела.
             teaser_max_length: лимит анонса.
             recent_hooks: недавние крючки devtools-канала.
@@ -248,11 +193,15 @@ class ArticleWriter:
             ArticleDraft | None: черновик или None при ошибке парсинга.
         """
         niche = (channel.style_prompt or "познавательные статьи").strip()
-        image_guidelines = ImagePromptBuilder.writer_image_guidelines(channel)
-        template = prompt_template.strip() or _DEFAULT_WRITING_PROMPT
+        image_guidelines = ImagePromptBuilder.writer_image_guidelines(
+            channel,
+            default_hint=self._prompts.image_hint_default,
+            postcard_hint=self._prompts.image_hint_postcard,
+            paragraph_hint=self._prompts.image_hint_paragraph,
+        )
         min_length = max(2500, body_max_length // 2)
         prompt = safe_format(
-            template,
+            self._prompts.default_template,
             channel_name=channel.name,
             channel_niche=niche,
             topic=topic,
@@ -270,7 +219,7 @@ class ArticleWriter:
             # Полностью заменяем шаблон статьи — иначе модель видит конфликт
             # «2500+ символов, 5 разделов» vs «1-2 предложения» и пишет статью.
             prompt = safe_format(
-                _POSTCARD_WRITING_PROMPT,
+                self._prompts.postcard_template,
                 channel_name=channel.name,
                 channel_niche=niche,
                 topic=topic,
@@ -280,18 +229,21 @@ class ArticleWriter:
         elif devtools:
             prompt = (
                 f"{prompt}\n\n"
-                f"{devtools_writing_instructions(teaser_max_length, recent_hooks=recent_hooks)}"
+                f"{devtools_writing_instructions(self._prompts.devtools_instructions, recent_hooks=recent_hooks)}"
             )
         elif paragraph:
-            prompt = f"{prompt}\n\n{paragraph_writing_instructions(teaser_max_length)}"
+            prompt = (
+                f"{prompt}\n\n"
+                f"{paragraph_writing_instructions(self._prompts.paragraph_instructions, teaser_max_length)}"
+            )
         if devtools:
-            system_prompt = _DEVTOOLS_SYSTEM_PROMPT
+            system_prompt = self._prompts.system_devtools
         elif paragraph:
-            system_prompt = _PARAGRAPH_SYSTEM_PROMPT
+            system_prompt = self._prompts.system_paragraph
         elif postcard:
-            system_prompt = _POSTCARD_SYSTEM_PROMPT
+            system_prompt = self._prompts.system_postcard
         else:
-            system_prompt = _SYSTEM_PROMPT
+            system_prompt = self._prompts.system_default
         settings = get_settings()
         result, finish_reason = await self._client.chat_completion_with_meta(
             system_prompt=system_prompt,

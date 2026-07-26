@@ -2,10 +2,11 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.ai.image_service import ImageService
+from app.infrastructure.ai.image_service import ImageGenPrompts, ImageService
 from app.infrastructure.models.processed_post import ProcessedPost
 from app.repositories.processed_post_repository import ProcessedPostRepository
 from app.services.platform_settings_service import PlatformSettingsService
+from app.services.prompt_service import PromptService
 
 
 class ImageRefreshService:
@@ -14,6 +15,7 @@ class ImageRefreshService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
         self._processed = ProcessedPostRepository(session)
+        self._prompts = PromptService(session)
 
     async def refresh_from_source(self, post_id: int) -> ProcessedPost:
         """Заполняет generated_image_url из оригинала.
@@ -33,7 +35,14 @@ class ImageRefreshService:
             raise ValueError(msg)
 
         platform_settings = await PlatformSettingsService(self._session).get_merged()
-        images = ImageService.from_settings_dict(platform_settings)
+        image_prompts = ImageGenPrompts(
+            no_text_negative=await self._prompts.get("negative.qwen_no_text"),
+            news_negative=await self._prompts.get("negative.qwen_news"),
+            cover_template=await self._prompts.get("image.cover_prompt"),
+        )
+        images = ImageService.from_settings_dict(
+            platform_settings, prompts=image_prompts
+        )
         image_url, image_source = await images.resolve_image(
             post.raw_post,
             post.channel,
