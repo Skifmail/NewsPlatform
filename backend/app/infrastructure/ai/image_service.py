@@ -233,26 +233,41 @@ class ImageService:
                 )
                 return og_url, ImageSource.ORIGINAL.value
 
-        final_prompt = ImagePromptBuilder.build_for_qwen(
-            channel,
-            article_title=article_title,
-            topic=topic,
-            draft_image_prompt=image_prompt,
-        )
         generated = None
-        if final_prompt:
-            logger.debug("Article image prompt built", preview=final_prompt[:200])
-            if is_paragraph_article_channel(channel.name):
-                generated = await self._generate_with_dalle_primary(final_prompt)
-            elif is_postcard_article_channel(channel.name, channel.topic):
-                generated = await self._generate_with_dalle_primary(final_prompt)
-            else:
-                generated = await self._generate_with_qwen_constraints(final_prompt)
-        else:
-            logger.warning(
-                "Article cover skipped: image_prompt_guidelines is empty",
-                channel_id=channel.id,
+        if is_paragraph_article_channel(channel.name):
+            cover_prompt = ImagePromptBuilder.build_cover_prompt(
+                article_title=article_title,
+                draft_image_prompt=image_prompt,
             )
+            logger.debug("Paragraph cover prompt", preview=cover_prompt[:200])
+            generated = await self._generate_dalle_cover(cover_prompt)
+            if not generated:
+                generated = await self._generate_with_qwen_constraints(
+                    ImagePromptBuilder.build_for_qwen(
+                        channel,
+                        article_title=article_title,
+                        topic=topic,
+                        draft_image_prompt=image_prompt,
+                    ) or ""
+                )
+        else:
+            final_prompt = ImagePromptBuilder.build_for_qwen(
+                channel,
+                article_title=article_title,
+                topic=topic,
+                draft_image_prompt=image_prompt,
+            )
+            if final_prompt:
+                logger.debug("Article image prompt built", preview=final_prompt[:200])
+                if is_postcard_article_channel(channel.name, channel.topic):
+                    generated = await self._generate_with_dalle_primary(final_prompt)
+                else:
+                    generated = await self._generate_with_qwen_constraints(final_prompt)
+            else:
+                logger.warning(
+                    "Article cover skipped: image_prompt_guidelines is empty",
+                    channel_id=channel.id,
+                )
         if generated:
             return generated, ImageSource.GENERATED.value
         if fallback_url and self._is_usable_fallback_url(fallback_url):
@@ -374,14 +389,29 @@ class ImageService:
         return None
 
     async def _generate_dalle(self, prompt: str) -> str | None:
-        """Генерирует изображение через OpenAI gpt-image-2.
+        """Генерирует изображение через OpenAI gpt-image-2 (без текста)."""
+        full_prompt = (
+            f"{prompt[:900]}. "
+            "Absolutely no text, letters, words, captions or watermarks on the image."
+        )
+        return await self._call_openai_image(full_prompt)
 
-        Args:
-            prompt: описание сцены.
+    async def _generate_dalle_cover(self, prompt: str) -> str | None:
+        """Генерирует обложку с текстом через OpenAI gpt-image-2.
 
-        Returns:
-            str | None: local:// URL изображения.
+        НЕ запрещает текст — gpt-image-2 умеет рендерить типографику.
         """
+        return await self._call_openai_image(
+            prompt[:1500], size="1536x1024", quality="high",
+        )
+
+    async def _call_openai_image(
+        self,
+        prompt: str,
+        *,
+        size: str = "1024x1024",
+        quality: str = "medium",
+    ) -> str | None:
         api_key = self._openai_db_key or get_settings().openai_api_key.strip()
         if not api_key:
             return None
@@ -389,12 +419,9 @@ class ImageService:
             client = AsyncOpenAI(api_key=api_key)
             response = await client.images.generate(
                 model="gpt-image-2",
-                prompt=(
-                    f"{prompt[:900]}. "
-                    "Absolutely no text, letters, words, captions or watermarks on the image."
-                ),
-                size="1024x1024",
-                quality="medium",
+                prompt=prompt,
+                size=size,
+                quality=quality,
                 n=1,
             )
             b64 = response.data[0].b64_json

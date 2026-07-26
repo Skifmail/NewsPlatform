@@ -76,10 +76,11 @@ _POSTCARD_WRITER_HINT = (
 
 _PARAGRAPH_WRITER_HINT = (
     "Поле image_prompt: 3–4 предложения на английском — детальное описание "
-    "образовательной иллюстрации с реальными объектами из статьи. "
+    "драматичной, кинематографичной сцены-метафоры по теме статьи. "
     "Укажи конкретные предметы, научные элементы, материалы, текстуры, ракурс, "
-    "освещение и цветовую палитру. Стиль: photorealistic или high-quality 3D render. "
-    "Запрещено: люди, лица, текст/буквы/цифры на картинке, интерфейсы, экраны."
+    "освещение и цветовую палитру. Стиль: cinematic photorealistic wide shot. "
+    "Запрещено: люди, лица, интерфейсы, экраны. "
+    "НЕ добавляй текст в image_prompt — заголовок будет наложен отдельно."
 )
 
 # Промпт стилизации НАЙДЕННОГО логотипа репозитория (Qwen Image Edit).
@@ -151,6 +152,40 @@ class ImagePromptBuilder:
             topic=topic,
             tool_name=tool_name,
         )
+
+    @staticmethod
+    def build_cover_prompt(
+        *,
+        article_title: str,
+        draft_image_prompt: str,
+        tagline: str = "",
+    ) -> str:
+        """Промпт журнальной обложки с заголовком для gpt-image-2.
+
+        НЕ вырезает кириллицу — gpt-image-2 умеет рендерить русский текст.
+        """
+        scene = draft_image_prompt.strip() or "dramatic cinematic scene"
+        scene = scene[:500]
+        title = article_title.strip()
+        tag = tagline.strip()
+
+        parts = [
+            "Create a magazine-style cover image in wide 16:9 landscape format.",
+            f"Background scene: {scene}.",
+            "The scene should be dramatic, cinematic, with rich colors and depth.",
+            f'Overlay the title text "{title}" in large bold white or cream typography '
+            "with subtle shadow, positioned in the lower-left or center-left area.",
+        ]
+        if tag:
+            parts.append(
+                f'Below the title, add a smaller quote: "{tag}" in a contrasting accent color '
+                "(gold, amber, or warm orange) with quotation marks."
+            )
+        parts.append(
+            "Style: editorial cover, professional typography, cinematic lighting, "
+            "no people, no faces, no UI frames, no watermarks."
+        )
+        return " ".join(parts)
 
     @staticmethod
     def build_for_news(
