@@ -117,6 +117,36 @@ class ImagePromptBuilder:
         return safe_format(template, title=title, summary=summary)
 
     @staticmethod
+    def build_postcard_cover_prompt(
+        *,
+        template: str,
+        title: str,
+        scene: str,
+        greeting_text: str,
+    ) -> str:
+        """Финальный промпт открытки для gpt-image-2 (арт-директор).
+
+        В отличие от build_for_qwen/build_for_channel, НЕ вызывает
+        _sanitize_scene_for_qwen/_strip_cyrillic — gpt-image-2 умеет рендерить
+        русский текст, поэтому сцена и надпись передаются как есть.
+
+        Args:
+            template: шаблон с {title}/{scene}/{greeting_text} (image.cover_prompt_postcard).
+            title: краткое название повода.
+            scene: сцена от ArticleWriter (image_prompt), английский текст.
+            greeting_text: надпись на русском для рендера на открытке.
+
+        Returns:
+            str: промпт для gpt-image-2.
+        """
+        return safe_format(
+            template,
+            title=title.strip(),
+            scene=scene.strip(),
+            greeting_text=greeting_text.strip(),
+        )
+
+    @staticmethod
     def build_for_news(
         channel: Channel,
         title: str,

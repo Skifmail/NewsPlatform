@@ -101,6 +101,9 @@ class ArticleGenerationService:
             no_text_negative=await self._prompts.get("negative.qwen_no_text"),
             news_negative=await self._prompts.get("negative.qwen_news"),
             cover_template=await self._prompts.get("image.cover_prompt"),
+            postcard_cover_template=await self._prompts.get(
+                "image.cover_prompt_postcard"
+            ),
         )
 
     async def generate_for_channel(
@@ -262,6 +265,7 @@ class ArticleGenerationService:
             fallback_url=fallback_image,
             repo_url=draft.repo_url,
             teaser=draft.teaser,
+            greeting_text=draft.greeting_text,
         )
 
         await report_job_stage(

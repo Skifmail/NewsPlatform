@@ -145,18 +145,38 @@ _IDEATION_POSTCARD = PromptDefaultEntry(
     description="Промпт генерации повода для канала открыток",
     template_text=(
         'Канал открыток «{channel_name}». Сегодня {current_date}.\n'
+        "Официальный праздник сегодня: {today_holiday}\n"
         "\n"
-        "Уже были (НЕ повторять):\n"
+        "Стиль и правила канала:\n"
+        "{channel_niche}\n"
+        "\n"
+        "Уже были недавно (НЕ повторяй тот же повод и не выбирай ту же категорию,\n"
+        "что и в 1–2 последних записях списка):\n"
         "{recent_topics}\n"
         "\n"
-        "Придумай ОДИН повод для открытки, подходящий текущему сезону.\n"
-        "Примеры: доброе утро, хороший день, день рождения, выходные, дружба,\n"
-        "любовь, «верь в себя», праздники по сезону, просто так.\n"
+        "Правила выбора повода:\n"
+        '1. Если «Официальный праздник сегодня» не пустой — тема ОБЯЗАНА быть именно\n'
+        "   этим праздником, никаким другим.\n"
+        "2. Если праздника сегодня нет — выбери повод из категорий: личный повод\n"
+        "   (день рождения, юбилей, свадьба, новоселье, выздоровление, новая работа,\n"
+        "   выпускной); доброе утро / хорошего дня / хорошего вечера / спокойной ночи;\n"
+        "   пятница / выходные; спасибо / поддержка в трудный момент / люблю / скучаю /\n"
+        "   просто хорошего настроения.\n"
+        '3. НЕЛЬЗЯ выбирать «лето», отпуск, жару или другую погоду как повод — это не\n'
+        "   принадлежит ни одной из категорий выше.\n"
+        "4. В поле angle дай КОРОТКУЮ визуальную тему на английском (3–6 слов): предметы\n"
+        '   и настроение сцены для художника, например "sunrise breakfast window, warm\n'
+        '   optimistic" или "gift boxes confetti golden lights, festive". Сцена должна\n'
+        "   соответствовать именно этому поводу, а не цветам по умолчанию.\n"
         "\n"
         "JSON одной строкой:\n"
-        '{{"topic": "повод 3–6 слов", "angle": "настроение в 1 предложении", "search_queries": []}}'
+        '{{"topic": "повод 3–6 слов на русском", '
+        '"angle": "визуальная тема на английском, 3–6 слов", "search_queries": []}}'
     ),
-    template_variables=["channel_name", "current_date", "recent_topics"],
+    template_variables=[
+        "channel_name", "channel_niche", "current_date",
+        "today_holiday", "recent_topics",
+    ],
     channel_scope="postcard",
     sort_order=20,
 )
@@ -454,6 +474,7 @@ _WRITING_POSTCARD = PromptDefaultEntry(
         "Стиль канала: {channel_niche}\n"
         "\n"
         "Повод/тема: {topic}\n"
+        "Визуальная тема и настроение сцены (для художника): {angle}\n"
         "\n"
         "Напиши открытку-поздравление. Ответь строго одним JSON-объектом с ключами:\n"
         "\n"
@@ -467,10 +488,13 @@ _WRITING_POSTCARD = PromptDefaultEntry(
         '"body_html" — ОДНА короткая строка-продолжение (до 100 символов): строчка стиха, второе\n'
         "              пожелание или тёплая фраза. Без тегов <b>/<i>. НЕ повторяет teaser.\n"
         '              Если нечего добавить — пустая строка "".\n'
+        '"greeting_text" — короткая надпись для картинки (3–6 слов на русском), которую\n'
+        '              генератор изображений нарисует прямо на открытке, например\n'
+        '              «С Днём Рождения!» или «Доброго утра!». Должна соответствовать поводу.\n'
         '"image_prompt" — {image_guidelines}'
     ),
     template_variables=[
-        "channel_name", "channel_niche", "topic",
+        "channel_name", "channel_niche", "topic", "angle",
         "teaser_max_length", "image_guidelines",
     ],
     channel_scope="postcard",
@@ -662,21 +686,36 @@ _IMAGE_WRITER_HINT_POSTCARD = PromptDefaultEntry(
     key="image.writer_hint_postcard",
     category="image_prompts",
     name="Инструкция image_prompt (Открытки)",
-    description="Инструкция для обложки открытки — яркий праздничный стиль",
+    description="Инструкция для обложки открытки — уникальная сцена под повод, не цветочки по умолчанию",
     template_text=(
-        "Поле image_prompt: 2–3 предложения на английском — детальное описание "
-        "праздничной открыточной картинки. "
-        "1) Выбери стиль под повод: photorealistic flowers and decor with bokeh, "
-        "vibrant 3D render with soft glow, lush garden scene with celebration mood, "
-        "или soft digital art with glowing elements and warm bokeh. "
-        "2) Цвета яркие и насыщенные: красные/розовые розы и сердечки для любви; "
-        "золотые/белые для поздравлений и юбилеев; фиолетово-синие для вечера/ночи; "
-        "зелёно-жёлтые для весны/утра; тёплые оранжевые/жёлтые для уюта/дружбы. "
-        "3) Конкретные объекты повода: розы, тюльпаны, сердечки, звёздочки, бабочки, "
-        "листья, снежинки — много, пышно, празднично. "
-        "Мягкое тёплое свечение, боке на фоне, праздничная атмосфера. "
-        "Композиция edge-to-edge, заполняет весь холст без полей и рамок. "
-        "Без людей, лиц, текста, цифр, надписей."
+        "Поле image_prompt: 2–4 предложения на английском — художественное описание "
+        "СЦЕНЫ и СЮЖЕТА открытки именно для этого повода, а не универсальный набор "
+        "цветов и свечения.\n"
+        "\n"
+        "1) Сюжет и объекты должны отражать именно этот повод, а не абстрактную "
+        "«праздничность». Ориентируйся по смыслу повода (не копируй дословно):\n"
+        "   - доброе утро: солнечный луч на подоконнике, чашка кофе, свежая выпечка, "
+        "открытое окно, утренняя роса\n"
+        "   - хорошего дня: цветущий парк, воздушные шары, велосипед, летнее кафе, "
+        "голубое небо\n"
+        "   - спокойной ночи: луна, звёзды, тёплый плед, свечи, уютная спальня\n"
+        "   - день рождения/юбилей: подарки, конфетти, ленты, торт, гирлянды огней, "
+        "фейерверк — БЕЗ цветов по умолчанию\n"
+        "   - 8 марта: цветочная лавка, тюльпаны, подарочная коробка, весеннее солнце\n"
+        "   - новый год: ёлка, камин, гирлянды, подарки, снег за окном, какао\n"
+        "   - день учителя: книги, осенние листья, глобус, тетради, класс\n"
+        "   - спасибо/поддержка: тёплый свет, чай, плед, открытая книга, конверт\n"
+        "2) Не используй одну и ту же композицию дважды подряд — каждая открытка "
+        "должна выглядеть уникально.\n"
+        "3) Разрешены силуэты людей, руки, вид со спины — БЕЗ крупных лиц и без "
+        "взгляда в камеру.\n"
+        "4) Кинематографичный свет, глубина, премиальная цветокоррекция, атмосфера. "
+        "Композиция edge-to-edge, без рамок и полей.\n"
+        "5) На открытке должна появиться аккуратная надпись на русском языке "
+        "(смотри отдельное поле greeting_text) — упомяни в image_prompt, что текст "
+        "органично вписан в сцену (элегантная каллиграфия на карточке, ленте, "
+        "морозном стекле, доске — на поверхности, подходящей именно этой сцене), "
+        "а не отдельным баннером поперёк изображения."
     ),
     channel_scope="postcard",
     sort_order=20,
@@ -741,6 +780,43 @@ _IMAGE_COVER_PROMPT = PromptDefaultEntry(
     template_variables=["title", "summary"],
     channel_scope="paragraph",
     sort_order=50,
+)
+
+_IMAGE_COVER_PROMPT_POSTCARD = PromptDefaultEntry(
+    key="image.cover_prompt_postcard",
+    category="image_prompts",
+    name="Обложка открытки (gpt-image-2, арт-директор)",
+    description=(
+        "Финальная сборка промпта открытки для gpt-image-2 — сцена + русская "
+        "надпись, кириллица не вырезается (в отличие от Qwen-пути)"
+    ),
+    template_text=(
+        "You are an award-winning greeting card art director creating a premium "
+        "postcard image.\n"
+        "\n"
+        'Occasion: "{title}"\n'
+        "Scene brief: {scene}\n"
+        "\n"
+        "The image MUST visually tell the story of this exact occasion through an "
+        "original, specific scene — never a generic bouquet or decorative "
+        "background unless flowers are naturally part of this occasion.\n"
+        "\n"
+        "Integrate the following Russian greeting text elegantly into the "
+        "composition, as tasteful typography that belongs to the scene itself "
+        "(on a card, ribbon, chalkboard, frosted window, neon sign, or a similar "
+        'surface that fits the scene) — not a flat banner across the image: '
+        '"{greeting_text}"\n'
+        "\n"
+        "Style: cinematic lighting, volumetric light, rich depth, premium color "
+        "grading, ultra detailed textures, harmonious composition, edge-to-edge, "
+        "no borders or frames. Human silhouettes, hands, or figures seen from "
+        "behind are allowed when they fit the scene; avoid close-up faces looking "
+        "at the camera. No logos, no watermarks, no extra text besides the "
+        "greeting above."
+    ),
+    template_variables=["title", "scene", "greeting_text"],
+    channel_scope="postcard",
+    sort_order=60,
 )
 
 # ---------------------------------------------------------------------------
@@ -861,6 +937,7 @@ PROMPT_DEFAULTS: dict[str, PromptDefaultEntry] = {
         _IMAGE_WRITER_HINT_PARAGRAPH,
         _IMAGE_LOGO_EDIT_TEMPLATE,
         _IMAGE_COVER_PROMPT,
+        _IMAGE_COVER_PROMPT_POSTCARD,
         # image_negatives
         _NEGATIVE_QWEN_NO_TEXT,
         _NEGATIVE_QWEN_NEWS,

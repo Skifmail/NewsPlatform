@@ -108,6 +108,9 @@ class ProcessService:
             no_text_negative=await self._prompts.get("negative.qwen_no_text"),
             news_negative=await self._prompts.get("negative.qwen_news"),
             cover_template=await self._prompts.get("image.cover_prompt"),
+            postcard_cover_template=await self._prompts.get(
+                "image.cover_prompt_postcard"
+            ),
         )
         images = ImageService.from_settings_dict(
             platform_settings, prompts=image_prompts

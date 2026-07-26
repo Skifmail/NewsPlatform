@@ -60,6 +60,7 @@ class ImageGenPrompts:
     no_text_negative: str
     news_negative: str
     cover_template: str
+    postcard_cover_template: str
 
 
 class ImageService:
@@ -225,6 +226,7 @@ class ImageService:
         fallback_url: str | None = None,
         repo_url: str | None = None,
         teaser: str = "",
+        greeting_text: str = "",
     ) -> tuple[str | None, str]:
         """Подбирает обложку для статьи.
 
@@ -235,6 +237,7 @@ class ImageService:
             image_prompt: черновик сцены от ArticleWriter.
             fallback_url: URL из первого источника (не PDF и не документ).
             repo_url: ссылка на GitHub-репозиторий (для логотипа).
+            greeting_text: надпись на русском для рендера на открытке (только postcard).
 
         Returns:
             tuple[str | None, str]: URL и image_source.
@@ -267,7 +270,25 @@ class ImageService:
                 return og_url, ImageSource.ORIGINAL.value
 
         generated = None
-        if is_paragraph_article_channel(channel.name):
+        if is_postcard_article_channel(channel.name, channel.topic):
+            cover_prompt = ImagePromptBuilder.build_postcard_cover_prompt(
+                template=self._require_prompts().postcard_cover_template,
+                title=article_title,
+                scene=image_prompt,
+                greeting_text=greeting_text,
+            )
+            logger.debug("Postcard cover prompt", preview=cover_prompt[:200])
+            generated = await self._generate_with_dalle_primary(cover_prompt)
+            if not generated:
+                # Qwen не умеет рендерить текст — безопасный фолбэк без надписи.
+                qwen_prompt = ImagePromptBuilder.build_for_qwen(
+                    channel,
+                    article_title=article_title,
+                    topic=topic,
+                    draft_image_prompt=image_prompt,
+                )
+                generated = await self._generate_with_qwen_constraints(qwen_prompt or "")
+        elif is_paragraph_article_channel(channel.name):
             cover_prompt = ImagePromptBuilder.build_cover_prompt(
                 template=self._require_prompts().cover_template,
                 article_title=article_title,
@@ -294,10 +315,7 @@ class ImageService:
             )
             if final_prompt:
                 logger.debug("Article image prompt built", preview=final_prompt[:200])
-                if is_postcard_article_channel(channel.name, channel.topic):
-                    generated = await self._generate_with_dalle_primary(final_prompt)
-                else:
-                    generated = await self._generate_with_qwen_constraints(final_prompt)
+                generated = await self._generate_with_qwen_constraints(final_prompt)
             else:
                 logger.warning(
                     "Article cover skipped: image_prompt_guidelines is empty",

@@ -9,6 +9,7 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.domain.article import ArticleTopicPlan
+from app.domain.postcard_calendar import today_holiday
 from app.domain.topic_dedup import is_topic_too_similar
 from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
@@ -148,12 +149,14 @@ class TopicIdeationService:
             recent_topics=recent,
         )
         if is_postcard_article_channel(channel.name):
+            today = date.today()
             prompt = safe_format(
                 self._prompts.postcard_template,
                 channel_name=channel.name,
                 channel_niche=niche,
                 recent_topics=recent,
-                current_date=date.today().strftime("%d.%m.%Y"),
+                current_date=today.strftime("%d.%m.%Y"),
+                today_holiday=today_holiday(today),
             )
         elif is_devtools_article_channel(channel.topic, channel.name):
             prompt = f"{prompt}\n\n{self._devtools_extra(candidate_repos)}"

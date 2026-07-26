@@ -111,3 +111,33 @@ def test_tech_news_gets_clean_gadget_scene() -> None:
     low = scene.lower()
     assert "gadget" in low or "microchip" in low
     assert "no people" not in low  # не generic-фолбэк
+
+
+def test_build_postcard_cover_prompt_preserves_cyrillic_greeting() -> None:
+    """В отличие от build_for_qwen, кириллица и текст-инструкции НЕ вырезаются."""
+    template = (
+        "Scene brief: {scene}. Title: {title}. "
+        'Include Russian text reading: "{greeting_text}".'
+    )
+    prompt = ImagePromptBuilder.build_postcard_cover_prompt(
+        template=template,
+        title="Доброе утро",
+        scene="sunrise breakfast window, warm light",
+        greeting_text="Доброго утра!",
+    )
+    assert "Доброго утра!" in prompt
+    assert "Доброе утро" in prompt
+    assert "sunrise breakfast window" in prompt
+
+
+def test_build_postcard_cover_prompt_does_not_sanitize_text_triggers() -> None:
+    """Слова про текст/надпись (обычно вырезаемые для Qwen) остаются как есть."""
+    template = "{scene} — with elegant text overlay: {greeting_text}"
+    prompt = ImagePromptBuilder.build_postcard_cover_prompt(
+        template=template,
+        title="",
+        scene="gift boxes and confetti",
+        greeting_text="С Днём Рождения!",
+    )
+    assert "text overlay" in prompt
+    assert "С Днём Рождения!" in prompt

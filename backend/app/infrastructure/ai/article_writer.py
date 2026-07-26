@@ -223,6 +223,7 @@ class ArticleWriter:
                 channel_name=channel.name,
                 channel_niche=niche,
                 topic=topic,
+                angle=angle or topic,
                 teaser_max_length=teaser_max_length,
                 image_guidelines=image_guidelines,
             )
@@ -307,8 +308,11 @@ class ArticleWriter:
         teaser = str(data.get("teaser", "")).strip()
         body = normalize_telegram_html(str(data.get("body_html", "")).strip())
         image_prompt = str(data.get("image_prompt", "")).strip()
+        greeting_text = str(data.get("greeting_text", "")).strip()
         if not title or not body:
             return None
+        if not greeting_text:
+            greeting_text = title
         if truncated:
             body = _trim_to_last_sentence(body)
         if channel and is_postcard_article_channel(channel.name):
@@ -354,6 +358,7 @@ class ArticleWriter:
             body_html=body,
             image_prompt=image_prompt,
             repo_url=repo_url or None,
+            greeting_text=greeting_text,
         )
 
     @staticmethod
@@ -403,6 +408,7 @@ class ArticleWriter:
         teaser = ArticleWriter._extract_quoted_field(text, "teaser")
         body = ArticleWriter._extract_quoted_field(text, "body_html")
         image_prompt = ArticleWriter._extract_quoted_field(text, "image_prompt")
+        greeting_text = ArticleWriter._extract_quoted_field(text, "greeting_text")
         if not title or not body:
             return None
         return {
@@ -410,6 +416,7 @@ class ArticleWriter:
             "teaser": teaser or "",
             "body_html": body.replace("\\n", "\n"),
             "image_prompt": image_prompt or "",
+            "greeting_text": greeting_text or "",
         }
 
     @staticmethod

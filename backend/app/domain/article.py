@@ -58,6 +58,7 @@ class ArticleDraft:
     body_html: str
     image_prompt: str
     repo_url: str | None = None
+    greeting_text: str = ""
 
 
 def parse_topic_history(raw: str) -> list[str]:
