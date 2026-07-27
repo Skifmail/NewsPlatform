@@ -12,6 +12,7 @@ from PIL import Image
 from app.core.config import get_settings
 from app.domain.enums import ImageSource
 from app.domain.platform_settings import _parse_bool, clamp_postcard_animation_duration
+from app.infrastructure.ai.openrouter_key_chain import active_openrouter_key
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
 from app.infrastructure.ai.openai_key_chain import active_openai_key
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
@@ -114,7 +115,9 @@ class ImageService:
         video_model = "x-ai/grok-imagine-video"
         animation_duration = 2
         if merged:
-            openrouter_key = (merged.get("openrouter_api_key") or "").strip()
+            openrouter_key = active_openrouter_key(merged.get("openrouter_api_keys")) or ""
+            if not openrouter_key:
+                openrouter_key = (merged.get("openrouter_api_key") or "").strip()
             animation_enabled = _parse_bool(
                 merged.get("postcard_animation_enabled", "true"), True
             )

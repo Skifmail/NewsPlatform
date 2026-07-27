@@ -17,6 +17,11 @@ from app.infrastructure.ai.openai_key_chain import (
     mask_openai_keys_json,
     merge_openai_keys_on_update,
 )
+from app.infrastructure.ai.openrouter_key_chain import (
+    active_openrouter_key,
+    mask_openrouter_keys_json,
+    merge_openrouter_keys_on_update,
+)
 from app.infrastructure.search.tavily_key_chain import (
     clear_key_exhausted,
     mask_api_key,
@@ -57,8 +62,26 @@ def _public_settings(merged: dict[str, str]) -> dict[str, str]:
     public["qwen_image_exhausted_models"] = exhausted_models_json()
     public["tavily_api_keys"] = mask_keys_json(merged.get("tavily_api_keys"))
     public["openai_api_keys"] = mask_openai_keys_json(merged.get("openai_api_keys"))
-    raw_openrouter = (merged.get("openrouter_api_key") or "").strip()
-    public["openrouter_api_key"] = mask_api_key(raw_openrouter) if raw_openrouter else ""
+    public["openrouter_api_keys"] = mask_openrouter_keys_json(
+        merged.get("openrouter_api_keys")
+    )
+    legacy_openrouter = (merged.get("openrouter_api_key") or "").strip()
+    if legacy_openrouter and not active_openrouter_key(merged.get("openrouter_api_keys")):
+        public["openrouter_api_keys"] = mask_openrouter_keys_json(
+            json.dumps(
+                [
+                    {
+                        "id": "legacy",
+                        "label": "OpenRouter",
+                        "note": "",
+                        "key": legacy_openrouter,
+                        "enabled": True,
+                    }
+                ],
+                ensure_ascii=False,
+            )
+        )
+    public.pop("openrouter_api_key", None)
 
     resolved = [
         {
@@ -101,13 +124,16 @@ async def update_settings(
 
     repo = SettingRepository(session)
 
-    if "openrouter_api_key" in filtered:
-        incoming = (filtered.get("openrouter_api_key") or "").strip()
-        if is_masked_api_key(incoming):
-            previous = await repo.get("openrouter_api_key", "")
-            filtered["openrouter_api_key"] = previous
-        else:
-            filtered["openrouter_api_key"] = incoming
+    if "openrouter_api_keys" in filtered:
+        previous_openrouter = await repo.get("openrouter_api_keys", "[]")
+        try:
+            filtered["openrouter_api_keys"] = merge_openrouter_keys_on_update(
+                previous_raw=previous_openrouter,
+                incoming_raw=filtered["openrouter_api_keys"],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        filtered.pop("openrouter_api_key", None)
 
     if "postcard_animation_duration" in filtered:
         filtered["postcard_animation_duration"] = str(

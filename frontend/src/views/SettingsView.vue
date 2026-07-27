@@ -363,16 +363,74 @@
             Ключ с <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a>.
             Модель по умолчанию: <span class="font-mono">x-ai/grok-imagine-video</span>.
           </p>
-          <label class="field-label mt-3" for="openrouter-api-key">API-ключ OpenRouter</label>
-          <input
-            id="openrouter-api-key"
-            v-model="openrouterApiKey"
-            type="password"
-            class="input w-full mt-1 font-mono text-xs"
-            placeholder="sk-or-v1-…"
-            autocomplete="off"
-          />
-          <label class="field-label mt-3" for="openrouter-video-model">Модель видео</label>
+
+          <div class="tavily-keys-block mt-3">
+            <p class="ai-usage-kpi-label">Ключи из панели</p>
+            <p class="ai-usage-muted ai-usage-explainer">
+              Первый включённый ключ используется для анимации открыток.
+            </p>
+
+            <ul v-if="openrouterKeys.length" class="tavily-keys-list">
+              <li v-for="item in openrouterKeys" :key="item.id" class="tavily-key-row">
+                <label class="tavily-key-select openai-key-select">
+                  <input
+                    type="checkbox"
+                    :checked="item.enabled"
+                    @change="toggleOpenrouterKey(item.id, $event.target.checked)"
+                  />
+                  <span class="tavily-key-meta">
+                    <span class="tavily-key-label">{{ item.label }}</span>
+                    <span v-if="item.note" class="openai-key-note">{{ item.note }}</span>
+                    <span class="font-mono tavily-key-masked">{{ item.key }}</span>
+                  </span>
+                </label>
+                <span v-if="item.enabled" class="badge-accent">Вкл</span>
+                <span v-else class="badge-muted">Выкл</span>
+                <button
+                  type="button"
+                  class="btn-secondary btn-compact tavily-key-remove"
+                  :disabled="openrouterKeysSaving"
+                  @click="removeOpenrouterKey(item.id)"
+                >
+                  Удалить
+                </button>
+              </li>
+            </ul>
+            <p v-else class="ai-usage-muted">Пока нет ключей</p>
+
+            <div class="tavily-add-form openai-add-form">
+              <input
+                v-model="openrouterNewLabel"
+                type="text"
+                class="input input-compact-wide"
+                placeholder="Название (напр. Prod OpenRouter)"
+              />
+              <input
+                v-model="openrouterNewNote"
+                type="text"
+                class="input input-compact-wide"
+                placeholder="Заметка (напр. анимация открыток)"
+              />
+              <input
+                v-model="openrouterNewKey"
+                type="password"
+                class="input input-compact-wide"
+                placeholder="sk-or-v1-…"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="btn-secondary btn-compact"
+                :disabled="openrouterKeysSaving || !openrouterNewKey.trim()"
+                @click="addOpenrouterKey"
+              >
+                {{ openrouterKeysSaving ? '…' : 'Сохранить ключ' }}
+              </button>
+            </div>
+            <p v-if="openrouterKeysError" class="ai-usage-error-inline">{{ openrouterKeysError }}</p>
+          </div>
+
+          <label class="field-label mt-4" for="openrouter-video-model">Модель видео</label>
           <input
             id="openrouter-video-model"
             v-model="openrouterVideoModel"
@@ -403,6 +461,14 @@
             Если выключено — все каналы получают только статичные картинки.
             На канале открыток можно включить анимацию отдельно.
           </p>
+          <button
+            type="button"
+            class="btn-secondary btn-compact mt-4"
+            :disabled="openrouterParamsSaving"
+            @click="saveOpenrouterParams"
+          >
+            {{ openrouterParamsSaving ? 'Сохранение…' : 'Сохранить параметры' }}
+          </button>
         </article>
 
         <article class="ai-usage-card ai-usage-card-wide">
@@ -844,7 +910,13 @@ const openaiNewKey = ref('')
 const openaiKeysSaving = ref(false)
 const openaiKeysError = ref('')
 
-const openrouterApiKey = ref('')
+const openrouterKeys = ref([])
+const openrouterNewLabel = ref('')
+const openrouterNewNote = ref('')
+const openrouterNewKey = ref('')
+const openrouterKeysSaving = ref(false)
+const openrouterKeysError = ref('')
+const openrouterParamsSaving = ref(false)
 const openrouterVideoModel = ref('x-ai/grok-imagine-video')
 const postcardAnimationEnabled = ref(true)
 const postcardAnimationDuration = ref(2)
@@ -945,10 +1017,6 @@ function getFormSnapshot() {
     posts_per_day: postsPerDay.value,
     qwen_image_models: qwenImageModels.value,
     qwen_image_edit_models: qwenImageEditModels.value,
-    openrouter_api_key: openrouterApiKey.value,
-    openrouter_video_model: openrouterVideoModel.value,
-    postcard_animation_enabled: String(postcardAnimationEnabled.value),
-    postcard_animation_duration: String(postcardAnimationDuration.value),
   })
 }
 
@@ -1011,6 +1079,10 @@ function parseOpenaiKeys(raw) {
   }
 }
 
+function parseOpenrouterKeys(raw) {
+  return parseOpenaiKeys(raw)
+}
+
 async function loadSettings() {
   const { data } = await settingsApi.get()
   const s = data.settings
@@ -1038,7 +1110,7 @@ async function loadSettings() {
   postsPerDay.value = parseInt(s.posts_per_day || '10', 10)
   qwenImageModels.value = s.qwen_image_models || ''
   qwenImageEditModels.value = s.qwen_image_edit_models || ''
-  openrouterApiKey.value = s.openrouter_api_key || ''
+  openrouterKeys.value = parseOpenrouterKeys(s.openrouter_api_keys)
   openrouterVideoModel.value = s.openrouter_video_model || 'x-ai/grok-imagine-video'
   postcardAnimationEnabled.value = boolFrom(s.postcard_animation_enabled, true)
   postcardAnimationDuration.value = parseInt(s.postcard_animation_duration || '2', 10) || 2
@@ -1260,6 +1332,131 @@ async function toggleOpenaiKey(keyId, enabled) {
   }
 }
 
+function dbOpenrouterKeysPayload(extra = null) {
+  const list = extra ? [...openrouterKeys.value, extra] : [...openrouterKeys.value]
+  return JSON.stringify(
+    list.map((item) => ({
+      id: item.id,
+      label: item.label,
+      note: item.note,
+      key: item.key,
+      enabled: item.enabled,
+    })),
+  )
+}
+
+async function patchOpenrouterSettings(partial) {
+  openrouterKeysSaving.value = true
+  openrouterKeysError.value = ''
+  try {
+    const { data } = await settingsApi.update({ settings: partial })
+    openrouterKeys.value = parseOpenrouterKeys(data.settings.openrouter_api_keys)
+  } catch (err) {
+    openrouterKeysError.value =
+      err.response?.data?.detail || 'Не удалось сохранить ключи OpenRouter'
+    throw err
+  } finally {
+    openrouterKeysSaving.value = false
+  }
+}
+
+async function addOpenrouterKey() {
+  const key = openrouterNewKey.value.trim()
+  if (!key) return
+  if (key.length > 200 || /[^\x20-\x7E]/.test(key) || /\s/.test(key)) {
+    openrouterKeysError.value =
+      'Ключ должен быть коротким ASCII (sk-or-…), без пробелов и эмодзи.'
+    return
+  }
+  const label = openrouterNewLabel.value.trim() || `Ключ ${openrouterKeys.value.length + 1}`
+  const note = openrouterNewNote.value.trim()
+  const id =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `or-${Date.now()}`
+  try {
+    await patchOpenrouterSettings({
+      openrouter_api_keys: dbOpenrouterKeysPayload({ id, label, note, key, enabled: true }),
+    })
+    openrouterNewKey.value = ''
+    openrouterNewLabel.value = ''
+    openrouterNewNote.value = ''
+  } catch {
+    /* ошибка уже в openrouterKeysError */
+  }
+}
+
+async function removeOpenrouterKey(keyId) {
+  const ok = await dialog.confirm({
+    title: 'Удалить ключ OpenRouter?',
+    message: 'Ключ будет удалён из панели.',
+  })
+  if (!ok) return
+  const remaining = openrouterKeys.value.filter((item) => item.id !== keyId)
+  try {
+    await patchOpenrouterSettings({
+      openrouter_api_keys: JSON.stringify(
+        remaining.map((item) => ({
+          id: item.id,
+          label: item.label,
+          note: item.note,
+          key: item.key,
+          enabled: item.enabled,
+        })),
+      ),
+    })
+  } catch {
+    /* ошибка уже в openrouterKeysError */
+  }
+}
+
+async function toggleOpenrouterKey(keyId, enabled) {
+  const updated = openrouterKeys.value.map((item) =>
+    item.id === keyId ? { ...item, enabled } : item,
+  )
+  try {
+    await patchOpenrouterSettings({
+      openrouter_api_keys: JSON.stringify(
+        updated.map((item) => ({
+          id: item.id,
+          label: item.label,
+          note: item.note,
+          key: item.key,
+          enabled: item.enabled,
+        })),
+      ),
+    })
+  } catch {
+    /* ошибка уже в openrouterKeysError */
+  }
+}
+
+async function saveOpenrouterParams() {
+  openrouterParamsSaving.value = true
+  openrouterKeysError.value = ''
+  try {
+    await settingsApi.update({
+      settings: {
+        openrouter_video_model: openrouterVideoModel.value.trim(),
+        postcard_animation_enabled: String(postcardAnimationEnabled.value),
+        postcard_animation_duration: String(
+          Math.min(15, Math.max(1, Number(postcardAnimationDuration.value) || 2)),
+        ),
+      },
+    })
+    await dialog.alert({
+      title: 'OpenRouter',
+      message: 'Параметры анимации сохранены.',
+    })
+  } catch (err) {
+    openrouterKeysError.value =
+      err.response?.data?.detail || 'Не удалось сохранить параметры OpenRouter'
+  } finally {
+    openrouterParamsSaving.value = false
+  }
+}
+
+
 async function save({ silent = false } = {}) {
   saving.value = true
   try {
@@ -1283,12 +1480,6 @@ async function save({ silent = false } = {}) {
         posts_per_day: String(postsPerDay.value),
         qwen_image_models: qwenImageModels.value,
         qwen_image_edit_models: qwenImageEditModels.value,
-        openrouter_api_key: openrouterApiKey.value.trim(),
-        openrouter_video_model: openrouterVideoModel.value.trim(),
-        postcard_animation_enabled: String(postcardAnimationEnabled.value),
-        postcard_animation_duration: String(
-          Math.min(15, Math.max(1, Number(postcardAnimationDuration.value) || 2)),
-        ),
       },
     })
     await loadSettings()

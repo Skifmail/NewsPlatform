@@ -99,6 +99,7 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "openai_api_keys": "[]",
     # OpenRouter: анимация открыток (Grok Imagine Video).
     "openrouter_api_key": "",
+    "openrouter_api_keys": "[]",
     "openrouter_video_model": "x-ai/grok-imagine-video",
     "postcard_animation_enabled": "true",
     "postcard_animation_duration": "2",
