@@ -15,6 +15,9 @@ _OPENROUTER_VIDEOS_URL = "https://openrouter.ai/api/v1/videos"
 _DEFAULT_MODEL = "x-ai/grok-imagine-video"
 _POLL_INTERVAL_SECONDS = 5.0
 _MAX_POLL_ATTEMPTS = 120  # ~10 minutes
+_SILENT_VIDEO_SUFFIX = (
+    " Silent video only: no audio track, no sound effects, no music, no dialogue."
+)
 
 
 @dataclass(frozen=True)
@@ -46,7 +49,7 @@ class OpenRouterVideoClient:
         image_bytes: bytes,
         prompt: str,
         duration: int = 2,
-        resolution: str = "720p",
+        resolution: str = "480p",
         aspect_ratio: str = "9:16",
         generate_audio: bool = False,
     ) -> OpenRouterVideoResult:
@@ -58,7 +61,7 @@ class OpenRouterVideoClient:
             duration: Clip length in seconds (model-dependent).
             resolution: Output resolution (480p/720p/1080p).
             aspect_ratio: Portrait ``9:16`` for postcards.
-            generate_audio: Whether to synthesize ambient audio.
+            generate_audio: Ignored; requests are always sent with audio disabled.
 
         Returns:
             OpenRouterVideoResult: downloaded MP4 bytes.
@@ -66,6 +69,10 @@ class OpenRouterVideoClient:
         Raises:
             RuntimeError: on API or polling failure.
         """
+        if generate_audio:
+            logger.warning(
+                "OpenRouter video: generate_audio=True ignored; platform disables audio"
+            )
         if not self._api_key:
             msg = "OpenRouter API key is not configured"
             raise RuntimeError(msg)
@@ -75,13 +82,14 @@ class OpenRouterVideoClient:
 
         mime = _guess_mime(image_bytes)
         data_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        silent_prompt = _ensure_silent_video_prompt(prompt)
         payload: dict[str, Any] = {
             "model": self._model,
-            "prompt": prompt[:2000],
+            "prompt": silent_prompt[:2000],
             "duration": duration,
             "resolution": resolution,
             "aspect_ratio": aspect_ratio,
-            "generate_audio": generate_audio,
+            "generate_audio": False,
             "frame_images": [
                 {
                     "type": "image_url",
@@ -90,6 +98,16 @@ class OpenRouterVideoClient:
                 }
             ],
         }
+        if self._model.startswith("x-ai/"):
+            payload["provider"] = {
+                "options": {
+                    "x-ai": {
+                        "parameters": {
+                            "generate_audio": False,
+                        }
+                    }
+                }
+            }
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -97,6 +115,14 @@ class OpenRouterVideoClient:
             "HTTP-Referer": "https://newsplatform.local",
             "X-Title": "NewsPlatform",
         }
+
+        logger.debug(
+            "OpenRouter video submit",
+            model=self._model,
+            generate_audio=False,
+            duration=duration,
+            resolution=resolution,
+        )
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             submit = await client.post(_OPENROUTER_VIDEOS_URL, headers=headers, json=payload)
@@ -112,6 +138,9 @@ class OpenRouterVideoClient:
 
             status_data = await self._poll_job(client, headers, job, job_id=job_id)
             video_bytes, content_type = await self._download_video(client, headers, status_data)
+            usage = status_data.get("usage")
+            if usage:
+                logger.info("OpenRouter video usage", job_id=job_id, usage=usage)
             return OpenRouterVideoResult(
                 job_id=job_id or str(status_data.get("id") or ""),
                 video_bytes=video_bytes,
@@ -191,6 +220,15 @@ class OpenRouterVideoClient:
                 last_error = str(exc)
         msg = f"Failed to download OpenRouter video: {last_error}"
         raise RuntimeError(msg)
+
+
+def _ensure_silent_video_prompt(prompt: str) -> str:
+    """Ask explicitly for a silent clip in the motion prompt."""
+    cleaned = (prompt or "").strip()
+    lowered = cleaned.lower()
+    if "no audio" in lowered or "без звука" in lowered or "silent video" in lowered:
+        return cleaned
+    return f"{cleaned}{_SILENT_VIDEO_SUFFIX}"
 
 
 def _guess_mime(image_bytes: bytes) -> str:
