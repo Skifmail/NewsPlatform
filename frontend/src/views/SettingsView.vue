@@ -359,7 +359,44 @@
         <article class="ai-usage-card ai-usage-card-openrouter">
           <h3 class="ai-usage-card-title">OpenRouter · Grok Imagine Video</h3>
           <p class="ai-usage-card-sub">Анимация обложек статей и открыток</p>
-          <p class="field-hint">
+
+          <template v-if="!aiUsage.openrouter?.configured">
+            <p class="ai-usage-muted">{{ aiUsage.openrouter?.note || 'Ключ OpenRouter не задан' }}</p>
+          </template>
+          <template v-else-if="aiUsage.openrouter.error">
+            <p class="ai-usage-error-inline">{{ aiUsage.openrouter.error }}</p>
+          </template>
+          <template v-else>
+            <p v-if="aiUsage.openrouter.remaining != null" class="ai-usage-balance">
+              {{ fmtSpend(aiUsage.openrouter.remaining) }}
+              <span class="ai-usage-currency">USD</span>
+              <span class="ai-usage-muted" style="margin-left:.4em">остаток</span>
+            </p>
+            <p v-else class="ai-usage-balance">
+              {{ fmtSpend(aiUsage.openrouter.key_usage) }}
+              <span class="ai-usage-currency">USD</span>
+              <span class="ai-usage-muted" style="margin-left:.4em">потрачено ключом</span>
+            </p>
+            <p class="ai-usage-muted">
+              <template v-if="aiUsage.openrouter.total_credits != null">
+                Куплено: {{ fmtSpend(aiUsage.openrouter.total_credits) }}
+                · Потрачено: {{ fmtSpend(aiUsage.openrouter.total_usage) }}
+              </template>
+              <template v-else>
+                Ключ сегодня: {{ fmtSpend(aiUsage.openrouter.key_usage_daily) }}
+                · месяц: {{ fmtSpend(aiUsage.openrouter.key_usage_monthly) }}
+                <template v-if="aiUsage.openrouter.limit != null">
+                  · лимит ключа: {{ fmtSpend(aiUsage.openrouter.limit_remaining) }} / {{ fmtSpend(aiUsage.openrouter.limit) }}
+                </template>
+              </template>
+            </p>
+            <p v-if="aiUsage.openrouter.key_label" class="ai-usage-muted">
+              Активный ключ: {{ aiUsage.openrouter.key_label }}
+            </p>
+            <p v-if="aiUsage.openrouter.note" class="ai-usage-muted">{{ aiUsage.openrouter.note }}</p>
+          </template>
+
+          <p class="field-hint mt-3">
             Ключ с <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a>.
             Модель по умолчанию: <span class="font-mono">x-ai/grok-imagine-video</span>.
           </p>

@@ -97,6 +97,24 @@ class OpenAIUsage(BaseModel):
     note: str = ""
 
 
+class OpenRouterUsage(BaseModel):
+    """Баланс и usage OpenRouter (Grok Imagine Video)."""
+
+    configured: bool
+    remaining: float | None = None
+    total_credits: float | None = None
+    total_usage: float | None = None
+    key_label: str | None = None
+    key_usage: float | None = None
+    key_usage_daily: float | None = None
+    key_usage_monthly: float | None = None
+    limit_remaining: float | None = None
+    limit: float | None = None
+    is_free_tier: bool | None = None
+    error: str | None = None
+    note: str = ""
+
+
 class LocalUsageStats(BaseModel):
     """Локальная активность платформы (не квоты провайдеров)."""
 
@@ -117,4 +135,5 @@ class AiUsageResponse(BaseModel):
     tavily: TavilyUsage
     qwen_image: QwenImageUsage
     openai: OpenAIUsage
+    openrouter: OpenRouterUsage
     local: LocalUsageStats

@@ -9,6 +9,7 @@ from app.services.ai_usage_service import (
     AiUsageService,
     _build_chain_status,
     _fetch_deepseek,
+    _fetch_openrouter,
     _fetch_tavily,
     _is_configured,
 )
@@ -118,6 +119,59 @@ async def test_fetch_tavily_parses_plan_usage() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_openrouter_parses_credits_and_key() -> None:
+    key_resp = MagicMock()
+    key_resp.status_code = 200
+    key_resp.json.return_value = {
+        "data": {
+            "label": "prod",
+            "usage": 1.25,
+            "usage_daily": 0.1,
+            "usage_monthly": 0.8,
+            "limit": None,
+            "limit_remaining": None,
+            "is_free_tier": False,
+        }
+    }
+    credits_resp = MagicMock()
+    credits_resp.status_code = 200
+    credits_resp.json.return_value = {
+        "data": {"total_credits": 50.0, "total_usage": 12.5},
+    }
+    session = AsyncMock()
+
+    with patch("app.services.ai_usage_service.get_settings") as settings_mock:
+        settings_mock.return_value = MagicMock(openrouter_api_key="")
+        with patch(
+            "app.services.ai_usage_service.PlatformSettingsService"
+        ) as ps_cls:
+            ps_cls.return_value.get_merged = AsyncMock(
+                return_value={
+                    "openrouter_api_keys": (
+                        '[{"id":"1","label":"prod","key":"sk-or-v1-test",'
+                        '"enabled":true}]'
+                    ),
+                    "openrouter_api_key": "",
+                }
+            )
+            with patch(
+                "app.services.ai_usage_service.httpx.AsyncClient"
+            ) as client_cls:
+                client = AsyncMock()
+                client.__aenter__.return_value = client
+                client.get = AsyncMock(side_effect=[key_resp, credits_resp])
+                client_cls.return_value = client
+
+                usage = await _fetch_openrouter(session)
+
+    assert usage.configured is True
+    assert usage.remaining == 37.5
+    assert usage.total_credits == 50.0
+    assert usage.key_usage == 1.25
+    assert usage.key_label == "prod"
+
+
+@pytest.mark.asyncio
 async def test_get_usage_uses_cache() -> None:
     session = AsyncMock()
     cached = AiUsageResponse(
@@ -128,6 +182,7 @@ async def test_get_usage_uses_cache() -> None:
         tavily={"configured": False},
         qwen_image={"configured": False, "note": ""},
         openai={"configured": False, "note": ""},
+        openrouter={"configured": False, "note": ""},
         local={},
     )
 

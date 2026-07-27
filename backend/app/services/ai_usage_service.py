@@ -18,6 +18,7 @@ from app.api.schemas.ai_usage import (
     DeepSeekUsage,
     LocalUsageStats,
     OpenAIUsage,
+    OpenRouterUsage,
     QwenImageUsage,
     QwenModelChainItem,
     SpendHistory,
@@ -47,11 +48,14 @@ from app.infrastructure.search.tavily_key_chain import (
     resolve_keys,
 )
 from app.infrastructure.ai.openai_key_chain import active_openai_key
+from app.infrastructure.ai.openrouter_key_chain import active_openrouter_key
 from app.services.platform_settings_service import PlatformSettingsService
 
-_CACHE_KEY = "ai_usage:snapshot"
+_CACHE_KEY = "ai_usage:snapshot:v2"
 _CACHE_TTL_SECONDS = 600
 _TAVILY_USAGE_URL = "https://api.tavily.com/usage"
+_OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+_OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
 
 
 def _redis_client() -> redis.Redis:
@@ -469,6 +473,106 @@ async def _fetch_openai(session: AsyncSession) -> OpenAIUsage:
         )
 
 
+def _as_float(value: object) -> float | None:
+    """Безопасно приводит API-значение к float."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _fetch_openrouter(session: AsyncSession) -> OpenRouterUsage:
+    """Запрашивает баланс/usage OpenRouter для активного ключа.
+
+    ``GET /api/v1/key`` работает с обычным API-ключом.
+    ``GET /api/v1/credits`` (полный баланс аккаунта) требует management key —
+    при 403 показываем usage ключа и подсказку.
+    """
+    settings = get_settings()
+    merged = await PlatformSettingsService(session).get_merged()
+    db_key = active_openrouter_key(merged.get("openrouter_api_keys"))
+    legacy = (merged.get("openrouter_api_key") or "").strip()
+    env_key = settings.openrouter_api_key.strip() if hasattr(settings, "openrouter_api_key") else ""
+    api_key = db_key or (legacy if _is_configured(legacy) else "") or (
+        env_key if _is_configured(env_key) else ""
+    )
+    if not api_key or not _is_configured(api_key):
+        return OpenRouterUsage(
+            configured=False,
+            note="Ключ OpenRouter не задан — добавьте в блоке ниже",
+        )
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+        "HTTP-Referer": "https://newsplatform.local",
+        "X-Title": "NewsPlatform",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            key_resp = await client.get(_OPENROUTER_KEY_URL, headers=headers)
+            credits_resp = await client.get(_OPENROUTER_CREDITS_URL, headers=headers)
+    except httpx.HTTPError as exc:
+        logger.warning("OpenRouter balance fetch failed", error=str(exc))
+        return OpenRouterUsage(
+            configured=True,
+            error="Не удалось связаться с OpenRouter API",
+        )
+
+    if key_resp.status_code == 401:
+        return OpenRouterUsage(
+            configured=True,
+            error="Неверный API-ключ OpenRouter",
+        )
+    if key_resp.status_code != 200:
+        return OpenRouterUsage(
+            configured=True,
+            error=f"OpenRouter /key: HTTP {key_resp.status_code}",
+        )
+
+    key_data = (key_resp.json() or {}).get("data") or {}
+    usage = OpenRouterUsage(
+        configured=True,
+        key_label=str(key_data.get("label") or "") or None,
+        key_usage=_as_float(key_data.get("usage")),
+        key_usage_daily=_as_float(key_data.get("usage_daily")),
+        key_usage_monthly=_as_float(key_data.get("usage_monthly")),
+        limit_remaining=_as_float(key_data.get("limit_remaining")),
+        limit=_as_float(key_data.get("limit")),
+        is_free_tier=bool(key_data["is_free_tier"])
+        if "is_free_tier" in key_data
+        else None,
+    )
+
+    if credits_resp.status_code == 200:
+        credits_data = (credits_resp.json() or {}).get("data") or {}
+        total_credits = _as_float(credits_data.get("total_credits"))
+        total_usage = _as_float(credits_data.get("total_usage"))
+        usage.total_credits = total_credits
+        usage.total_usage = total_usage
+        if total_credits is not None and total_usage is not None:
+            usage.remaining = round(total_credits - total_usage, 4)
+        usage.note = "Баланс аккаунта OpenRouter"
+    elif credits_resp.status_code == 403:
+        if usage.limit_remaining is not None:
+            usage.remaining = usage.limit_remaining
+            usage.note = (
+                "Показан лимит ключа (limit_remaining). "
+                "Полный баланс аккаунта доступен только management-ключу OpenRouter."
+            )
+        else:
+            usage.note = (
+                "Полный баланс аккаунта требует management-ключ "
+                "(GET /credits → 403). Ниже — usage текущего API-ключа."
+            )
+    elif credits_resp.status_code not in (401, 403):
+        usage.note = f"Баланс аккаунта недоступен (HTTP {credits_resp.status_code})"
+
+    return usage
+
+
 async def _local_stats(session: AsyncSession) -> LocalUsageStats:
     now = datetime.now(UTC)
     day_ago = now - timedelta(days=1)
@@ -542,6 +646,7 @@ class AiUsageService:
             tavily=await _fetch_tavily(self._session),
             qwen_image=await _fetch_qwen_image(self._session),
             openai=await _fetch_openai(self._session),
+            openrouter=await _fetch_openrouter(self._session),
             local=await _local_stats(self._session),
         )
         self._write_cache(payload)
