@@ -289,7 +289,7 @@ class ArticleGenerationService:
         video_url = None
         if image_url:
             await report_job_stage(
-                celery_task_id, "Анимация открытки…", 88
+                celery_task_id, "Анимация обложки…", 88
             )
             video_url = await images.maybe_animate_postcard(
                 channel=channel,

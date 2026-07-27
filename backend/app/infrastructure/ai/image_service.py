@@ -545,17 +545,15 @@ class ImageService:
         image_url: str | None,
         article_title: str,
     ) -> str | None:
-        """Animate a postcard still via OpenRouter when enabled for the channel."""
+        """Animate a cover still via OpenRouter when enabled for the channel."""
         if not image_url:
-            return None
-        if not is_postcard_article_channel(channel.name, channel.topic):
             return None
         if not getattr(channel, "animate_postcards", False):
             return None
         if not self._postcard_animation_enabled:
             return None
         if not self._openrouter_api_key:
-            logger.warning("Postcard animation skipped: OpenRouter API key missing")
+            logger.warning("Cover animation skipped: OpenRouter API key missing")
             return None
 
         template = (self._require_prompts().postcard_animation_template or "").strip()
@@ -570,7 +568,7 @@ class ImageService:
         motion_prompt = safe_format(template, title=article_title.strip())
         image_bytes = read_media(image_url)
         if not image_bytes:
-            logger.warning("Postcard animation skipped: image not found", url=image_url)
+            logger.warning("Cover animation skipped: image not found", url=image_url)
             return None
 
         try:
@@ -585,7 +583,7 @@ class ImageService:
             )
         except Exception as exc:
             logger.warning(
-                "Postcard animation failed; publishing static image",
+                "Cover animation failed; publishing static image",
                 error=str(exc),
                 channel_id=channel.id,
             )
@@ -594,7 +592,7 @@ class ImageService:
         suffix = ".mp4" if "mp4" in result.content_type else ".mp4"
         video_url = save_media(result.video_bytes, "animations", suffix)
         logger.info(
-            "Postcard animated",
+            "Cover animated",
             channel_id=channel.id,
             job_id=result.job_id,
             video_url=video_url,

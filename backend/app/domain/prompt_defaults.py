@@ -812,18 +812,18 @@ _IMAGE_COVER_PROMPT = PromptDefaultEntry(
 _IMAGE_POSTCARD_ANIMATION = PromptDefaultEntry(
     key="image.postcard_animation",
     category="image_prompts",
-    name="Анимация открытки (Grok Imagine Video)",
+    name="Анимация обложки (Grok Imagine Video)",
     description=(
-        "Инструкция для image-to-video: деликатное движение сцены, текст неподвижен"
+        "Инструкция для image-to-video: деликатное движение сцены, текст на обложке неподвижен"
     ),
     template_text=(
-        "Деликатно анимируй сцену на открытке «{title}»: естественное движение "
+        "Деликатно анимируй сцену на обложке «{title}»: естественное движение "
         "объектов (волны, пар от чашки, пламя свечей, облака, птицы на фоне). "
         "Весь текст, надписи и типографика остаются абсолютно неподвижными — "
         "без морфинга букв, без дрейфа текста."
     ),
     template_variables=["title"],
-    channel_scope="postcard",
+    channel_scope="all",
     sort_order=65,
 )
 

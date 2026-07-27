@@ -358,7 +358,7 @@
 
         <article class="ai-usage-card ai-usage-card-openrouter">
           <h3 class="ai-usage-card-title">OpenRouter · Grok Imagine Video</h3>
-          <p class="ai-usage-card-sub">Анимация открыток после gpt-image-2</p>
+          <p class="ai-usage-card-sub">Анимация обложек статей и открыток</p>
           <p class="field-hint">
             Ключ с <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a>.
             Модель по умолчанию: <span class="font-mono">x-ai/grok-imagine-video</span>.
@@ -367,7 +367,7 @@
           <div class="tavily-keys-block mt-3">
             <p class="ai-usage-kpi-label">Ключи из панели</p>
             <p class="ai-usage-muted ai-usage-explainer">
-              Первый включённый ключ используется для анимации открыток.
+              Первый включённый ключ используется для анимации обложек.
             </p>
 
             <ul v-if="openrouterKeys.length" class="tavily-keys-list">
@@ -409,7 +409,7 @@
                 v-model="openrouterNewNote"
                 type="text"
                 class="input input-compact-wide"
-                placeholder="Заметка (напр. анимация открыток)"
+                placeholder="Заметка (напр. анимация обложек)"
               />
               <input
                 v-model="openrouterNewKey"
@@ -455,11 +455,11 @@
           </p>
           <label class="active-toggle mt-4 block">
             <input v-model="postcardAnimationEnabled" type="checkbox" class="active-checkbox" />
-            <span>Анимация открыток включена глобально</span>
+            <span>Анимация обложек включена глобально</span>
           </label>
           <p class="field-hint mt-2">
             Если выключено — все каналы получают только статичные картинки.
-            На канале открыток можно включить анимацию отдельно.
+            На каждом канале со статьями можно включить анимацию отдельно.
           </p>
           <button
             type="button"

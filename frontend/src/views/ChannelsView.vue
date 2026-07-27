@@ -209,7 +209,7 @@
 
 
             <label
-              v-if="isPostcardChannelForm(editForms[ch.id])"
+              v-if="editForms[ch.id].content_mode === 'article'"
               class="active-toggle mt-5 block"
             >
               <input
@@ -217,13 +217,13 @@
                 type="checkbox"
                 class="active-checkbox"
               />
-              <span>Анимировать открытки (Grok Imagine Video через OpenRouter)</span>
+              <span>Анимировать обложки (Grok Imagine Video через OpenRouter)</span>
             </label>
             <p
-              v-if="isPostcardChannelForm(editForms[ch.id])"
+              v-if="editForms[ch.id].content_mode === 'article'"
               class="field-hint mb-1"
             >
-              После генерации картинки gpt-image-2 платформа создаст короткое видео:
+              После генерации обложки платформа может создать короткое видео:
               движется только сцена (волны, пар, свечи), текст остаётся неподвижным.
               Нужен ключ OpenRouter в настройках и включённая анимация в платформе.
             </p>

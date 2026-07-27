@@ -118,3 +118,40 @@ async def test_maybe_animate_passes_configured_duration() -> None:
             article_title="День ВМФ",
         )
     assert client_cls.return_value.animate_image.await_args.kwargs["duration"] == 3
+
+
+def _article_channel(*, animate: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=8,
+        name="ПАРАГРАФ",
+        topic="paragraph",
+        animate_postcards=animate,
+        image_prompt_guidelines="Scene: {scene}",
+    )
+
+
+@pytest.mark.asyncio
+async def test_maybe_animate_works_for_article_channel() -> None:
+    svc = ImageService(
+        prompts=_prompts(),
+        openrouter_api_key="or-key",
+        postcard_animation_enabled=True,
+    )
+    with (
+        patch("app.infrastructure.ai.image_service.read_media", return_value=b"png"),
+        patch("app.infrastructure.ai.image_service.save_media", return_value="local://animations/x.mp4"),
+        patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
+    ):
+        client_cls.return_value.animate_image = AsyncMock(
+            return_value=SimpleNamespace(
+                job_id="job-2",
+                video_bytes=b"mp4",
+                content_type="video/mp4",
+            )
+        )
+        result = await svc.maybe_animate_postcard(
+            channel=_article_channel(animate=True),
+            image_url="local://covers/x.png",
+            article_title="Заголовок статьи",
+        )
+    assert result == "local://animations/x.mp4"
