@@ -31,7 +31,7 @@ from app.infrastructure.ai.openai_key_chain import active_openai_key
 
 DEFAULT_PROMPT = "Сгенерируй открытку поздравление с днем ВМФ России"
 MODEL = "gpt-image-2"
-SIZE = "1024x1536"
+SIZE = "1024x1024"
 QUALITY = "high"
 TIMEOUT_SECONDS = 180.0
 

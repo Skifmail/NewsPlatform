@@ -60,11 +60,97 @@ async def test_maybe_animate_skipped_when_globally_disabled() -> None:
 
 
 @pytest.mark.asyncio
+async def test_maybe_animate_success_saves_gif() -> None:
+    svc = ImageService(
+        prompts=_prompts(),
+        openrouter_api_key="or-key",
+        postcard_animation_enabled=True,
+        postcard_animation_as_gif=True,
+    )
+    with (
+        patch(
+            "app.infrastructure.ai.image_service.read_media",
+            return_value=b"png-bytes",
+        ),
+        patch(
+            "app.infrastructure.ai.image_service.save_media",
+            return_value="local://animations/abc.gif",
+        ) as save,
+        patch(
+            "app.infrastructure.ai.image_service.OpenRouterVideoClient"
+        ) as client_cls,
+        patch(
+            "app.infrastructure.ai.image_service.gifski_available",
+            return_value=True,
+        ),
+        patch(
+            "app.infrastructure.ai.image_service.convert_mp4_to_gif",
+            new_callable=AsyncMock,
+            return_value=b"GIF89a-fake",
+        ) as convert,
+    ):
+        client_cls.return_value.animate_image = AsyncMock(
+            return_value=SimpleNamespace(
+                job_id="job-1",
+                video_bytes=b"mp4-bytes",
+                content_type="video/mp4",
+            )
+        )
+        result = await svc.maybe_animate_postcard(
+            channel=_postcard_channel(animate=True),
+            image_url="local://covers/x.png",
+            article_title="День ВМФ",
+        )
+
+    assert result == "local://animations/abc.gif"
+    convert.assert_awaited_once()
+    save.assert_called_once_with(b"GIF89a-fake", "animations", ".gif")
+
+
+@pytest.mark.asyncio
+async def test_maybe_animate_falls_back_to_mp4_when_gifski_missing() -> None:
+    svc = ImageService(
+        prompts=_prompts(),
+        openrouter_api_key="or-key",
+        postcard_animation_enabled=True,
+        postcard_animation_as_gif=True,
+    )
+    with (
+        patch("app.infrastructure.ai.image_service.read_media", return_value=b"png"),
+        patch(
+            "app.infrastructure.ai.image_service.save_media",
+            return_value="local://animations/abc.mp4",
+        ) as save,
+        patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
+        patch(
+            "app.infrastructure.ai.image_service.gifski_available",
+            return_value=False,
+        ),
+    ):
+        client_cls.return_value.animate_image = AsyncMock(
+            return_value=SimpleNamespace(
+                job_id="job-1",
+                video_bytes=b"mp4-bytes",
+                content_type="video/mp4",
+            )
+        )
+        result = await svc.maybe_animate_postcard(
+            channel=_postcard_channel(animate=True),
+            image_url="local://covers/x.png",
+            article_title="День ВМФ",
+        )
+
+    assert result == "local://animations/abc.mp4"
+    save.assert_called_once_with(b"mp4-bytes", "animations", ".mp4")
+
+
+@pytest.mark.asyncio
 async def test_maybe_animate_success_saves_video() -> None:
     svc = ImageService(
         prompts=_prompts(),
         openrouter_api_key="or-key",
         postcard_animation_enabled=True,
+        postcard_animation_as_gif=False,
     )
     with (
         patch(
@@ -108,6 +194,7 @@ async def test_maybe_animate_passes_configured_duration() -> None:
         patch("app.infrastructure.ai.image_service.read_media", return_value=b"png"),
         patch("app.infrastructure.ai.image_service.save_media", return_value="local://animations/x.mp4"),
         patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
+        patch("app.infrastructure.ai.image_service.gifski_available", return_value=False),
     ):
         client_cls.return_value.animate_image = AsyncMock(
             return_value=SimpleNamespace(job_id="j", video_bytes=b"v", content_type="video/mp4")
@@ -118,6 +205,7 @@ async def test_maybe_animate_passes_configured_duration() -> None:
             article_title="День ВМФ",
         )
     assert client_cls.return_value.animate_image.await_args.kwargs["duration"] == 3
+    assert client_cls.return_value.animate_image.await_args.kwargs["aspect_ratio"] == "1:1"
 
 
 def _article_channel(*, animate: bool = True) -> SimpleNamespace:
@@ -141,6 +229,7 @@ async def test_maybe_animate_works_for_article_channel() -> None:
         patch("app.infrastructure.ai.image_service.read_media", return_value=b"png"),
         patch("app.infrastructure.ai.image_service.save_media", return_value="local://animations/x.mp4"),
         patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
+        patch("app.infrastructure.ai.image_service.gifski_available", return_value=False),
     ):
         client_cls.return_value.animate_image = AsyncMock(
             return_value=SimpleNamespace(

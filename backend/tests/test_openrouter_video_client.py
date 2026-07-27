@@ -78,4 +78,5 @@ def test_animate_image_payload_disables_audio(monkeypatch) -> None:
     payload = captured["json"]
     assert payload["generate_audio"] is False
     assert "no audio" in payload["prompt"].lower()
+    assert payload["aspect_ratio"] == "1:1"
     assert payload["provider"]["options"]["x-ai"]["parameters"]["generate_audio"] is False

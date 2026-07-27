@@ -103,6 +103,10 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "openrouter_video_model": "x-ai/grok-imagine-video",
     "postcard_animation_enabled": "true",
     "postcard_animation_duration": "2",
+    # MP4→GIF via gifski (https://github.com/ImageOptim/gifski); fallback to MP4 on failure.
+    "postcard_animation_as_gif": "true",
+    "postcard_gif_quality": "100",
+    "postcard_gif_width": "1024",
     CURATED_PICK_HISTORY_KEY: "[]",
 }
 
@@ -131,6 +135,24 @@ def clamp_postcard_animation_duration(value: str | int, *, default: int = 2) -> 
     except (TypeError, ValueError):
         seconds = default
     return max(1, min(15, seconds))
+
+
+def clamp_postcard_gif_quality(value: str | int, *, default: int = 100) -> int:
+    """Ограничивает качество gifski (1–100)."""
+    try:
+        quality = int(value)
+    except (TypeError, ValueError):
+        quality = default
+    return max(1, min(100, quality))
+
+
+def clamp_postcard_gif_width(value: str | int, *, default: int = 1024) -> int:
+    """Ограничивает ширину GIF (64–2048 px)."""
+    try:
+        width = int(value)
+    except (TypeError, ValueError):
+        width = default
+    return max(64, min(2048, width))
 
 
 @dataclass(frozen=True)

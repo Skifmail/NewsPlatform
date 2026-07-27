@@ -607,6 +607,41 @@
                 <input v-model="postcardAnimationEnabled" type="checkbox" class="active-checkbox" />
                 <span>Анимация обложек включена глобально</span>
               </label>
+              <label class="active-toggle mt-3 block">
+                <input v-model="postcardAnimationAsGif" type="checkbox" class="active-checkbox" />
+                <span>Конвертировать в GIF (gifski)</span>
+              </label>
+              <p class="field-hint mt-1">
+                Качественный GIF вместо MP4 для Telegram/VK/MAX. При ошибке конвертации остаётся MP4.
+              </p>
+              <div class="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label class="field-label" for="postcard-gif-quality">Качество GIF</label>
+                  <input
+                    id="postcard-gif-quality"
+                    v-model.number="postcardGifQuality"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    class="input w-full mt-1 font-mono text-xs"
+                    :disabled="!postcardAnimationAsGif"
+                  />
+                </div>
+                <div>
+                  <label class="field-label" for="postcard-gif-width">Ширина GIF (px)</label>
+                  <input
+                    id="postcard-gif-width"
+                    v-model.number="postcardGifWidth"
+                    type="number"
+                    min="64"
+                    max="2048"
+                    step="1"
+                    class="input w-full mt-1 font-mono text-xs"
+                    :disabled="!postcardAnimationAsGif"
+                  />
+                </div>
+              </div>
               <p class="field-hint mt-2">
                 Если выключено — все каналы получают только статичные картинки.
                 На каждом канале со статьями можно включить анимацию отдельно.
@@ -1168,6 +1203,9 @@ const openrouterParamsSaving = ref(false)
 const openrouterVideoModel = ref('x-ai/grok-imagine-video')
 const postcardAnimationEnabled = ref(true)
 const postcardAnimationDuration = ref(2)
+const postcardAnimationAsGif = ref(true)
+const postcardGifQuality = ref(100)
+const postcardGifWidth = ref(1024)
 
 const tavilyUsagePercent = computed(() => {
   const t = aiUsage.value?.tavily
@@ -1362,6 +1400,9 @@ async function loadSettings() {
   openrouterVideoModel.value = s.openrouter_video_model || 'x-ai/grok-imagine-video'
   postcardAnimationEnabled.value = boolFrom(s.postcard_animation_enabled, true)
   postcardAnimationDuration.value = parseInt(s.postcard_animation_duration || '2', 10) || 2
+  postcardAnimationAsGif.value = boolFrom(s.postcard_animation_as_gif, true)
+  postcardGifQuality.value = parseInt(s.postcard_gif_quality || '100', 10) || 100
+  postcardGifWidth.value = parseInt(s.postcard_gif_width || '1024', 10) || 1024
   schedulerLastFetch.value = s.scheduler_last_fetch_at || ''
   schedulerLastRetention.value = s.scheduler_last_retention_at || ''
   tavilyKeys.value = parseTavilyResolved(s.tavily_keys_resolved)
@@ -1689,6 +1730,13 @@ async function saveOpenrouterParams() {
         postcard_animation_enabled: String(postcardAnimationEnabled.value),
         postcard_animation_duration: String(
           Math.min(15, Math.max(1, Number(postcardAnimationDuration.value) || 2)),
+        ),
+        postcard_animation_as_gif: String(postcardAnimationAsGif.value),
+        postcard_gif_quality: String(
+          Math.min(100, Math.max(1, Number(postcardGifQuality.value) || 100)),
+        ),
+        postcard_gif_width: String(
+          Math.min(2048, Math.max(64, Number(postcardGifWidth.value) || 1024)),
         ),
       },
     })

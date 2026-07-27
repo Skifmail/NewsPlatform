@@ -53,7 +53,7 @@ class OpenRouterVideoClient:
         prompt: str,
         duration: int = 2,
         resolution: str = "480p",
-        aspect_ratio: str = "9:16",
+        aspect_ratio: str = "1:1",
         generate_audio: bool = False,
     ) -> OpenRouterVideoResult:
         """Animate a still image with subtle motion guided by ``prompt``.
@@ -63,7 +63,7 @@ class OpenRouterVideoClient:
             prompt: Motion instructions; text on image should stay static.
             duration: Clip length in seconds (model-dependent).
             resolution: Output resolution (480p/720p/1080p).
-            aspect_ratio: Portrait ``9:16`` for postcards.
+            aspect_ratio: Square ``1:1`` so MAX/Telegram don't crop top/bottom.
             generate_audio: Ignored; requests are always sent with audio disabled.
 
         Returns:

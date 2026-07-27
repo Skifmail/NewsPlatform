@@ -59,7 +59,7 @@ async def test_postcard_primary_path_sends_simple_request_to_gpt_image() -> None
 
 
 @pytest.mark.asyncio
-async def test_direct_postcard_cover_keeps_text_and_uses_portrait_high() -> None:
+async def test_direct_postcard_cover_keeps_text_and_uses_square_high() -> None:
     svc = ImageService(prompts=_prompts())
     svc._call_openai_image = AsyncMock(return_value="https://gen/direct.png")
 
@@ -70,7 +70,7 @@ async def test_direct_postcard_cover_keeps_text_and_uses_portrait_high() -> None
     assert url == "https://gen/direct.png"
     svc._call_openai_image.assert_awaited_once_with(
         'Открытка с надписью «Доброго утра!»',
-        size="1024x1536",
+        size="1024x1024",
         quality="high",
     )
 

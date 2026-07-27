@@ -11,7 +11,12 @@ from PIL import Image
 
 from app.core.config import get_settings
 from app.domain.enums import ImageSource
-from app.domain.platform_settings import _parse_bool, clamp_postcard_animation_duration
+from app.domain.platform_settings import (
+    _parse_bool,
+    clamp_postcard_animation_duration,
+    clamp_postcard_gif_quality,
+    clamp_postcard_gif_width,
+)
 from app.infrastructure.ai.openrouter_key_chain import active_openrouter_key
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
 from app.infrastructure.ai.openai_key_chain import active_openai_key
@@ -20,6 +25,7 @@ from app.infrastructure.ai.openrouter_video_client import OpenRouterVideoClient
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
 from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.ai.logo_compositor import build_github_logo_cover
+from app.infrastructure.media.gifski_converter import convert_mp4_to_gif, gifski_available
 from app.infrastructure.media_store import is_local_media_url, read_media, save_media
 from app.infrastructure.ai.qwen_image_chain import (
     resolve_edit_models,
@@ -85,6 +91,9 @@ class ImageService:
         openrouter_video_model: str = "x-ai/grok-imagine-video",
         postcard_animation_enabled: bool = True,
         postcard_animation_duration: int = 2,
+        postcard_animation_as_gif: bool = True,
+        postcard_gif_quality: int = 100,
+        postcard_gif_width: int = 1024,
         prompts: ImageGenPrompts | None = None,
     ) -> None:
         self._qwen = QwenImageClient()
@@ -97,6 +106,9 @@ class ImageService:
         self._postcard_animation_duration = clamp_postcard_animation_duration(
             postcard_animation_duration
         )
+        self._postcard_animation_as_gif = postcard_animation_as_gif
+        self._postcard_gif_quality = clamp_postcard_gif_quality(postcard_gif_quality)
+        self._postcard_gif_width = clamp_postcard_gif_width(postcard_gif_width)
         self._prompts = prompts
 
     @classmethod
@@ -114,6 +126,9 @@ class ImageService:
         animation_enabled = True
         video_model = "x-ai/grok-imagine-video"
         animation_duration = 2
+        animation_as_gif = True
+        gif_quality = 100
+        gif_width = 1024
         if merged:
             openrouter_key = active_openrouter_key(merged.get("openrouter_api_keys")) or ""
             if not openrouter_key:
@@ -127,6 +142,15 @@ class ImageService:
             animation_duration = clamp_postcard_animation_duration(
                 merged.get("postcard_animation_duration", "2")
             )
+            animation_as_gif = _parse_bool(
+                merged.get("postcard_animation_as_gif", "true"), True
+            )
+            gif_quality = clamp_postcard_gif_quality(
+                merged.get("postcard_gif_quality", "100")
+            )
+            gif_width = clamp_postcard_gif_width(
+                merged.get("postcard_gif_width", "1024")
+            )
         if not openrouter_key:
             openrouter_key = get_settings().openrouter_api_key.strip()
         return cls(
@@ -137,6 +161,9 @@ class ImageService:
             openrouter_video_model=video_model,
             postcard_animation_enabled=animation_enabled,
             postcard_animation_duration=animation_duration,
+            postcard_animation_as_gif=animation_as_gif,
+            postcard_gif_quality=gif_quality,
+            postcard_gif_width=gif_width,
             prompts=prompts,
         )
 
@@ -414,7 +441,7 @@ class ImageService:
             return None
         return await self._call_openai_image(
             prompt[:2000],
-            size="1024x1536",
+            size="1024x1024",
             quality="high",
         )
 
@@ -580,6 +607,7 @@ class ImageService:
                 image_bytes=image_bytes,
                 prompt=motion_prompt,
                 duration=self._postcard_animation_duration,
+                aspect_ratio="1:1",
             )
         except Exception as exc:
             logger.warning(
@@ -589,13 +617,36 @@ class ImageService:
             )
             return None
 
-        suffix = ".mp4" if "mp4" in result.content_type else ".mp4"
-        video_url = save_media(result.video_bytes, "animations", suffix)
+        media_bytes = result.video_bytes
+        suffix = ".mp4"
+        if self._postcard_animation_as_gif:
+            if gifski_available():
+                try:
+                    media_bytes = await convert_mp4_to_gif(
+                        result.video_bytes,
+                        quality=self._postcard_gif_quality,
+                        width=self._postcard_gif_width,
+                    )
+                    suffix = ".gif"
+                except Exception as exc:
+                    logger.warning(
+                        "MP4→GIF conversion failed; keeping MP4",
+                        error=str(exc),
+                        channel_id=channel.id,
+                    )
+            else:
+                logger.warning(
+                    "gifski/ffmpeg unavailable; keeping MP4 animation",
+                    channel_id=channel.id,
+                )
+
+        video_url = save_media(media_bytes, "animations", suffix)
         logger.info(
             "Cover animated",
             channel_id=channel.id,
             job_id=result.job_id,
             video_url=video_url,
+            format=suffix.lstrip("."),
         )
         return video_url
 

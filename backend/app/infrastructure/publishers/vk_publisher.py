@@ -94,14 +94,26 @@ class VkPublisher(BasePublisher):
         async with aiohttp.ClientSession() as session:
             attachment = None
             if video_bytes:
-                attachment = await self._upload_video(
-                    session, photo_token, api_version, owner_id, video_bytes
-                )
-                if not attachment:
-                    logger.warning(
-                        "VK video upload failed, falling back to static image",
-                        channel_id=channel.id,
+                from app.infrastructure.media.gifski_converter import is_gif_bytes
+
+                if is_gif_bytes(video_bytes):
+                    attachment = await self._upload_gif_as_doc(
+                        session, photo_token, api_version, owner_id, video_bytes
                     )
+                    if not attachment:
+                        logger.warning(
+                            "VK GIF upload failed, falling back to static image",
+                            channel_id=channel.id,
+                        )
+                else:
+                    attachment = await self._upload_video(
+                        session, photo_token, api_version, owner_id, video_bytes
+                    )
+                    if not attachment:
+                        logger.warning(
+                            "VK video upload failed, falling back to static image",
+                            channel_id=channel.id,
+                        )
             if not attachment and image_bytes:
                 attachment = await self._upload_photo(
                     session, photo_token, api_version, owner_id, image_bytes
@@ -184,6 +196,82 @@ class VkPublisher(BasePublisher):
             return f"video{video_owner_id}_{video_id}"
         except Exception as exc:
             logger.error("VK video upload failed", error=str(exc))
+            return None
+
+    async def _upload_gif_as_doc(
+        self,
+        session: aiohttp.ClientSession,
+        token: str,
+        api_version: str,
+        owner_id: str,
+        gif_bytes: bytes,
+    ) -> str | None:
+        """Загружает GIF как документ стены (автоплей в ленте VK)."""
+        try:
+            is_group = owner_id.startswith("-")
+            group_id = abs(int(owner_id)) if is_group else None
+
+            get_params: dict[str, str | int] = {
+                "access_token": token,
+                "v": api_version,
+                "type": "doc",
+            }
+            if group_id is not None:
+                get_params["group_id"] = group_id
+            async with session.get(
+                "https://api.vk.com/method/docs.getWallUploadServer",
+                params=get_params,
+            ) as resp:
+                data = await resp.json()
+                if "error" in data:
+                    err = data["error"]
+                    logger.error(
+                        "VK docs.getWallUploadServer (gif) failed",
+                        error_code=err.get("error_code"),
+                        error_msg=err.get("error_msg", ""),
+                    )
+                    return None
+                upload_url = data["response"]["upload_url"]
+
+            form = aiohttp.FormData()
+            form.add_field(
+                "file",
+                gif_bytes,
+                filename="cover.gif",
+                content_type="image/gif",
+            )
+            async with session.post(upload_url, data=form) as upload_resp:
+                upload_data = await upload_resp.json()
+
+            file_token = upload_data.get("file")
+            if not file_token:
+                logger.error("VK GIF upload missing file token", payload=upload_data)
+                return None
+
+            save_params: dict[str, str | int] = {
+                "access_token": token,
+                "v": api_version,
+                "file": file_token,
+                "title": "cover",
+            }
+            async with session.get(
+                "https://api.vk.com/method/docs.save",
+                params=save_params,
+            ) as save_resp:
+                save_data = await save_resp.json()
+                if "error" in save_data:
+                    err = save_data["error"]
+                    logger.error(
+                        "VK docs.save (gif) failed",
+                        error_code=err.get("error_code"),
+                        error_msg=err.get("error_msg", ""),
+                    )
+                    return None
+                doc = save_data["response"]["doc"]
+                logger.info("VK GIF uploaded as doc", owner_id=owner_id)
+                return f"doc{doc['owner_id']}_{doc['id']}"
+        except Exception as exc:
+            logger.error("VK GIF upload failed", error=str(exc))
             return None
 
     async def _upload_photo(

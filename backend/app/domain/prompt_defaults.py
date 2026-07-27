@@ -835,7 +835,7 @@ _IMAGE_COVER_PROMPT_POSTCARD = PromptDefaultEntry(
     description=(
         "Короткий запрос для прямой генерации открытки через gpt-image-2"
     ),
-    template_text="Сделай открытку поздравление с {title}",
+    template_text="Сделай открытку поздравление с {title}, квадратный формат 1:1",
     template_variables=["title"],
     channel_scope="postcard",
     sort_order=60,

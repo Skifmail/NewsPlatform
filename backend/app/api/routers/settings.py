@@ -10,6 +10,8 @@ from app.api.deps import AuthDep, DbSession
 from app.api.schemas.settings import SettingsResponse, SettingsUpdate
 from app.domain.platform_settings import (
     clamp_postcard_animation_duration,
+    clamp_postcard_gif_quality,
+    clamp_postcard_gif_width,
     is_internal_setting_key,
 )
 from app.infrastructure.ai.qwen_image_chain import exhausted_models_json
@@ -138,6 +140,14 @@ async def update_settings(
     if "postcard_animation_duration" in filtered:
         filtered["postcard_animation_duration"] = str(
             clamp_postcard_animation_duration(filtered["postcard_animation_duration"])
+        )
+    if "postcard_gif_quality" in filtered:
+        filtered["postcard_gif_quality"] = str(
+            clamp_postcard_gif_quality(filtered["postcard_gif_quality"])
+        )
+    if "postcard_gif_width" in filtered:
+        filtered["postcard_gif_width"] = str(
+            clamp_postcard_gif_width(filtered["postcard_gif_width"])
         )
 
     if "openai_api_keys" in filtered:

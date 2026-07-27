@@ -348,38 +348,47 @@ class TelegramPublisher(BasePublisher):
         """Отправляет фото и/или текст через Bot API."""
         try:
             if video_bytes:
-                video = BufferedInputFile(video_bytes, filename="postcard.mp4")
+                from app.infrastructure.media.gifski_converter import is_gif_bytes
+
+                as_gif = is_gif_bytes(video_bytes)
+                media = BufferedInputFile(
+                    video_bytes,
+                    filename="postcard.gif" if as_gif else "postcard.mp4",
+                )
+                send_media = bot.send_animation if as_gif else bot.send_video
+                media_kw = "animation" if as_gif else "video"
                 if len(text) <= TELEGRAM_BOT_CAPTION_MAX:
-                    result = await bot.send_video(
+                    result = await send_media(
                         chat_id=chat_id,
-                        video=video,
+                        **{media_kw: media},
                         caption=text,
                         parse_mode=ParseMode.HTML,
                     )
                     return str(result.message_id)
-                video_msg = await bot.send_video(chat_id=chat_id, video=video)
+                media_msg = await send_media(chat_id=chat_id, **{media_kw: media})
                 try:
                     text_msg = await bot.send_message(
                         chat_id=chat_id,
                         text=text,
                         parse_mode=ParseMode.HTML,
-                        reply_to_message_id=video_msg.message_id,
+                        reply_to_message_id=media_msg.message_id,
                     )
                 except Exception as exc:
                     try:
                         await bot.delete_message(
                             chat_id=chat_id,
-                            message_id=video_msg.message_id,
+                            message_id=media_msg.message_id,
                         )
                     except Exception as rollback_exc:
                         logger.warning(
-                            "Failed to delete orphan Telegram video",
+                            "Failed to delete orphan Telegram animation/video",
                             error=str(rollback_exc),
                         )
                     raise TelegramPublisher._map_telegram_error(exc) from exc
                 logger.info(
-                    "Telegram split publish: video + text reply",
+                    "Telegram split publish: animation/video + text reply",
                     text_length=len(text),
+                    as_gif=as_gif,
                 )
                 return str(text_msg.message_id)
 

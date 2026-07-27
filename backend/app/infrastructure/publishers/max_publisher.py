@@ -335,13 +335,18 @@ class MaxPublisher(BasePublisher):
         session: aiohttp.ClientSession,
         token: str,
         image_bytes: bytes,
+        *,
+        filename: str = "post.jpg",
+        content_type: str = "image/jpeg",
     ) -> str:
         """Загружает изображение и возвращает token вложения.
 
         Args:
             session: HTTP-сессия.
             token: токен бота.
-            image_bytes: JPEG/PNG.
+            image_bytes: JPEG/PNG/GIF.
+            filename: имя файла при upload.
+            content_type: MIME-тип.
 
         Returns:
             str: token для attachments в POST /messages.
@@ -366,8 +371,8 @@ class MaxPublisher(BasePublisher):
         form.add_field(
             "data",
             image_bytes,
-            filename="post.jpg",
-            content_type="image/jpeg",
+            filename=filename,
+            content_type=content_type,
         )
         async with session.post(upload_url, data=form) as upload_resp:
             upload_payload = await cls._read_json(upload_resp)
@@ -482,7 +487,7 @@ class MaxPublisher(BasePublisher):
             chat_id: ID канала.
             text: HTML-текст.
             image_bytes: статичная обложка (fallback).
-            video_bytes: MP4-анимация (приоритет).
+            video_bytes: MP4 или GIF анимация (приоритет).
 
         Returns:
             str: message_id.
@@ -493,8 +498,20 @@ class MaxPublisher(BasePublisher):
         """
         attachments: list[dict[str, Any]] | None = None
         if video_bytes:
-            video_token = await cls._upload_video(session, token, video_bytes)
-            attachments = [{"type": "video", "payload": {"token": video_token}}]
+            from app.infrastructure.media.gifski_converter import is_gif_bytes
+
+            if is_gif_bytes(video_bytes):
+                gif_token = await cls._upload_image(
+                    session,
+                    token,
+                    video_bytes,
+                    filename="cover.gif",
+                    content_type="image/gif",
+                )
+                attachments = [{"type": "image", "payload": {"token": gif_token}}]
+            else:
+                video_token = await cls._upload_video(session, token, video_bytes)
+                attachments = [{"type": "video", "payload": {"token": video_token}}]
         elif image_bytes:
             image_token = await cls._upload_image(session, token, image_bytes)
             attachments = [{"type": "image", "payload": {"token": image_token}}]
