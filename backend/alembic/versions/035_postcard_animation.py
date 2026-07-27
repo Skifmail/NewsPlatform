@@ -5,18 +5,17 @@ Revises: 034
 Create Date: 2026-07-27
 """
 
+import json
+
 import sqlalchemy as sa
 from alembic import op
+
+from app.domain.prompt_defaults import PROMPT_DEFAULTS
 
 revision = "035"
 down_revision = "034"
 branch_labels = None
 depends_on = None
-
-
-import json
-
-from app.domain.prompt_defaults import PROMPT_DEFAULTS
 
 
 def upgrade() -> None:
@@ -31,7 +30,8 @@ def upgrade() -> None:
     )
 
     entry = PROMPT_DEFAULTS["image.postcard_animation"]
-    op.execute(
+    conn = op.get_bind()
+    conn.execute(
         sa.text(
             """
             INSERT INTO prompt_templates (
@@ -70,7 +70,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    conn.execute(
+        sa.text("DELETE FROM prompt_templates WHERE key = :key"),
+        {"key": "image.postcard_animation"},
+    )
     op.drop_column("processed_posts", "generated_video_url")
     op.drop_column("channels", "animate_postcards")
-
-# Prompt seed appended via patch - see upgrade() below
