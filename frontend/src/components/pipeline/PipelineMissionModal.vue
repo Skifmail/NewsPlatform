@@ -15,7 +15,7 @@
             <div>
               <p class="mission-kicker">Pipeline Mission Control</p>
               <h2 id="mission-title" class="mission-title">{{ store.title }}</h2>
-              <p class="mission-sub">{{ store.currentDetail || 'Ожидание данных…' }}</p>
+              <p class="mission-sub">{{ store.currentDetail }}</p>
             </div>
             <div class="mission-header-actions">
               <span class="mission-status" :class="`mission-status--${store.status}`">
@@ -42,26 +42,49 @@
               <svg viewBox="0 0 100 100" class="mission-svg" preserveAspectRatio="xMidYMid meet">
                 <defs>
                   <filter id="glow">
-                    <feGaussianBlur stdDeviation="1.2" result="blur" />
+                    <feGaussianBlur stdDeviation="1.4" result="blur" />
                     <feMerge>
                       <feMergeNode in="blur" />
                       <feMergeNode in="SourceGraphic" />
                     </feMerge>
                   </filter>
+                  <marker id="arrowhead" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto">
+                    <path d="M0,0 L4,2 L0,4 Z" fill="rgba(45,212,191,0.7)" />
+                  </marker>
                 </defs>
 
-                <g v-for="edge in edges" :key="edge.key">
+                <!-- Базовые связи платформы с сервисами -->
+                <g v-for="base in baseEdges" :key="`base-${base.to}`">
+                  <line
+                    :x1="base.x1"
+                    :y1="base.y1"
+                    :x2="base.x2"
+                    :y2="base.y2"
+                    class="mission-edge-base"
+                    :class="{ 'mission-edge-base--on': base.active }"
+                  />
+                </g>
+
+                <g v-for="edge in liveEdges" :key="edge.key">
                   <line
                     :x1="edge.x1"
                     :y1="edge.y1"
                     :x2="edge.x2"
                     :y2="edge.y2"
-                    class="mission-edge"
-                    :class="{ 'mission-edge--live': edge.live }"
+                    class="mission-edge mission-edge--live"
+                    marker-end="url(#arrowhead)"
                   />
-                  <circle v-if="edge.live" r="1.2" :fill="edge.color" class="mission-packet">
+                  <circle r="1.6" :fill="edge.color" filter="url(#glow)">
                     <animateMotion
-                      dur="1.4s"
+                      :dur="edge.dur"
+                      repeatCount="indefinite"
+                      :path="`M ${edge.x1} ${edge.y1} L ${edge.x2} ${edge.y2}`"
+                    />
+                  </circle>
+                  <circle r="1.1" :fill="edge.color" opacity="0.55">
+                    <animateMotion
+                      :dur="edge.dur"
+                      begin="0.45s"
                       repeatCount="indefinite"
                       :path="`M ${edge.x1} ${edge.y1} L ${edge.x2} ${edge.y2}`"
                     />
@@ -74,21 +97,37 @@
                   :transform="`translate(${node.x}, ${node.y})`"
                   class="mission-node"
                   :class="{
-                    'mission-node--active': store.activeNodes.has(node.id),
+                    'mission-node--active': store.activeNodes.has(node.id) || node.id === 'platform',
                     'mission-node--pulse': pulseNode === node.id,
                   }"
                 >
-                  <circle r="5.5" :fill="node.color" fill-opacity="0.15" stroke="currentColor" stroke-width="0.35" />
-                  <circle r="2.2" :fill="node.color" filter="url(#glow)" />
-                  <text y="-7" text-anchor="middle" class="mission-node-label">{{ node.short }}</text>
+                  <circle r="7" :fill="node.color" fill-opacity="0.12" stroke="currentColor" stroke-width="0.3" />
+                  <circle r="2.6" :fill="node.color" filter="url(#glow)" />
+                  <text y="11" text-anchor="middle" class="mission-node-label">{{ node.short }}</text>
                 </g>
               </svg>
-              <p class="mission-graph-hint">Клик по шагу справа — детали запроса и ответа</p>
+
+              <ul class="mission-legend">
+                <li v-for="node in legendNodes" :key="node.id">
+                  <span class="mission-legend-dot" :style="{ background: node.color }" />
+                  {{ node.label }}
+                </li>
+              </ul>
+              <p class="mission-graph-hint">
+                Точки бегут по стрелкам к активному сервису. Справа — журнал запросов и ответов.
+              </p>
             </section>
 
             <section class="mission-log" aria-label="Журнал шагов">
               <div v-if="store.loading && !store.events.length" class="mission-log-empty">
                 Загрузка телеметрии…
+              </div>
+              <div
+                v-else-if="store.waitingTelemetry && !store.events.length"
+                class="mission-log-empty"
+              >
+                <p>Ждём поток шагов из worker…</p>
+                <p class="mission-log-seed">Сейчас: {{ store.currentDetail }} ({{ store.progress }}%)</p>
               </div>
               <div v-else-if="store.error && !store.events.length" class="mission-log-empty mission-log-empty--error">
                 {{ store.error }}
@@ -102,7 +141,7 @@
                     `mission-event--${ev.status}`,
                     { 'mission-event--selected': selectedId === ev.id },
                   ]"
-                  :style="{ '--delay': `${idx * 40}ms` }"
+                  :style="{ '--delay': `${idx * 35}ms` }"
                   @click="selectedId = selectedId === ev.id ? null : ev.id"
                 >
                   <div class="mission-event-head">
@@ -110,7 +149,8 @@
                     <div class="mission-event-main">
                       <p class="mission-event-label">{{ ev.label }}</p>
                       <p class="mission-event-meta">
-                        <span v-if="ev.provider">{{ ev.provider }}</span>
+                        <span>{{ routeLabel(ev) }}</span>
+                        <span v-if="ev.provider"> · {{ ev.provider }}</span>
                         <span v-if="ev.model"> · {{ ev.model }}</span>
                         <span v-if="ev.duration_ms"> · {{ ev.duration_ms }} ms</span>
                       </p>
@@ -121,11 +161,11 @@
                   <Transition name="detail-expand">
                     <div v-if="selectedId === ev.id" class="mission-event-detail">
                       <div v-if="ev.request_summary" class="mission-payload">
-                        <span class="mission-payload-tag">→ запрос</span>
+                        <span class="mission-payload-tag">→ что отправили</span>
                         <p>{{ ev.request_summary }}</p>
                       </div>
                       <div v-if="ev.response_summary" class="mission-payload mission-payload--in">
-                        <span class="mission-payload-tag">← ответ</span>
+                        <span class="mission-payload-tag">← что ответили</span>
                         <p>{{ ev.response_summary }}</p>
                       </div>
                       <div v-if="ev.error" class="mission-payload mission-payload--err">
@@ -153,13 +193,13 @@ const selectedId = ref(null)
 
 const LAYOUT = {
   platform: { x: 50, y: 52 },
-  deepseek: { x: 22, y: 28 },
-  tavily: { x: 78, y: 28 },
-  openai: { x: 18, y: 78 },
-  qwen: { x: 82, y: 78 },
-  openrouter: { x: 50, y: 16 },
-  github: { x: 30, y: 88 },
-  storage: { x: 70, y: 88 },
+  deepseek: { x: 18, y: 28 },
+  tavily: { x: 82, y: 28 },
+  openai: { x: 16, y: 78 },
+  qwen: { x: 84, y: 78 },
+  openrouter: { x: 50, y: 14 },
+  github: { x: 28, y: 90 },
+  storage: { x: 72, y: 90 },
 }
 
 const statusLabel = computed(() => {
@@ -168,7 +208,7 @@ const statusLabel = computed(() => {
   return 'В процессе'
 })
 
-const pulseNode = computed(() => store.activeEdge?.to ?? null)
+const pulseNode = computed(() => store.activeEdge?.to ?? 'platform')
 
 const graphNodes = computed(() =>
   Object.entries(LAYOUT).map(([id, pos]) => ({
@@ -178,27 +218,61 @@ const graphNodes = computed(() =>
   }))
 )
 
-const edges = computed(() => {
-  const seen = new Set()
-  const list = []
-  for (const ev of store.events) {
-    if (ev.direction === 'internal') continue
-    const from = LAYOUT[ev.from_node] || LAYOUT.platform
-    const to = LAYOUT[ev.to_node] || LAYOUT.platform
-    const key = `${ev.from_node}-${ev.to_node}-${ev.id}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    list.push({
-      key,
+const legendNodes = computed(() =>
+  ['platform', 'deepseek', 'tavily', 'openai', 'openrouter', 'qwen'].map((id) => ({
+    id,
+    ...nodeMeta(id),
+  }))
+)
+
+const baseEdges = computed(() => {
+  const hub = LAYOUT.platform
+  return Object.entries(LAYOUT)
+    .filter(([id]) => id !== 'platform')
+    .map(([id, pos]) => ({
+      to: id,
+      x1: hub.x,
+      y1: hub.y,
+      x2: pos.x,
+      y2: pos.y,
+      active: store.activeNodes.has(id) || store.activeEdge?.to === id,
+    }))
+})
+
+const liveEdges = computed(() => {
+  const edge = store.activeEdge
+  if (!edge) {
+    // Пока нет событий — пульс от платформы к DeepSeek как «ожидание»
+    if (store.waitingTelemetry || !store.events.length) {
+      const from = LAYOUT.platform
+      const to = LAYOUT.deepseek
+      return [
+        {
+          key: 'waiting',
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+          color: nodeMeta('deepseek').color,
+          dur: '1.6s',
+        },
+      ]
+    }
+    return []
+  }
+  const from = LAYOUT[edge.from] || LAYOUT.platform
+  const to = LAYOUT[edge.to] || LAYOUT.platform
+  return [
+    {
+      key: edge.id,
       x1: from.x,
       y1: from.y,
       x2: to.x,
       y2: to.y,
-      live: store.activeEdge?.id === ev.id && ev.status === 'running',
-      color: nodeMeta(ev.to_node).color,
-    })
-  }
-  return list
+      color: nodeMeta(edge.to).color,
+      dur: '1.2s',
+    },
+  ]
 })
 
 function flowArrow(ev) {
@@ -207,10 +281,27 @@ function flowArrow(ev) {
   return '•'
 }
 
+function routeLabel(ev) {
+  const from = nodeMeta(ev.from_node || 'platform').short
+  const to = nodeMeta(ev.to_node || 'platform').short
+  if (from === to) return from
+  return `${from} → ${to}`
+}
+
 watch(
   () => store.open,
   (isOpen) => {
     if (!isOpen) selectedId.value = null
+  }
+)
+
+watch(
+  () => store.events.length,
+  (len) => {
+    if (len > 0) {
+      const last = store.events[len - 1]
+      selectedId.value = last?.id ?? null
+    }
   }
 )
 </script>
@@ -298,36 +389,56 @@ watch(
 
 .mission-graph {
   @apply relative border-b border-white/10 p-4 lg:border-b-0 lg:border-r lg:p-5;
-  min-height: 280px;
+  min-height: 300px;
 }
 
 .mission-svg {
-  @apply h-full w-full min-h-[240px];
-  color: rgba(148, 163, 184, 0.6);
+  @apply h-full w-full min-h-[260px];
+  color: rgba(148, 163, 184, 0.55);
+}
+
+.mission-edge-base {
+  stroke: rgba(100, 116, 139, 0.2);
+  stroke-width: 0.25;
+  stroke-dasharray: 1 1.2;
+}
+
+.mission-edge-base--on {
+  stroke: rgba(45, 212, 191, 0.35);
 }
 
 .mission-edge {
   stroke: rgba(148, 163, 184, 0.25);
   stroke-width: 0.35;
-  stroke-dasharray: 1.5 1.5;
 }
 
 .mission-edge--live {
-  stroke: rgba(45, 212, 191, 0.85);
-  stroke-width: 0.5;
-  animation: dash-flow 1s linear infinite;
+  stroke: rgba(45, 212, 191, 0.9);
+  stroke-width: 0.55;
+  stroke-dasharray: 1.2 1.2;
+  animation: dash-flow 0.8s linear infinite;
 }
 
 .mission-node-label {
-  @apply fill-slate-400 font-mono text-[3px];
+  fill: #cbd5e1;
+  font-size: 3.2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .mission-node--active {
-  color: rgba(45, 212, 191, 0.9);
+  color: rgba(45, 212, 191, 0.95);
 }
 
 .mission-node--pulse circle:first-child {
-  animation: node-pulse 1.2s ease-in-out infinite;
+  animation: node-pulse 1.1s ease-in-out infinite;
+}
+
+.mission-legend {
+  @apply mt-2 flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-slate-400;
+}
+
+.mission-legend-dot {
+  @apply mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle;
 }
 
 .mission-graph-hint {
@@ -340,7 +451,11 @@ watch(
 }
 
 .mission-log-empty {
-  @apply py-12 text-center text-sm text-slate-500;
+  @apply py-10 text-center text-sm text-slate-500;
+}
+
+.mission-log-seed {
+  @apply mt-2 font-mono text-xs text-accent/80;
 }
 
 .mission-log-empty--error {
@@ -480,8 +595,8 @@ watch(
 }
 
 @keyframes node-pulse {
-  0%, 100% { r: 5.5; opacity: 0.6; }
-  50% { r: 7; opacity: 1; }
+  0%, 100% { r: 7; opacity: 0.55; }
+  50% { r: 9; opacity: 1; }
 }
 
 @keyframes event-in {

@@ -5,7 +5,10 @@ from __future__ import annotations
 import contextvars
 from typing import Any
 
-from app.services.pipeline_progress import PipelineProgressWriter
+from app.services.pipeline_progress import (
+    PipelineProgressWriter,
+    resume_or_create_writer,
+)
 
 _writer_ctx: contextvars.ContextVar[PipelineProgressWriter | None] = contextvars.ContextVar(
     "pipeline_writer",
@@ -20,12 +23,11 @@ def bind_pipeline(
     label: str,
 ) -> PipelineProgressWriter:
     """Привязывает writer к текущей Celery-задаче."""
-    writer = PipelineProgressWriter(
+    writer = resume_or_create_writer(
         celery_task_id,
         job_type=job_type,
         label=label,
     )
-    writer.init()
     _writer_ctx.set(writer)
     return writer
 
@@ -33,6 +35,21 @@ def bind_pipeline(
 def get_writer() -> PipelineProgressWriter | None:
     """Возвращает writer текущей задачи или None."""
     return _writer_ctx.get()
+
+
+def ensure_writer(
+    celery_task_id: str | None = None,
+    *,
+    job_type: str = "unknown",
+    label: str = "Задача",
+) -> PipelineProgressWriter | None:
+    """Возвращает активный writer или восстанавливает по celery_task_id."""
+    writer = get_writer()
+    if writer and (not celery_task_id or writer.celery_task_id == celery_task_id):
+        return writer
+    if not celery_task_id:
+        return None
+    return bind_pipeline(celery_task_id, job_type=job_type, label=label)
 
 
 def unbind_pipeline() -> None:
@@ -47,9 +64,18 @@ def finish_pipeline(*, status: str = "done") -> None:
         writer.finish(status=status)
 
 
-def sync_overview(detail: str, progress: int) -> None:
-    """Синхронизирует общий прогресс с report_job_stage."""
-    writer = get_writer()
+def sync_overview(
+    detail: str,
+    progress: int,
+    *,
+    celery_task_id: str | None = None,
+) -> None:
+    """Синхронизирует общий прогресс с report_job_stage.
+
+    Если ContextVar потерян (отдельный loop / fork), восстанавливает writer
+    по ``celery_task_id`` из Redis.
+    """
+    writer = ensure_writer(celery_task_id)
     if writer:
         writer.set_overview(detail, progress)
 

@@ -122,9 +122,43 @@ class PipelineProgressWriter:
         self._flush()
 
     def set_overview(self, detail: str, progress: int) -> None:
-        """Обновляет общий прогресс (синхронно с report_job_stage)."""
-        self._state.current_detail = detail
+        """Обновляет общий прогресс и добавляет этап в журнал.
+
+        Каждый вызов ``report_job_stage`` создаёт видимый шаг, даже если
+        детальные AI-хуки ещё не сработали.
+        """
+        cleaned = (detail or "").strip()
+        self._state.current_detail = cleaned or self._state.current_detail
         self._state.progress = max(0, min(100, progress))
+        if cleaned:
+            last = self._state.events[-1] if self._state.events else None
+            duplicate = (
+                last is not None
+                and last.direction == "internal"
+                and last.label == cleaned
+                and last.status in {"running", "success"}
+            )
+            if not duplicate:
+                # Предыдущий running stage → success
+                if last and last.status == "running" and last.direction == "internal":
+                    last.status = "success"
+                    last.finished_at = _now_iso()
+                    last.duration_ms = self._duration_ms(last.started_at, last.finished_at)
+                event_id = uuid.uuid4().hex[:12]
+                self._state.events.append(
+                    PipelineEvent(
+                        id=event_id,
+                        step_id=event_id,
+                        label=cleaned,
+                        status="running",
+                        progress=self._state.progress,
+                        direction="internal",
+                        from_node="platform",
+                        to_node=_guess_stage_node(cleaned),
+                        provider=_guess_stage_provider(cleaned),
+                        model=_guess_stage_model(cleaned),
+                    )
+                )
         self._flush()
 
     def begin_step(
@@ -247,6 +281,11 @@ class PipelineProgressWriter:
 
     def finish(self, *, status: str = "done") -> None:
         """Завершает пайплайн."""
+        for event in self._state.events:
+            if event.status == "running":
+                event.status = "success" if status == "done" else "failed"
+                event.finished_at = _now_iso()
+                event.duration_ms = self._duration_ms(event.started_at, event.finished_at)
         self._state.status = status
         self._state.finished_at = _now_iso()
         if status == "done":
@@ -347,6 +386,63 @@ def read_pipeline_progress(celery_task_id: str) -> dict[str, Any] | None:
         return json.loads(raw)
     except json.JSONDecodeError:
         return None
+
+
+def resume_or_create_writer(
+    celery_task_id: str,
+    *,
+    job_type: str = "unknown",
+    label: str = "Задача",
+) -> PipelineProgressWriter:
+    """Создаёт writer, подхватывая состояние из Redis при наличии."""
+    writer = PipelineProgressWriter(
+        celery_task_id,
+        job_type=job_type,
+        label=label,
+    )
+    existing = read_pipeline_progress(celery_task_id)
+    if existing:
+        try:
+            writer._state = PipelineProgress.from_dict(existing)
+            return writer
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to resume pipeline progress", celery_task_id=celery_task_id)
+    writer.init()
+    return writer
+
+
+def _guess_stage_node(detail: str) -> str:
+    lowered = detail.lower()
+    if "обложк" in lowered or "image" in lowered or "gpt-image" in lowered:
+        return "openai"
+    if "анимац" in lowered or "video" in lowered or "grok" in lowered:
+        return "openrouter"
+    if "поиск" in lowered or "tavily" in lowered or "интернет" in lowered:
+        return "tavily"
+    if "написан" in lowered or "стать" in lowered or "тем" in lowered or "ai" in lowered:
+        return "deepseek"
+    return "platform"
+
+
+def _guess_stage_provider(detail: str) -> str | None:
+    node = _guess_stage_node(detail)
+    return {
+        "openai": "OpenAI",
+        "openrouter": "OpenRouter / Grok",
+        "tavily": "Tavily",
+        "deepseek": "DeepSeek",
+        "platform": "NewsPlatform",
+    }.get(node)
+
+
+def _guess_stage_model(detail: str) -> str | None:
+    node = _guess_stage_node(detail)
+    return {
+        "openai": "gpt-image-2",
+        "openrouter": "grok-imagine-video",
+        "tavily": "search",
+        "deepseek": "deepseek-chat",
+    }.get(node)
 
 
 async def read_pipeline_progress_async(celery_task_id: str) -> dict[str, Any] | None:

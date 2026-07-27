@@ -85,6 +85,8 @@ function onToastClick(item) {
   pipelineStore.openFor({
     celeryTaskId: item.celeryTaskId,
     title: item.title,
+    progress: item.displayProgress ?? item.progress,
+    detail: item.detail,
   })
 }
 </script>
