@@ -501,6 +501,11 @@ class MaxPublisher(BasePublisher):
             from app.infrastructure.media.gifski_converter import is_gif_bytes
 
             if is_gif_bytes(video_bytes):
+                # Legacy posts stored as GIF: MAX often shows image/gif as a still.
+                # Prefer static cover if available; otherwise upload GIF as image.
+                logger.warning(
+                    "MAX received GIF animation; clients may show a still frame"
+                )
                 gif_token = await cls._upload_image(
                     session,
                     token,

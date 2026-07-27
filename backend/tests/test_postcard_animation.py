@@ -61,6 +61,7 @@ async def test_maybe_animate_skipped_when_globally_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_maybe_animate_success_saves_gif() -> None:
+    """GIF conversion is deferred; animation is stored as MP4 for MAX/VK."""
     svc = ImageService(
         prompts=_prompts(),
         openrouter_api_key="or-key",
@@ -74,20 +75,11 @@ async def test_maybe_animate_success_saves_gif() -> None:
         ),
         patch(
             "app.infrastructure.ai.image_service.save_media",
-            return_value="local://animations/abc.gif",
+            return_value="local://animations/abc.mp4",
         ) as save,
         patch(
             "app.infrastructure.ai.image_service.OpenRouterVideoClient"
         ) as client_cls,
-        patch(
-            "app.infrastructure.ai.image_service.gifski_available",
-            return_value=True,
-        ),
-        patch(
-            "app.infrastructure.ai.image_service.convert_mp4_to_gif",
-            new_callable=AsyncMock,
-            return_value=b"GIF89a-fake",
-        ) as convert,
     ):
         client_cls.return_value.animate_image = AsyncMock(
             return_value=SimpleNamespace(
@@ -102,9 +94,8 @@ async def test_maybe_animate_success_saves_gif() -> None:
             article_title="День ВМФ",
         )
 
-    assert result == "local://animations/abc.gif"
-    convert.assert_awaited_once()
-    save.assert_called_once_with(b"GIF89a-fake", "animations", ".gif")
+    assert result == "local://animations/abc.mp4"
+    save.assert_called_once_with(b"mp4-bytes", "animations", ".mp4")
 
 
 @pytest.mark.asyncio
@@ -122,10 +113,6 @@ async def test_maybe_animate_falls_back_to_mp4_when_gifski_missing() -> None:
             return_value="local://animations/abc.mp4",
         ) as save,
         patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
-        patch(
-            "app.infrastructure.ai.image_service.gifski_available",
-            return_value=False,
-        ),
     ):
         client_cls.return_value.animate_image = AsyncMock(
             return_value=SimpleNamespace(
@@ -194,7 +181,6 @@ async def test_maybe_animate_passes_configured_duration() -> None:
         patch("app.infrastructure.ai.image_service.ImageService.download_media_bytes", new_callable=AsyncMock, return_value=b"png"),
         patch("app.infrastructure.ai.image_service.save_media", return_value="local://animations/x.mp4"),
         patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
-        patch("app.infrastructure.ai.image_service.gifski_available", return_value=False),
     ):
         client_cls.return_value.animate_image = AsyncMock(
             return_value=SimpleNamespace(job_id="j", video_bytes=b"v", content_type="video/mp4")
@@ -229,7 +215,6 @@ async def test_maybe_animate_works_for_article_channel() -> None:
         patch("app.infrastructure.ai.image_service.ImageService.download_media_bytes", new_callable=AsyncMock, return_value=b"png"),
         patch("app.infrastructure.ai.image_service.save_media", return_value="local://animations/x.mp4"),
         patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
-        patch("app.infrastructure.ai.image_service.gifski_available", return_value=False),
     ):
         client_cls.return_value.animate_image = AsyncMock(
             return_value=SimpleNamespace(

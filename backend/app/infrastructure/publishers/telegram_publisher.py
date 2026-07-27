@@ -351,12 +351,13 @@ class TelegramPublisher(BasePublisher):
                 from app.infrastructure.media.gifski_converter import is_gif_bytes
 
                 as_gif = is_gif_bytes(video_bytes)
+                # Silent MP4 as animation autoplays like a GIF in Telegram clients.
                 media = BufferedInputFile(
                     video_bytes,
                     filename="postcard.gif" if as_gif else "postcard.mp4",
                 )
-                send_media = bot.send_animation if as_gif else bot.send_video
-                media_kw = "animation" if as_gif else "video"
+                send_media = bot.send_animation
+                media_kw = "animation"
                 if len(text) <= TELEGRAM_BOT_CAPTION_MAX:
                     result = await send_media(
                         chat_id=chat_id,

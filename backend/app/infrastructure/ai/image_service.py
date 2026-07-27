@@ -25,7 +25,6 @@ from app.infrastructure.ai.openrouter_video_client import OpenRouterVideoClient
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
 from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.ai.logo_compositor import build_github_logo_cover
-from app.infrastructure.media.gifski_converter import convert_mp4_to_gif, gifski_available
 from app.infrastructure.media_store import is_local_media_url, read_media, save_media
 from app.infrastructure.ai.qwen_image_chain import (
     resolve_edit_models,
@@ -641,38 +640,18 @@ class ImageService:
             )
             return None
 
-        media_bytes = result.video_bytes
-        suffix = ".mp4"
-        if self._postcard_animation_as_gif:
-            if gifski_available():
-                try:
-                    media_bytes = await convert_mp4_to_gif(
-                        result.video_bytes,
-                        quality=self._postcard_gif_quality,
-                        width=self._postcard_gif_width,
-                    )
-                    suffix = ".gif"
-                except Exception as exc:
-                    logger.warning(
-                        "MP4→GIF conversion failed; keeping MP4",
-                        error=str(exc),
-                        channel_id=channel.id,
-                    )
-            else:
-                logger.warning(
-                    "gifski/ffmpeg unavailable; keeping MP4 animation",
-                    channel_id=channel.id,
-                )
-
-        video_url = save_media(media_bytes, "animations", suffix)
+        # Always keep MP4: MAX/VK need a real video attachment; GIF-as-image
+        # often shows as a static frame in MAX. Telegram can convert to GIF at publish.
+        mp4_url = save_media(result.video_bytes, "animations", ".mp4")
         logger.info(
             "Cover animated",
             channel_id=channel.id,
             job_id=result.job_id,
-            video_url=video_url,
-            format=suffix.lstrip("."),
+            video_url=mp4_url,
+            format="mp4",
+            gif_enabled=self._postcard_animation_as_gif,
         )
-        return video_url
+        return mp4_url
 
     async def download_media_bytes(self, media_url: str) -> bytes | None:
         """Download raw media bytes (image or video) without transcoding."""
