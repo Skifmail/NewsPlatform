@@ -62,7 +62,7 @@ def _overview_to_response(overview) -> ChannelAnalyticsResponse:
 
 @router.get("/summary", response_model=AnalyticsSummaryResponse)
 async def get_analytics_summary(session: DbSession, _: AuthDep) -> AnalyticsSummaryResponse:
-    """Общая сводка по всем каналам."""
+    """Общая сводка по активным каналам."""
     summary = await ChannelAnalyticsService(session).get_summary()
     return AnalyticsSummaryResponse(
         channels_total=summary.channels_total,

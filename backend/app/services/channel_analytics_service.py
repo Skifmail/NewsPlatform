@@ -407,12 +407,12 @@ class ChannelAnalyticsService:
         return results
 
     async def get_summary(self) -> AnalyticsSummary:
-        """Общая сводка по dashboard.
+        """Общая сводка по dashboard (только активные каналы).
 
         Returns:
             AnalyticsSummary: агрегаты.
         """
-        channels = await self._channels.list_all()
+        channels = await self._channels.list_active()
         subscribers_total = 0
         views_sum = 0.0
         views_count = 0
@@ -595,18 +595,22 @@ class ChannelAnalyticsService:
         return await self._broadcast_stats.latest_for_channel(channel_id)
 
     async def list_channel_overviews(self) -> list[ChannelAnalyticsOverview]:
-        """Сводки по всем каналам.
+        """Сводки по активным каналам, от большего числа подписчиков.
 
         Returns:
             list[ChannelAnalyticsOverview]: обзоры.
         """
-        channels = await self._channels.list_all()
+        channels = await self._channels.list_active()
         overviews: list[ChannelAnalyticsOverview] = []
         for channel in channels:
             try:
                 overviews.append(await self.get_channel_overview(channel.id))
             except ValueError:
                 continue
+        overviews.sort(
+            key=lambda item: item.subscribers if item.subscribers is not None else -1,
+            reverse=True,
+        )
         return overviews
 
     async def get_growth_history(

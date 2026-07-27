@@ -90,7 +90,7 @@ async def test_get_summary_aggregates_channels(mock_session: MagicMock) -> None:
     ch2 = Channel(id=2, name="B", platform="vk", platform_id="-1", topic="it")
 
     service = ChannelAnalyticsService(mock_session)
-    service._channels.list_all = AsyncMock(return_value=[ch1, ch2])
+    service._channels.list_active = AsyncMock(return_value=[ch1, ch2])
     service._snapshots.latest_subscribers_snapshot = AsyncMock(
         side_effect=[
             ChannelStatsSnapshot(
@@ -129,6 +129,45 @@ async def test_get_summary_aggregates_channels(mock_session: MagicMock) -> None:
     assert summary.publications_total == 15
     assert summary.ad_integrations_total == 2
     assert summary.ad_revenue_total == 1000.0
+    service._channels.list_active.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_list_channel_overviews_active_sorted_by_subscribers(
+    mock_session: MagicMock,
+) -> None:
+    """Список аналитики — только активные, по убыванию подписчиков."""
+    from app.services.channel_analytics_service import ChannelAnalyticsOverview
+
+    ch_small = Channel(
+        id=1, name="Small", platform="telegram", platform_id="@s", topic="it"
+    )
+    ch_big = Channel(
+        id=2, name="Big", platform="telegram", platform_id="@b", topic="it"
+    )
+    ch_none = Channel(
+        id=3, name="None", platform="vk", platform_id="-1", topic="it"
+    )
+
+    overview_small = MagicMock(spec=ChannelAnalyticsOverview)
+    overview_small.subscribers = 10
+    overview_big = MagicMock(spec=ChannelAnalyticsOverview)
+    overview_big.subscribers = 100
+    overview_none = MagicMock(spec=ChannelAnalyticsOverview)
+    overview_none.subscribers = None
+
+    service = ChannelAnalyticsService(mock_session)
+    service._channels.list_active = AsyncMock(
+        return_value=[ch_small, ch_big, ch_none]
+    )
+    service.get_channel_overview = AsyncMock(
+        side_effect=[overview_small, overview_big, overview_none]
+    )
+
+    result = await service.list_channel_overviews()
+
+    assert [item.subscribers for item in result] == [100, 10, None]
+    service._channels.list_active.assert_awaited_once()
 
 
 def test_downsample_daily_keeps_last_snapshot_per_day() -> None:
