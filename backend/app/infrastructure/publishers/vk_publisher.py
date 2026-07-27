@@ -54,17 +54,13 @@ class VkPublisher(BasePublisher):
         image_bytes: bytes | None,
         video_bytes: bytes | None = None,
     ) -> str:
-        if video_bytes:
-            logger.warning(
-                "VK publish: video not supported, using static image",
-                channel_id=channel.id,
-            )
         """Публикует пост на VK.
 
         Args:
             post: пост.
             channel: канал (platform_id = owner_id сообщества, напр. -240417733).
-            image_bytes: картинка (опционально).
+            image_bytes: статичная обложка (fallback).
+            video_bytes: MP4-анимация (приоритет над image).
 
         Returns:
             str: post_id на платформе.
@@ -96,17 +92,26 @@ class VkPublisher(BasePublisher):
         }
 
         async with aiohttp.ClientSession() as session:
-            if image_bytes:
+            attachment = None
+            if video_bytes:
+                attachment = await self._upload_video(
+                    session, photo_token, api_version, owner_id, video_bytes
+                )
+                if not attachment:
+                    logger.warning(
+                        "VK video upload failed, falling back to static image",
+                        channel_id=channel.id,
+                    )
+            if not attachment and image_bytes:
                 attachment = await self._upload_photo(
                     session, photo_token, api_version, owner_id, image_bytes
                 )
                 if not attachment:
-                    # Фоллбэк: docs API работает с групповым токеном (без ошибки 27)
                     attachment = await self._upload_photo_as_doc(
                         session, token, api_version, owner_id, image_bytes
                     )
-                if attachment:
-                    params["attachments"] = attachment
+            if attachment:
+                params["attachments"] = attachment
 
             async with session.post(
                 "https://api.vk.com/method/wall.post", data=params
@@ -119,6 +124,67 @@ class VkPublisher(BasePublisher):
                 post_id = str(data["response"]["post_id"])
                 logger.info("VK published", channel_id=channel.id, post_id=post_id)
                 return post_id
+
+    async def _upload_video(
+        self,
+        session: aiohttp.ClientSession,
+        token: str,
+        api_version: str,
+        owner_id: str,
+        video_bytes: bytes,
+    ) -> str | None:
+        """Загружает MP4 на стену VK и возвращает attachment video{owner}_{id}."""
+        try:
+            is_group = owner_id.startswith("-")
+            group_id = abs(int(owner_id)) if is_group else None
+            save_params: dict[str, str | int] = {
+                "access_token": token,
+                "v": api_version,
+                "name": "cover",
+                "wallpost": 0,
+            }
+            if group_id is not None:
+                save_params["group_id"] = group_id
+            async with session.get(
+                "https://api.vk.com/method/video.save",
+                params=save_params,
+            ) as resp:
+                data = await resp.json()
+            if "error" in data:
+                err = data["error"]
+                logger.error(
+                    "VK video.save failed",
+                    error_code=err.get("error_code"),
+                    error_msg=err.get("error_msg", ""),
+                )
+                return None
+            video_info = data["response"]
+            upload_url = video_info.get("upload_url")
+            video_owner_id = video_info.get("owner_id")
+            video_id = video_info.get("video_id")
+            if not upload_url or video_owner_id is None or video_id is None:
+                logger.error(
+                    "VK video.save missing upload_url or ids",
+                    payload=video_info,
+                )
+                return None
+
+            form = aiohttp.FormData()
+            form.add_field(
+                "video_file",
+                video_bytes,
+                filename="cover.mp4",
+                content_type="video/mp4",
+            )
+            async with session.post(str(upload_url), data=form) as upload_resp:
+                upload_data = await upload_resp.json(content_type=None)
+            if isinstance(upload_data, dict) and not upload_data.get("size"):
+                logger.error("VK video upload failed", payload=upload_data)
+                return None
+            return f"video{video_owner_id}_{video_id}"
+        except Exception as exc:
+            logger.error("VK video upload failed", error=str(exc))
+            return None
 
     async def _upload_photo(
         self,

@@ -117,17 +117,15 @@ class PublishService:
 
         video_bytes = None
         image_bytes = None
-        if post.generated_video_url:
+        if post.generated_video_url or post.generated_image_url:
             await report_job_stage(
-                celery_task_id, "Загрузка видео для публикации…", 45
+                celery_task_id, "Загрузка медиа для публикации…", 45
             )
+        if post.generated_video_url:
             video_bytes = await self._images.download_media_bytes(
                 post.generated_video_url
             )
-        if post.generated_image_url and not video_bytes:
-            await report_job_stage(
-                celery_task_id, "Загрузка изображения для публикации…", 45
-            )
+        if post.generated_image_url:
             image_bytes = await self._images.download_and_resize(
                 post.generated_image_url
             )

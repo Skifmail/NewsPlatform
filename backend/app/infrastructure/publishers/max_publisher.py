@@ -42,17 +42,13 @@ class MaxPublisher(BasePublisher):
         image_bytes: bytes | None,
         video_bytes: bytes | None = None,
     ) -> str:
-        if video_bytes:
-            logger.warning(
-                "MAX publish: video not supported, using static image",
-                channel_id=channel.id,
-            )
         """Отправляет сообщение в канал MAX.
 
         Args:
             post: пост.
             channel: канал (``platform_id`` = ``chat_id`` или публичная ссылка).
-            image_bytes: обложка (опционально).
+            image_bytes: статичная обложка (fallback).
+            video_bytes: анимированная обложка MP4 (приоритет над image).
 
         Returns:
             str: ID сообщения на платформе.
@@ -62,7 +58,7 @@ class MaxPublisher(BasePublisher):
             PublishPermanentError: при ошибке разметки или неверном chat_id.
         """
         if post.content_mode == ContentMode.ARTICLE.value:
-            return await self._publish_article(post, channel, image_bytes)
+            return await self._publish_article(post, channel, image_bytes, video_bytes=video_bytes)
 
         settings = get_settings()
         if not settings.max_bot_token:
@@ -80,6 +76,7 @@ class MaxPublisher(BasePublisher):
                 chat_id,
                 text,
                 image_bytes,
+                video_bytes=video_bytes,
             )
             logger.info(
                 "MAX published",
@@ -94,6 +91,8 @@ class MaxPublisher(BasePublisher):
         post: ProcessedPost,
         channel: Channel,
         image_bytes: bytes | None,
+        *,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Публикует статью: целиком (long-form) или анонс со ссылкой на Telegraph.
 
@@ -112,14 +111,20 @@ class MaxPublisher(BasePublisher):
             RuntimeError: при ошибке API.
         """
         if is_long_form_article_channel(channel):
-            return await self._publish_long_form_article(post, channel, image_bytes)
-        return await self._publish_telegraph_article(post, channel, image_bytes)
+            return await self._publish_long_form_article(
+                post, channel, image_bytes, video_bytes=video_bytes
+            )
+        return await self._publish_telegraph_article(
+            post, channel, image_bytes, video_bytes=video_bytes
+        )
 
     async def _publish_long_form_article(
         self,
         post: ProcessedPost,
         channel: Channel,
         image_bytes: bytes | None,
+        *,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Публикует статью целиком в MAX без Telegraph.
 
@@ -160,6 +165,7 @@ class MaxPublisher(BasePublisher):
                 chat_id,
                 text,
                 image_bytes,
+                video_bytes=video_bytes,
             )
             logger.info(
                 "MAX long-form article published",
@@ -175,6 +181,8 @@ class MaxPublisher(BasePublisher):
         post: ProcessedPost,
         channel: Channel,
         image_bytes: bytes | None,
+        *,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Публикует анонс статьи со ссылкой на Telegraph.
 
@@ -234,6 +242,7 @@ class MaxPublisher(BasePublisher):
                 chat_id,
                 text,
                 image_bytes,
+                video_bytes=video_bytes,
             )
             logger.info(
                 "MAX article teaser published",
@@ -378,6 +387,47 @@ class MaxPublisher(BasePublisher):
         msg = "MAX image upload did not return token"
         raise RuntimeError(msg)
 
+
+    @classmethod
+    async def _upload_video(
+        cls,
+        session: aiohttp.ClientSession,
+        token: str,
+        video_bytes: bytes,
+    ) -> str:
+        """Загружает MP4 и возвращает token вложения type=video."""
+        async with session.post(
+            f"{get_max_api_base()}/uploads",
+            params={"type": "video"},
+            headers=cls._auth_headers(token),
+        ) as resp:
+            meta = await cls._read_json(resp)
+        cls._raise_for_api_error(resp.status, meta, context="uploads")
+
+        upload_url = meta.get("url")
+        video_token = meta.get("token")
+        if not isinstance(upload_url, str) or not upload_url:
+            msg = "MAX uploads response missing url"
+            raise RuntimeError(msg)
+        if not isinstance(video_token, str) or not video_token:
+            msg = "MAX video uploads response missing token"
+            raise RuntimeError(msg)
+
+        form = aiohttp.FormData()
+        form.add_field(
+            "data",
+            video_bytes,
+            filename="cover.mp4",
+            content_type="video/mp4",
+        )
+        async with session.post(upload_url, data=form) as upload_resp:
+            upload_payload = await cls._read_json(upload_resp)
+        if upload_resp.status >= 400:
+            msg = cls._format_api_error(upload_payload, "video upload")
+            raise RuntimeError(msg)
+
+        return video_token
+
     @staticmethod
     def _extract_upload_token(
         upload_payload: dict[str, Any],
@@ -422,15 +472,17 @@ class MaxPublisher(BasePublisher):
         chat_id: int,
         text: str,
         image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
-        """Отправляет текст и опционально изображение в канал.
+        """Отправляет текст и опционально видео или изображение в канал.
 
         Args:
             session: HTTP-сессия.
             token: токен бота.
             chat_id: ID канала.
             text: HTML-текст.
-            image_bytes: обложка.
+            image_bytes: статичная обложка (fallback).
+            video_bytes: MP4-анимация (приоритет).
 
         Returns:
             str: message_id.
@@ -440,7 +492,10 @@ class MaxPublisher(BasePublisher):
             PublishPermanentError: ошибка разметки.
         """
         attachments: list[dict[str, Any]] | None = None
-        if image_bytes:
+        if video_bytes:
+            video_token = await cls._upload_video(session, token, video_bytes)
+            attachments = [{"type": "video", "payload": {"token": video_token}}]
+        elif image_bytes:
             image_token = await cls._upload_image(session, token, image_bytes)
             attachments = [{"type": "image", "payload": {"token": image_token}}]
 
