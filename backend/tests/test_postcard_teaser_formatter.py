@@ -17,4 +17,5 @@ def test_postcard_writing_default_mentions_teaser_limit() -> None:
     assert "{teaser_max_length}" in template
     assert "teaser" in template
     assert "body_html" in template
+    assert "назови повод" in template
     assert "greeting_text" in template

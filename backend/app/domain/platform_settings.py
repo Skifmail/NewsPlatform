@@ -95,9 +95,8 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "tavily_api_keys": "[]",
     "tavily_active_key_id": "",
     "tavily_auto_switch": "true",
-    # OpenAI: ключи и mainline-модель для открыток.
+    # OpenAI: ключи для gpt-image-2 (открытки и fallback обложек).
     "openai_api_keys": "[]",
-    "openai_postcard_orchestrator_model": "gpt-5.6",
     CURATED_PICK_HISTORY_KEY: "[]",
 }
 

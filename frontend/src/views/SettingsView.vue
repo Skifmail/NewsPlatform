@@ -676,39 +676,6 @@
             class="input w-full mt-1 font-mono text-xs"
             placeholder="qwen-image-edit-plus,qwen-image-edit-max"
           />
-          <label class="field-label mt-3" for="postcard-orchestrator-model">
-            OpenAI-модель оркестратора открыток
-          </label>
-          <input
-            id="postcard-orchestrator-model"
-            v-model="openaiPostcardOrchestratorModel"
-            type="text"
-            class="input w-full mt-1 font-mono text-xs"
-            placeholder="gpt-5.6"
-            required
-            minlength="2"
-            maxlength="100"
-            pattern="[A-Za-z0-9._:-]{2,100}"
-            autocomplete="off"
-            :aria-describedby="orchestratorModelError
-              ? 'postcard-orchestrator-model-hint postcard-orchestrator-model-error'
-              : 'postcard-orchestrator-model-hint'"
-            :aria-invalid="Boolean(orchestratorModelError)"
-            @input="orchestratorModelError = ''"
-          />
-          <p id="postcard-orchestrator-model-hint" class="field-hint">
-            Mainline-модель Responses API, которая превращает короткую тему в задачу
-            для image_generation, например <span class="font-mono">gpt-5.6</span>.
-            При ошибке используется прямой GPT Image 2.
-          </p>
-          <p
-            v-if="orchestratorModelError"
-            id="postcard-orchestrator-model-error"
-            class="ai-usage-error-inline"
-            role="alert"
-          >
-            {{ orchestratorModelError }}
-          </p>
           <p class="field-hint mt-3">
             Статус моделей (какая активна, какие пропущены по квоте) — в блоке
             <strong>«AI и API»</strong> вверху страницы.
@@ -792,8 +759,6 @@ const rawPostsRetentionDays = ref(3)
 const postsPerDay = ref(10)
 const qwenImageModels = ref('')
 const qwenImageEditModels = ref('')
-const openaiPostcardOrchestratorModel = ref('gpt-5.6')
-const orchestratorModelError = ref('')
 const schedulerLastFetch = ref('')
 const schedulerLastRetention = ref('')
 const saving = ref(false)
@@ -925,7 +890,6 @@ function getFormSnapshot() {
     posts_per_day: postsPerDay.value,
     qwen_image_models: qwenImageModels.value,
     qwen_image_edit_models: qwenImageEditModels.value,
-    openai_postcard_orchestrator_model: openaiPostcardOrchestratorModel.value,
   })
 }
 
@@ -1015,8 +979,6 @@ async function loadSettings() {
   postsPerDay.value = parseInt(s.posts_per_day || '10', 10)
   qwenImageModels.value = s.qwen_image_models || ''
   qwenImageEditModels.value = s.qwen_image_edit_models || ''
-  openaiPostcardOrchestratorModel.value =
-    s.openai_postcard_orchestrator_model || 'gpt-5.6'
   schedulerLastFetch.value = s.scheduler_last_fetch_at || ''
   schedulerLastRetention.value = s.scheduler_last_retention_at || ''
   tavilyKeys.value = parseTavilyResolved(s.tavily_keys_resolved)
@@ -1236,13 +1198,6 @@ async function toggleOpenaiKey(keyId, enabled) {
 }
 
 async function save({ silent = false } = {}) {
-  const orchestratorModel = openaiPostcardOrchestratorModel.value.trim()
-  if (!/^[A-Za-z0-9._:-]{2,100}$/.test(orchestratorModel)) {
-    orchestratorModelError.value =
-      'Укажите корректное имя модели: 2–100 латинских букв, цифр, точек, дефисов или подчёркиваний.'
-    throw new Error(orchestratorModelError.value)
-  }
-  orchestratorModelError.value = ''
   saving.value = true
   try {
     await settingsApi.update({
@@ -1265,7 +1220,6 @@ async function save({ silent = false } = {}) {
         posts_per_day: String(postsPerDay.value),
         qwen_image_models: qwenImageModels.value,
         qwen_image_edit_models: qwenImageEditModels.value,
-        openai_postcard_orchestrator_model: orchestratorModel,
       },
     })
     await loadSettings()

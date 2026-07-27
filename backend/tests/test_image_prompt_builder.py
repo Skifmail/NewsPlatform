@@ -143,20 +143,28 @@ def test_build_postcard_cover_prompt_does_not_sanitize_text_triggers() -> None:
     assert "С Днём Рождения!" in prompt
 
 
-def test_default_postcard_cover_prompt_is_compact_and_delegates_composition() -> None:
-    """Default prompt provides intent while leaving visual choices to the model."""
+def test_default_postcard_cover_prompt_is_chatgpt_style_one_liner() -> None:
+    """Default cover request mirrors a simple ChatGPT user message."""
     from app.domain.prompt_defaults import PROMPT_DEFAULTS
 
     prompt = ImagePromptBuilder.build_postcard_cover_prompt(
         template=PROMPT_DEFAULTS["image.cover_prompt_postcard"].template_text,
-        title="Доброе утро",
-        scene="нежное и вдохновляющее настроение",
-        greeting_text="С добрым утром!",
+        title="День работника МФЦ",
     )
 
-    assert len(prompt) < 700
-    assert "С добрым утром!" in prompt
-    assert "Сам выбери" in prompt
-    assert "ровно одна надпись" in prompt
-    assert "award-winning" not in prompt
-    assert "volumetric light" not in prompt
+    assert prompt == "Сделай открытку поздравление с День работника МФЦ"
+    assert "логотип" not in prompt.lower()
+    assert "ровно одна надпись" not in prompt
+    assert "Не добавляй" not in prompt
+    assert "{scene}" not in prompt
+    assert "{greeting_text}" not in prompt
+
+
+def test_postcard_writing_default_requires_naming_the_occasion() -> None:
+    """Caption prompt must force naming the occasion in teaser."""
+    from app.domain.prompt_defaults import PROMPT_DEFAULTS
+
+    template = PROMPT_DEFAULTS["writing.postcard"].template_text
+    assert "назови повод" in template
+    assert "С Днём работника МФЦ" in template
+    assert "{teaser_max_length}" in template

@@ -121,23 +121,23 @@ class ImagePromptBuilder:
         *,
         template: str,
         title: str,
-        scene: str,
-        greeting_text: str,
+        scene: str = "",
+        greeting_text: str = "",
     ) -> str:
-        """Финальный промпт открытки для gpt-image-2 (арт-директор).
+        """Собирает запрос к генератору открытки из шаблона панели промптов.
 
-        В отличие от build_for_qwen/build_for_channel, НЕ вызывает
-        _sanitize_scene_for_qwen/_strip_cyrillic — gpt-image-2 умеет рендерить
-        русский текст, поэтому сцена и надпись передаются как есть.
+        По умолчанию шаблон минимален (как запрос в ChatGPT) и использует только
+        ``{title}``. ``scene`` и ``greeting_text`` остаются для кастомных шаблонов
+        в БД — ``safe_format`` подставит их, если плейсхолдеры есть.
 
         Args:
-            template: шаблон с {title}/{scene}/{greeting_text} (image.cover_prompt_postcard).
+            template: шаблон (image.cover_prompt_postcard).
             title: краткое название повода.
-            scene: сцена от ArticleWriter (image_prompt), английский текст.
-            greeting_text: надпись на русском для рендера на открытке.
+            scene: опциональный контекст для кастомных шаблонов.
+            greeting_text: опциональная надпись для кастомных шаблонов.
 
         Returns:
-            str: промпт для gpt-image-2.
+            str: запрос для Responses ``image_generation`` / gpt-image-2.
         """
         return safe_format(
             template,
