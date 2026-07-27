@@ -95,6 +95,22 @@ class BackgroundJobRepository:
         )
         return list(result.scalars().all())
 
+    async def list_children(self, parent_celery_task_id: str) -> list[BackgroundJob]:
+        """Дочерние задачи по parent_celery_task_id.
+
+        Args:
+            parent_celery_task_id: ID родительской Celery-задачи.
+
+        Returns:
+            list[BackgroundJob]: дочерние записи.
+        """
+        result = await self._session.execute(
+            select(BackgroundJob).where(
+                BackgroundJob.parent_celery_task_id == parent_celery_task_id
+            )
+        )
+        return list(result.scalars().all())
+
     async def count_by_status(self) -> dict[str, int]:
         """Счётчики по статусам.
 

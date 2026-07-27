@@ -307,7 +307,7 @@
                   <input
                     v-model="manualTopics[ch.id]"
                     type="text"
-                    class="input-field"
+                    class="input input-sm"
                     maxlength="200"
                     :placeholder="manualTopicPlaceholder(editForms[ch.id])"
                     :disabled="generatingChannel === ch.id"
@@ -699,8 +699,17 @@ onMounted(load)
   @apply flex-1 min-w-[12rem] max-w-md;
 }
 
-.manual-topic-field .input-field {
-  @apply w-full text-sm;
+.manual-topic-field .input {
+  @apply w-full text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)];
+  background-color: rgb(var(--panel-bg-rgb));
+  color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
+}
+
+.manual-topic-field .input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.85;
+  -webkit-text-fill-color: var(--text-secondary);
 }
 
 .sr-only {

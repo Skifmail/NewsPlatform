@@ -44,7 +44,9 @@ export const usePipelineStore = defineStore('pipeline', () => {
     () => data.value?.current_detail || seedDetail.value || 'Ожидание телеметрии…'
   )
   const status = computed(() => data.value?.status || 'running')
-  const isTerminal = computed(() => status.value === 'done' || status.value === 'error')
+  const isTerminal = computed(
+    () => status.value === 'done' || status.value === 'error' || status.value === 'cancelled'
+  )
 
   const activeNodes = computed(() => {
     const set = new Set(['platform'])
@@ -76,7 +78,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
       waitingTelemetry.value = false
       if (payload.progress != null) seedProgress.value = payload.progress
       if (payload.current_detail) seedDetail.value = payload.current_detail
-      if (payload.status === 'done' || payload.status === 'error') {
+      if (payload.status === 'done' || payload.status === 'error' || payload.status === 'cancelled') {
         stopPolling()
       }
     } catch (err) {

@@ -13,6 +13,7 @@ from app.api.schemas.job import (
 )
 from app.services.activity_notifier import detail_for_job, phase_for_status, progress_for_job
 from app.repositories.raw_post_repository import RawPostRepository
+from app.services.job_cancel import cancel_job_by_celery_id
 from app.services.job_tracker import JobTracker
 from app.tasks.ai_tasks import process_post_task
 from app.domain.enums import JobStatus
@@ -118,6 +119,54 @@ async def jobs_summary(session: DbSession, _: AuthDep) -> JobsSummaryResponse:
         success=success,
         failed=failed,
         active_total=queued + running,
+    )
+
+
+@router.post(
+    "/{celery_task_id}/cancel",
+    response_model=BackgroundJobActivityResponse,
+)
+async def cancel_job(
+    celery_task_id: str,
+    session: DbSession,
+    _: AuthDep,
+) -> BackgroundJobActivityResponse:
+    """Отменяет Celery-задачу (revoke + terminate) и дочерние задачи.
+
+    Args:
+        celery_task_id: ID задачи Celery.
+
+    Returns:
+        BackgroundJobActivityResponse: обновлённый статус для UI.
+
+    Raises:
+        HTTPException: не найдена или уже завершена.
+    """
+    try:
+        job = await cancel_job_by_celery_id(session, celery_task_id)
+        await session.commit()
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return BackgroundJobActivityResponse(
+        id=job.id,
+        celery_task_id=job.celery_task_id,
+        job_type=job.job_type,
+        status=job.status,
+        label=job.label,
+        source_id=job.source_id,
+        raw_post_id=job.raw_post_id,
+        parent_celery_task_id=job.parent_celery_task_id,
+        result_summary=job.result_summary,
+        error_message=job.error_message,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        progress=progress_for_job(job),
+        phase=phase_for_status(job.status),
+        detail=detail_for_job(job),
     )
 
 

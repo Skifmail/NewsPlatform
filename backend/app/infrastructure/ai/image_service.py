@@ -42,7 +42,9 @@ from app.infrastructure.parsers.image_extract import (
 
 _USER_AGENT = "Mozilla/5.0 (compatible; NewsPlatform/1.0)"
 _PAGE_FETCH_TIMEOUT = 20.0
-_OPENAI_POSTCARD_TIMEOUT_SECONDS = 180.0
+# gpt-image-2 high quality often exceeds 3 minutes; short timeout bills OpenAI
+# without returning bytes to us.
+_OPENAI_POSTCARD_TIMEOUT_SECONDS = 420.0
 
 # Не-растровые/непригодные для Telegram и Pillow форматы. SVG особенно важен:
 # CNews отдаёт на каждую статью placeholder-SVG, Pillow его не открывает →
@@ -345,14 +347,15 @@ class ImageService:
             logger.debug("Postcard cover prompt", preview=cover_prompt[:200])
             generated = await self._generate_postcard_dalle_cover(cover_prompt)
             if not generated:
-                # Qwen не умеет рендерить текст — безопасный фолбэк без надписи.
-                qwen_prompt = ImagePromptBuilder.build_for_qwen(
-                    channel,
-                    article_title=article_title,
-                    topic=topic,
-                    draft_image_prompt=image_prompt,
+                # Тот же промпт, что ушёл в gpt-image-2 — иначе Qwen
+                # рисует сцену из guidelines канала и теряет повод.
+                logger.info(
+                    "Postcard OpenAI failed; Qwen fallback with same cover prompt",
+                    preview=cover_prompt[:200],
                 )
-                generated = await self._generate_with_qwen_constraints(qwen_prompt or "")
+                generated = await self._generate_with_qwen_constraints(cover_prompt)
+                if generated and not is_local_media_url(generated):
+                    generated = await self._persist_remote_cover(generated)
         elif is_paragraph_article_channel(channel.name):
             cover_prompt = ImagePromptBuilder.build_cover_prompt(
                 template=self._require_prompts().cover_template,
@@ -471,6 +474,17 @@ class ImageService:
                 logger.warning("Qwen Image generation failed", error=str(exc))
         return await self._generate_dalle(prompt)
 
+    async def _persist_remote_cover(self, url: str) -> str:
+        """Download a remote cover to local media volume when possible.
+
+        Keeps animation/publish on shared volume; falls back to original URL.
+        """
+        downloaded = await self.download_media_bytes(url)
+        if not downloaded:
+            return url
+        suffix = ".png" if ".png" in url.lower().split("?", 1)[0] else ".jpg"
+        return save_media(downloaded, "covers", suffix)
+
     async def _generate_ai_image(self, prompt: str) -> str | None:
         """Генерирует изображение: Qwen-Image → fallback OpenAI.
 
@@ -542,12 +556,22 @@ class ImageService:
                 )
             b64 = response.data[0].b64_json
             if not b64:
-                logger.warning("OpenAI image: empty b64_json")
+                # Some SDK/API variants return a temporary URL instead of b64.
+                remote_url = getattr(response.data[0], "url", None)
+                if remote_url:
+                    downloaded = await self.download_media_bytes(remote_url)
+                    if downloaded:
+                        return save_media(downloaded, "covers", ".png")
+                logger.warning("OpenAI image: empty b64_json and no url")
                 return None
             image_bytes = base64.b64decode(b64, validate=True)
             return save_media(image_bytes, "covers", ".png")
         except Exception as exc:
-            logger.error("OpenAI image generation failed", error=str(exc))
+            logger.error(
+                "OpenAI image generation failed: {err}",
+                err=str(exc),
+                error_type=type(exc).__name__,
+            )
             return None
 
     @staticmethod
@@ -593,7 +617,7 @@ class ImageService:
         from app.utils.safe_format import safe_format
 
         motion_prompt = safe_format(template, title=article_title.strip())
-        image_bytes = read_media(image_url)
+        image_bytes = await self.download_media_bytes(image_url)
         if not image_bytes:
             logger.warning("Cover animation skipped: image not found", url=image_url)
             return None

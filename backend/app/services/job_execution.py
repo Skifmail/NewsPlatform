@@ -161,6 +161,13 @@ async def reconcile_jobs_with_celery(session: AsyncSession) -> int:
                 error = "Ошибка выполнения задачи"
             await tracker.mark_failed(job.celery_task_id, error)
             updated += 1
+            continue
+        if state == "REVOKED":
+            await tracker.mark_cancelled(
+                job.celery_task_id,
+                "Задача отозвана в Celery",
+            )
+            updated += 1
     if updated:
         await session.commit()
         logger.debug("Reconciled background jobs from Celery", count=updated)

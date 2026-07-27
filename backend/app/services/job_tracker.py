@@ -177,6 +177,7 @@ class JobTracker:
         if not job or job.status in (
             JobStatus.SUCCESS.value,
             JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
             JobStatus.RUNNING.value,
         ):
             return
@@ -199,6 +200,12 @@ class JobTracker:
         job = await self._repo.get_by_celery_id(celery_task_id)
         if not job:
             return
+        if job.status in (
+            JobStatus.SUCCESS.value,
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+        ):
+            return
         job.status = JobStatus.SUCCESS.value
         job.finished_at = datetime.now(UTC)
         if result_summary:
@@ -220,9 +227,41 @@ class JobTracker:
         job = await self._repo.get_by_celery_id(celery_task_id)
         if not job:
             return
+        if job.status in (
+            JobStatus.SUCCESS.value,
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+        ):
+            return
         job.status = JobStatus.FAILED.value
         job.finished_at = datetime.now(UTC)
         job.error_message = error_message[:2000]
+        await self._repo.update(job)
+        await self._notify(job)
+
+    async def mark_cancelled(
+        self,
+        celery_task_id: str,
+        reason: str = "Отменено пользователем",
+    ) -> None:
+        """Помечает задачу как отменённую.
+
+        Args:
+            celery_task_id: ID задачи Celery.
+            reason: текст для панели.
+        """
+        job = await self._repo.get_by_celery_id(celery_task_id)
+        if not job:
+            return
+        if job.status in (
+            JobStatus.SUCCESS.value,
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+        ):
+            return
+        job.status = JobStatus.CANCELLED.value
+        job.finished_at = datetime.now(UTC)
+        job.error_message = reason[:2000]
         await self._repo.update(job)
         await self._notify(job)
 

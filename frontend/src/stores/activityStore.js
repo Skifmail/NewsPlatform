@@ -26,11 +26,27 @@ const LEGACY_MAP = {
   }),
 }
 
+function parseTimeMs(value) {
+  if (!value) return null
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) ? ms : null
+}
+
+function stageKeyOf(entry) {
+  const ev = entry.latestEvent
+  if (ev?.label) return String(ev.label)
+  if (entry.detail) return String(entry.detail)
+  return ''
+}
+
 function normalizeActivity(raw) {
   const phase = raw.phase || 'running'
   const target = Math.min(100, Math.max(0, Number(raw.progress) || 0))
   const latest = raw.latest_event || null
-  return {
+  const now = Date.now()
+  const createdAtMs = parseTimeMs(raw.created_at) || now
+  const startedAtMs = parseTimeMs(raw.started_at) || createdAtMs
+  const entry = {
     id: raw.id || `act-${Date.now()}`,
     kind: raw.kind || 'system',
     phase,
@@ -44,13 +60,21 @@ function normalizeActivity(raw) {
     rawPostId: raw.raw_post_id ?? null,
     eventCount: raw.event_count ?? 0,
     latestEvent: latest,
-    hideAt: phase === 'done' || phase === 'error' ? Date.now() + DONE_TTL_MS : null,
+    createdAtMs,
+    startedAtMs,
+    stageKey: '',
+    stageStartedAtMs: now,
+    cancelling: false,
+    hideAt: phase === 'done' || phase === 'error' || phase === 'cancelled' ? now + DONE_TTL_MS : null,
   }
+  entry.stageKey = stageKeyOf(entry)
+  return entry
 }
 
 function phaseFromStatus(status) {
   if (status === 'success') return 'done'
   if (status === 'failed') return 'error'
+  if (status === 'cancelled') return 'cancelled'
   if (status === 'running') return 'running'
   return 'queued'
 }
@@ -73,6 +97,7 @@ function detailFromJob(job) {
   if (job.detail) return job.detail
   if (job.status === 'success') return job.result_summary || 'Успешно завершено'
   if (job.status === 'failed') return job.error_message || 'Ошибка выполнения'
+  if (job.status === 'cancelled') return job.error_message || 'Отменено пользователем'
   if (job.status === 'running') {
     const { text } = decodeStage(job.result_summary)
     if (text) return text
@@ -95,26 +120,28 @@ function progressFromJob(job) {
     const { progress } = decodeStage(job.result_summary)
     if (progress != null) return progress
   }
-  if (job.status === 'success' || job.status === 'failed') return 100
+  if (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled') return 100
   if (job.status === 'queued') return 12
   return 40
 }
 
 function mergeActivity(prev, entry) {
   if (!prev) return entry
+  const nextStageKey = stageKeyOf(entry)
+  const stageChanged = nextStageKey && nextStageKey !== prev.stageKey
+  const terminal = entry.phase === 'done' || entry.phase === 'error' || entry.phase === 'cancelled'
   return {
     ...entry,
-    displayProgress:
-      entry.phase === 'done' || entry.phase === 'error'
-        ? 100
-        : Math.max(prev.displayProgress, entry.progress),
+    displayProgress: terminal ? 100 : Math.max(prev.displayProgress, entry.progress),
     celeryTaskId: entry.celeryTaskId || prev.celeryTaskId,
     eventCount: Math.max(entry.eventCount || 0, prev.eventCount || 0),
     latestEvent: entry.latestEvent || prev.latestEvent,
-    hideAt:
-      entry.phase === 'done' || entry.phase === 'error'
-        ? Date.now() + DONE_TTL_MS
-        : prev.hideAt,
+    createdAtMs: prev.createdAtMs || entry.createdAtMs,
+    startedAtMs: entry.startedAtMs || prev.startedAtMs || entry.createdAtMs,
+    stageKey: nextStageKey || prev.stageKey,
+    stageStartedAtMs: stageChanged ? Date.now() : prev.stageStartedAtMs || entry.stageStartedAtMs,
+    cancelling: terminal ? false : prev.cancelling,
+    hideAt: terminal ? Date.now() + DONE_TTL_MS : prev.hideAt,
   }
 }
 
@@ -145,12 +172,18 @@ export const useActivityStore = defineStore('activity', () => {
     const idx = items.value.findIndex((a) => a.celeryTaskId === payload.celery_task_id)
     if (idx < 0) return
     const prev = items.value[idx]
+    const nextDetail = payload.current_detail || prev.detail
+    const nextLatest = payload.latest_event || prev.latestEvent
+    const nextStageKey = (nextLatest?.label || nextDetail || '').toString()
+    const stageChanged = nextStageKey && nextStageKey !== prev.stageKey
     items.value[idx] = {
       ...prev,
-      detail: payload.current_detail || prev.detail,
+      detail: nextDetail,
       progress: payload.progress ?? prev.progress,
       eventCount: payload.event_count ?? prev.eventCount,
-      latestEvent: payload.latest_event || prev.latestEvent,
+      latestEvent: nextLatest,
+      stageKey: nextStageKey || prev.stageKey,
+      stageStartedAtMs: stageChanged ? Date.now() : prev.stageStartedAtMs,
     }
   }
 
@@ -180,6 +213,8 @@ export const useActivityStore = defineStore('activity', () => {
       title: job.label,
       detail: job.detail || detailFromJob(job),
       progress: progressFromJob(job),
+      created_at: job.created_at,
+      started_at: job.started_at,
     })
   }
 
@@ -212,7 +247,7 @@ export const useActivityStore = defineStore('activity', () => {
           })
           continue
         }
-        if (job.status === 'success' || job.status === 'failed') {
+        if (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled') {
           upsertFromJob({
             ...job,
             phase: phaseFromStatus(job.status),
@@ -241,6 +276,34 @@ export const useActivityStore = defineStore('activity', () => {
       }
     } catch {
       /* ignore */
+    }
+  }
+
+  async function cancelJob(item) {
+    if (!item?.celeryTaskId) return
+    const idx = items.value.findIndex(
+      (a) => a.celeryTaskId === item.celeryTaskId || a.id === item.id
+    )
+    const current = idx >= 0 ? items.value[idx] : item
+    if (current.phase && current.phase !== 'running' && current.phase !== 'queued') return
+    if (idx >= 0) {
+      items.value[idx] = { ...items.value[idx], cancelling: true, detail: 'Отмена…' }
+    }
+    try {
+      const { data } = await jobsApi.cancel(item.celeryTaskId)
+      upsertFromJob(data)
+    } catch (err) {
+      const detail =
+        err?.response?.data?.detail ||
+        err?.message ||
+        'Не удалось отменить задачу'
+      if (idx >= 0 && items.value[idx]) {
+        items.value[idx] = {
+          ...items.value[idx],
+          cancelling: false,
+          detail: typeof detail === 'string' ? detail : 'Не удалось отменить задачу',
+        }
+      }
     }
   }
 
@@ -298,6 +361,7 @@ export const useActivityStore = defineStore('activity', () => {
     handleWebSocketMessage,
     applyPipelineUpdate,
     syncActiveJobs,
+    cancelJob,
     startPolling,
     reset,
     stopPolling,

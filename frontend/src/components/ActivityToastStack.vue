@@ -23,7 +23,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
             </svg>
             <svg
-              v-else-if="item.phase === 'error'"
+              v-else-if="item.phase === 'error' || item.phase === 'cancelled'"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -43,7 +43,28 @@
               <span class="toast-step-arrow">→</span>
               {{ latestStepLine(item) }}
             </p>
-            <p v-if="canExpand(item)" class="toast-hint">Нажмите для детальной схемы пайплайна</p>
+            <div v-if="showTimers(item)" class="toast-timers">
+              <span class="toast-timer" title="Время всего пайплайна">
+                <span class="toast-timer-label">Всего</span>
+                {{ formatElapsed(pipelineElapsedMs(item)) }}
+              </span>
+              <span class="toast-timer" title="Время текущего этапа">
+                <span class="toast-timer-label">Этап</span>
+                {{ formatElapsed(stageElapsedMs(item)) }}
+              </span>
+            </div>
+            <div class="toast-footer-row">
+              <p v-if="canExpand(item)" class="toast-hint">Нажмите для детальной схемы пайплайна</p>
+              <button
+                v-if="canCancel(item)"
+                type="button"
+                class="toast-cancel"
+                :disabled="item.cancelling"
+                @click.stop="onCancel(item)"
+              >
+                {{ item.cancelling ? 'Отмена…' : 'Отменить' }}
+              </button>
+            </div>
           </div>
         </div>
         <div class="progress-track">
@@ -55,21 +76,46 @@
 </template>
 
 <script setup>
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useActivityStore } from '../stores/activityStore'
 import { usePipelineStore } from '../stores/pipelineStore'
 
 const store = useActivityStore()
 const pipelineStore = usePipelineStore()
+const nowMs = ref(Date.now())
+let clockTimer = null
+
+onMounted(() => {
+  clockTimer = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 1000)
+})
+
+onUnmounted(() => {
+  if (clockTimer) clearInterval(clockTimer)
+})
 
 function phaseClass(phase) {
   if (phase === 'done') return 'toast-done'
-  if (phase === 'error') return 'toast-error'
+  if (phase === 'error' || phase === 'cancelled') return 'toast-error'
   if (phase === 'queued') return 'toast-queued'
   return 'toast-running'
 }
 
 function canExpand(item) {
   return item.kind === 'job' && Boolean(item.celeryTaskId)
+}
+
+function canCancel(item) {
+  return (
+    item.kind === 'job' &&
+    Boolean(item.celeryTaskId) &&
+    (item.phase === 'running' || item.phase === 'queued')
+  )
+}
+
+function showTimers(item) {
+  return item.kind === 'job' && (item.phase === 'running' || item.phase === 'queued' || item.phase === 'cancelled')
 }
 
 function latestStepLine(item) {
@@ -80,6 +126,27 @@ function latestStepLine(item) {
   return ev.label || ''
 }
 
+function pipelineElapsedMs(item) {
+  const start = item.startedAtMs || item.createdAtMs || nowMs.value
+  return Math.max(0, nowMs.value - start)
+}
+
+function stageElapsedMs(item) {
+  const start = item.stageStartedAtMs || item.startedAtMs || item.createdAtMs || nowMs.value
+  return Math.max(0, nowMs.value - start)
+}
+
+function formatElapsed(ms) {
+  const totalSec = Math.floor(ms / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 function onToastClick(item) {
   if (!canExpand(item)) return
   pipelineStore.openFor({
@@ -88,6 +155,10 @@ function onToastClick(item) {
     progress: item.displayProgress ?? item.progress,
     detail: item.detail,
   })
+}
+
+async function onCancel(item) {
+  await store.cancelJob(item)
 }
 </script>
 
@@ -174,8 +245,30 @@ function onToastClick(item) {
   @apply mr-1 opacity-70;
 }
 
+.toast-timers {
+  @apply mt-2 flex flex-wrap gap-2;
+}
+
+.toast-timer {
+  @apply inline-flex items-center gap-1.5 rounded-md border border-panel-border/80 bg-panel-bg/60 px-2 py-0.5 font-mono text-[11px] tabular-nums text-[var(--text-primary)];
+}
+
+.toast-timer-label {
+  @apply text-[9px] uppercase tracking-wide text-[var(--text-secondary)];
+}
+
+.toast-footer-row {
+  @apply mt-1.5 flex items-center justify-between gap-2;
+}
+
 .toast-hint {
-  @apply mt-1.5 text-[10px] uppercase tracking-wide text-[var(--text-secondary)] opacity-70;
+  @apply text-[10px] uppercase tracking-wide text-[var(--text-secondary)];
+  opacity: 0.9;
+}
+
+.toast-cancel {
+  @apply shrink-0 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-300 transition-colors;
+  @apply hover:bg-red-500/20 hover:border-red-400/60 disabled:opacity-60 disabled:cursor-wait;
 }
 
 .progress-track {

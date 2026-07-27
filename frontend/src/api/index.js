@@ -122,6 +122,7 @@ export const jobsApi = {
   active: () => api.get('/jobs/active'),
   summary: () => api.get('/jobs/summary'),
   pipeline: (celeryTaskId) => api.get(`/jobs/pipeline/${celeryTaskId}`),
+  cancel: (celeryTaskId) => api.post(`/jobs/${celeryTaskId}/cancel`),
 }
 
 export const logsApi = {

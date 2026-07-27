@@ -21,6 +21,15 @@
               <span class="mission-status" :class="`mission-status--${store.status}`">
                 {{ statusLabel }}
               </span>
+              <button
+                v-if="canCancel"
+                type="button"
+                class="btn-danger btn-sm"
+                :disabled="cancelling"
+                @click="onCancel"
+              >
+                {{ cancelling ? 'Отмена…' : 'Отменить' }}
+              </button>
               <button type="button" class="btn-ghost btn-sm" aria-label="Закрыть" @click="store.close()">
                 ✕
               </button>
@@ -187,9 +196,12 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { nodeMeta, usePipelineStore } from '../../stores/pipelineStore'
+import { useActivityStore } from '../../stores/activityStore'
 
 const store = usePipelineStore()
+const activityStore = useActivityStore()
 const selectedId = ref(null)
+const cancelling = ref(false)
 
 const LAYOUT = {
   platform: { x: 50, y: 52 },
@@ -205,8 +217,28 @@ const LAYOUT = {
 const statusLabel = computed(() => {
   if (store.status === 'done') return 'Завершено'
   if (store.status === 'error') return 'Ошибка'
+  if (store.status === 'cancelled') return 'Отменено'
   return 'В процессе'
 })
+
+const canCancel = computed(
+  () => Boolean(store.celeryTaskId) && !store.isTerminal && store.status !== 'cancelled'
+)
+
+async function onCancel() {
+  if (!store.celeryTaskId || cancelling.value) return
+  cancelling.value = true
+  try {
+    await activityStore.cancelJob({
+      celeryTaskId: store.celeryTaskId,
+      phase: 'running',
+      id: `job-pipeline-${store.celeryTaskId}`,
+    })
+    store.close()
+  } finally {
+    cancelling.value = false
+  }
+}
 
 const pulseNode = computed(() => store.activeEdge?.to ?? 'platform')
 

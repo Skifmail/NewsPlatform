@@ -50,6 +50,8 @@ def detail_for_job(job: BackgroundJob) -> str:
         return job.result_summary or "Успешно завершено"
     if job.status == JobStatus.FAILED.value:
         return job.error_message or "Ошибка выполнения"
+    if job.status == JobStatus.CANCELLED.value:
+        return job.error_message or "Отменено пользователем"
     return job.label
 
 
@@ -67,6 +69,8 @@ def progress_for_job(job: BackgroundJob) -> int:
     if job.status == JobStatus.SUCCESS.value:
         return 100
     if job.status == JobStatus.FAILED.value:
+        return 100
+    if job.status == JobStatus.CANCELLED.value:
         return 100
     if job.status == JobStatus.RUNNING.value:
         stage_progress, _ = decode_stage(job.result_summary)
@@ -88,8 +92,10 @@ def phase_for_status(status: str) -> str:
         status: статус задачи.
 
     Returns:
-        str: queued | running | done | error.
+        str: queued | running | done | error | cancelled.
     """
+    if status == JobStatus.CANCELLED.value:
+        return "cancelled"
     if status == JobStatus.FAILED.value:
         return "error"
     if status == JobStatus.SUCCESS.value:
@@ -120,6 +126,10 @@ async def notify_job(job: BackgroundJob) -> None:
     }
     if job.raw_post_id is not None:
         payload["raw_post_id"] = job.raw_post_id
+    if job.created_at is not None:
+        payload["created_at"] = job.created_at.isoformat()
+    if job.started_at is not None:
+        payload["started_at"] = job.started_at.isoformat()
     await publish_event("activity", payload)
 
 

@@ -80,14 +80,22 @@ async def test_postcard_falls_back_to_qwen_after_openai_failure() -> None:
     svc = ImageService(prompts=_prompts())
     svc._generate_postcard_dalle_cover = AsyncMock(return_value=None)
     svc._generate_with_qwen_constraints = AsyncMock(return_value="https://gen/fallback.png")
+    svc._persist_remote_cover = AsyncMock(return_value="local://covers/fallback.png")
 
     url, source = await svc.resolve_article_image(
         channel=_postcard_channel(),
-        article_title="Доброе утро",
+        article_title="День крещения Руси",
         topic="postcard",
         image_prompt="sunrise breakfast window, warm light",
         greeting_text="Доброго утра!",
     )
 
-    assert (url, source) == ("https://gen/fallback.png", ImageSource.GENERATED.value)
-    svc._generate_with_qwen_constraints.assert_awaited_once()
+    assert (url, source) == ("local://covers/fallback.png", ImageSource.GENERATED.value)
+    svc._generate_with_qwen_constraints.assert_awaited_once_with(
+        "Сделай открытку поздравление с День крещения Руси"
+    )
+    # Writer scene must NOT replace the gpt-image cover prompt on fallback.
+    sent = svc._generate_with_qwen_constraints.await_args.args[0]
+    assert "sunrise" not in sent
+    assert "День крещения Руси" in sent
+    svc._persist_remote_cover.assert_awaited_once()

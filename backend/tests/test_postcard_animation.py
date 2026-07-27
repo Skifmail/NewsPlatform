@@ -69,8 +69,8 @@ async def test_maybe_animate_success_saves_gif() -> None:
     )
     with (
         patch(
-            "app.infrastructure.ai.image_service.read_media",
-            return_value=b"png-bytes",
+            "app.infrastructure.ai.image_service.ImageService.download_media_bytes",
+            new_callable=AsyncMock, return_value=b"png-bytes",
         ),
         patch(
             "app.infrastructure.ai.image_service.save_media",
@@ -116,7 +116,7 @@ async def test_maybe_animate_falls_back_to_mp4_when_gifski_missing() -> None:
         postcard_animation_as_gif=True,
     )
     with (
-        patch("app.infrastructure.ai.image_service.read_media", return_value=b"png"),
+        patch("app.infrastructure.ai.image_service.ImageService.download_media_bytes", new_callable=AsyncMock, return_value=b"png"),
         patch(
             "app.infrastructure.ai.image_service.save_media",
             return_value="local://animations/abc.mp4",
@@ -154,8 +154,8 @@ async def test_maybe_animate_success_saves_video() -> None:
     )
     with (
         patch(
-            "app.infrastructure.ai.image_service.read_media",
-            return_value=b"png-bytes",
+            "app.infrastructure.ai.image_service.ImageService.download_media_bytes",
+            new_callable=AsyncMock, return_value=b"png-bytes",
         ),
         patch(
             "app.infrastructure.ai.image_service.save_media",
@@ -191,7 +191,7 @@ async def test_maybe_animate_passes_configured_duration() -> None:
         postcard_animation_duration=3,
     )
     with (
-        patch("app.infrastructure.ai.image_service.read_media", return_value=b"png"),
+        patch("app.infrastructure.ai.image_service.ImageService.download_media_bytes", new_callable=AsyncMock, return_value=b"png"),
         patch("app.infrastructure.ai.image_service.save_media", return_value="local://animations/x.mp4"),
         patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
         patch("app.infrastructure.ai.image_service.gifski_available", return_value=False),
@@ -226,7 +226,7 @@ async def test_maybe_animate_works_for_article_channel() -> None:
         postcard_animation_enabled=True,
     )
     with (
-        patch("app.infrastructure.ai.image_service.read_media", return_value=b"png"),
+        patch("app.infrastructure.ai.image_service.ImageService.download_media_bytes", new_callable=AsyncMock, return_value=b"png"),
         patch("app.infrastructure.ai.image_service.save_media", return_value="local://animations/x.mp4"),
         patch("app.infrastructure.ai.image_service.OpenRouterVideoClient") as client_cls,
         patch("app.infrastructure.ai.image_service.gifski_available", return_value=False),
