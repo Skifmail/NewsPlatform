@@ -214,7 +214,7 @@ class ArticleWriter:
         )
         devtools = is_devtools_article_channel(channel.topic, channel.name)
         paragraph = is_paragraph_article_channel(channel.name)
-        postcard = is_postcard_article_channel(channel.name)
+        postcard = is_postcard_article_channel(channel.name, channel.topic)
         if postcard:
             # Полностью заменяем шаблон статьи — иначе модель видит конфликт
             # «2500+ символов, 5 разделов» vs «1-2 предложения» и пишет статью.
@@ -315,7 +315,7 @@ class ArticleWriter:
             greeting_text = title
         if truncated:
             body = _trim_to_last_sentence(body)
-        if channel and is_postcard_article_channel(channel.name):
+        if channel and is_postcard_article_channel(channel.name, channel.topic):
             if len(body) > _POSTCARD_BODY_HARD_CAP:
                 body = _trim_to_last_sentence(body[:_POSTCARD_BODY_HARD_CAP])
         elif len(body) > body_max_length:

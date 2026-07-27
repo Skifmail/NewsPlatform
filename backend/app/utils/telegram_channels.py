@@ -27,7 +27,7 @@ def is_long_form_article_channel(channel: Channel) -> bool:
     return (
         is_devtools_article_channel(channel.topic, channel.name)
         or is_paragraph_article_channel(channel.name)
-        or is_postcard_article_channel(channel.name)
+        or is_postcard_article_channel(channel.name, channel.topic)
     )
 
 

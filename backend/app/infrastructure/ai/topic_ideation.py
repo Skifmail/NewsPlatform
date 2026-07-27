@@ -27,6 +27,8 @@ class IdeationPrompts:
 
     default_template: str
     postcard_template: str
+    manual_topic_template: str
+    manual_postcard_template: str
     system_default: str
     system_postcard: str
     system_paragraph: str
@@ -120,6 +122,76 @@ class TopicIdeationService:
         msg = "Не удалось распознать тему статьи от модели"
         raise RuntimeError(msg)
 
+
+    async def plan_manual_topic(
+        self,
+        channel: Channel,
+        user_topic: str,
+    ) -> ArticleTopicPlan:
+        """Строит план по теме/поводу, заданным вручную.
+
+        Args:
+            channel: канал публикации.
+            user_topic: тема статьи или повод открытки от редактора.
+
+        Returns:
+            ArticleTopicPlan: тема = user_topic, angle и search_queries от модели.
+
+        Raises:
+            RuntimeError: если модель вернула невалидный JSON.
+            ValueError: если user_topic пустой.
+        """
+        cleaned = (user_topic or "").strip()
+        if not cleaned:
+            msg = "Ручная тема не задана"
+            raise ValueError(msg)
+
+        niche = (channel.style_prompt or "познавательные статьи").strip()
+        postcard = is_postcard_article_channel(channel.name, channel.topic or "")
+        if postcard:
+            today = date.today()
+            prompt = safe_format(
+                self._prompts.manual_postcard_template,
+                channel_name=channel.name,
+                channel_niche=niche,
+                current_date=today.strftime("%d.%m.%Y"),
+                user_topic=cleaned,
+            )
+        else:
+            prompt = safe_format(
+                self._prompts.manual_topic_template,
+                channel_name=channel.name,
+                channel_niche=niche,
+                user_topic=cleaned,
+            )
+
+        settings = get_settings()
+        result = await self._client.chat_completion(
+            system_prompt=self._system_prompt(channel),
+            user_prompt=prompt,
+            max_tokens=4000,
+            temperature=0.7,
+            model=settings.deepseek_model,
+            json_mode=True,
+        )
+        parsed = self._parse_response(result)
+        if parsed is None:
+            logger.warning(
+                "Manual topic ideation parse failed",
+                preview=result[:400],
+                user_topic=cleaned,
+            )
+            msg = "Не удалось распознать угол статьи от модели"
+            raise RuntimeError(msg)
+
+        # Тема всегда остаётся формулировкой редактора.
+        search_queries = [] if postcard else parsed.search_queries
+        return ArticleTopicPlan(
+            topic=cleaned,
+            angle=parsed.angle,
+            search_queries=search_queries,
+        )
+
     async def _request_topic(
         self,
         channel: Channel,
@@ -148,7 +220,7 @@ class TopicIdeationService:
             channel_niche=niche,
             recent_topics=recent,
         )
-        if is_postcard_article_channel(channel.name):
+        if is_postcard_article_channel(channel.name, channel.topic or ""):
             today = date.today()
             prompt = safe_format(
                 self._prompts.postcard_template,
@@ -206,7 +278,7 @@ class TopicIdeationService:
         Returns:
             str: системная инструкция из панели промптов.
         """
-        if is_postcard_article_channel(channel.name):
+        if is_postcard_article_channel(channel.name, channel.topic or ""):
             return self._prompts.system_postcard
         if is_paragraph_article_channel(channel.name):
             return self._prompts.system_paragraph

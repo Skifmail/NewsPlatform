@@ -74,7 +74,7 @@ export const channelsApi = {
   create: (data) => api.post('/channels', data),
   update: (id, data) => api.patch(`/channels/${id}`, data),
   remove: (id) => api.delete(`/channels/${id}`),
-  generateArticle: (id) => api.post(`/channels/${id}/generate-article`),
+  generateArticle: (id, data = {}) => api.post(`/channels/${id}/generate-article`, data),
 }
 
 export const settingsApi = {

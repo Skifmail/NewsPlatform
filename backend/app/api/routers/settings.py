@@ -8,7 +8,10 @@ from fastapi import APIRouter, HTTPException
 
 from app.api.deps import AuthDep, DbSession
 from app.api.schemas.settings import SettingsResponse, SettingsUpdate
-from app.domain.platform_settings import is_internal_setting_key
+from app.domain.platform_settings import (
+    is_internal_setting_key,
+    is_valid_openai_model_name,
+)
 from app.infrastructure.ai.qwen_image_chain import exhausted_models_json
 from app.infrastructure.ai.openai_key_chain import (
     mask_openai_keys_json,
@@ -93,6 +96,16 @@ async def update_settings(
     # Служебные/вычисляемые поля только для GET — не сохраняем.
     filtered.pop("tavily_keys_resolved", None)
     filtered.pop("qwen_image_exhausted_models", None)
+
+    orchestrator_model = filtered.get("openai_postcard_orchestrator_model")
+    if orchestrator_model is not None:
+        orchestrator_model = orchestrator_model.strip()
+        if not is_valid_openai_model_name(orchestrator_model):
+            raise HTTPException(
+                status_code=400,
+                detail="Некорректное имя OpenAI-модели оркестратора",
+            )
+        filtered["openai_postcard_orchestrator_model"] = orchestrator_model
 
     repo = SettingRepository(session)
 

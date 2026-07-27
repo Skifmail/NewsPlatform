@@ -14,6 +14,8 @@ def _ideation_prompts() -> IdeationPrompts:
     return IdeationPrompts(
         default_template=PROMPT_DEFAULTS["ideation.default"].template_text,
         postcard_template=PROMPT_DEFAULTS["ideation.postcard"].template_text,
+        manual_topic_template=PROMPT_DEFAULTS["ideation.manual_topic"].template_text,
+        manual_postcard_template=PROMPT_DEFAULTS["ideation.manual_postcard"].template_text,
         system_default=PROMPT_DEFAULTS["ideation.system_default"].template_text,
         system_postcard=PROMPT_DEFAULTS["ideation.system_postcard"].template_text,
         system_paragraph=PROMPT_DEFAULTS["ideation.system_paragraph"].template_text,
@@ -67,7 +69,8 @@ async def test_prompt_forces_holiday_topic_when_today_is_a_holiday(
     plan = await svc.plan_topic(_postcard_channel(), recent_topics=[])
 
     assert client.last_user_prompt is not None
-    assert "Официальный праздник сегодня: Международный женский день" in client.last_user_prompt
+    assert "Праздник сегодня: Международный женский день" in client.last_user_prompt
+    assert "используй именно его" in client.last_user_prompt
     assert plan.topic == "Международный женский день"
 
 
@@ -87,5 +90,5 @@ async def test_prompt_leaves_holiday_slot_empty_on_ordinary_day(
     await svc.plan_topic(_postcard_channel(), recent_topics=[])
 
     assert client.last_user_prompt is not None
-    assert "Официальный праздник сегодня: \n" in client.last_user_prompt
+    assert "Праздник сегодня: \n" in client.last_user_prompt
     assert "подходящий текущему сезону" not in client.last_user_prompt

@@ -140,6 +140,8 @@ def _devtools_service():
     prompts = IdeationPrompts(
         default_template=text("ideation.default"),
         postcard_template=text("ideation.postcard"),
+        manual_topic_template=text("ideation.manual_topic"),
+        manual_postcard_template=text("ideation.manual_postcard"),
         system_default=text("ideation.system_default"),
         system_postcard=text("ideation.system_postcard"),
         system_paragraph=text("ideation.system_paragraph"),

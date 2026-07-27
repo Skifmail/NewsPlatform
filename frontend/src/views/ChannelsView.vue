@@ -280,15 +280,28 @@
             </div>
 
             <div class="channel-actions">
-              <button
-                v-if="editForms[ch.id].content_mode === 'article'"
-                type="button"
-                class="btn-secondary btn-sm"
-                :disabled="generatingChannel === ch.id"
-                @click="generateArticle(ch.id)"
-              >
-                {{ generatingChannel === ch.id ? 'Запуск…' : 'Сгенерировать статью' }}
-              </button>
+              <template v-if="editForms[ch.id].content_mode === 'article'">
+                <label class="manual-topic-field">
+                  <span class="sr-only">Тема</span>
+                  <input
+                    v-model="manualTopics[ch.id]"
+                    type="text"
+                    class="input-field"
+                    maxlength="200"
+                    :placeholder="manualTopicPlaceholder(editForms[ch.id])"
+                    :disabled="generatingChannel === ch.id"
+                    @keydown.enter.prevent="generateArticle(ch.id)"
+                  />
+                </label>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :disabled="generatingChannel === ch.id"
+                  @click="generateArticle(ch.id)"
+                >
+                  {{ generatingChannel === ch.id ? 'Запуск…' : 'Сгенерировать статью' }}
+                </button>
+              </template>
               <button type="button" class="btn-primary btn-sm" @click="saveChannel(ch.id)">
                 Сохранить изменения
               </button>
@@ -321,6 +334,7 @@ const sortedChannels = computed(() =>
 const editForms = reactive({})
 const originalForms = reactive({})
 const generatingChannel = ref(null)
+const manualTopics = reactive({})
 const expandedId = ref(null)
 const showNewForm = ref(false)
 const DEFAULT_PUBLISH_TIMES = '09:00, 13:00, 17:00, 21:00'
@@ -500,10 +514,27 @@ async function saveChannel(id) {
   return true
 }
 
+function isPostcardChannelForm(form) {
+  if (!form) return false
+  if (form.topic === 'postcard') return true
+  return String(form.name || '').toLowerCase().includes('открытк')
+}
+
+function manualTopicPlaceholder(form) {
+  return isPostcardChannelForm(form)
+    ? 'Повод или праздник (необязательно)'
+    : 'Тема статьи (необязательно)'
+}
+
 async function generateArticle(id) {
   generatingChannel.value = id
   try {
-    const { data } = await channelsApi.generateArticle(id)
+    const topic = String(manualTopics[id] || '').trim()
+    const { data } = await channelsApi.generateArticle(
+      id,
+      topic ? { topic } : {},
+    )
+    manualTopics[id] = ''
     await activityStore.syncActiveJobs()
     activityStore.startPolling()
     await dialog.alert({
@@ -638,7 +669,27 @@ onMounted(load)
 }
 
 .channel-actions {
-  @apply flex flex-wrap gap-2 mt-4 pt-4 border-t border-panel-border;
+  @apply flex flex-wrap gap-2 mt-4 pt-4 border-t border-panel-border items-center;
+}
+
+.manual-topic-field {
+  @apply flex-1 min-w-[12rem] max-w-md;
+}
+
+.manual-topic-field .input-field {
+  @apply w-full text-sm;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 
 .active-toggle {

@@ -11,6 +11,8 @@ def _ideation_prompts() -> IdeationPrompts:
     return IdeationPrompts(
         default_template=PROMPT_DEFAULTS["ideation.default"].template_text,
         postcard_template=PROMPT_DEFAULTS["ideation.postcard"].template_text,
+        manual_topic_template=PROMPT_DEFAULTS["ideation.manual_topic"].template_text,
+        manual_postcard_template=PROMPT_DEFAULTS["ideation.manual_postcard"].template_text,
         system_default=PROMPT_DEFAULTS["ideation.system_default"].template_text,
         system_postcard=PROMPT_DEFAULTS["ideation.system_postcard"].template_text,
         system_paragraph=PROMPT_DEFAULTS["ideation.system_paragraph"].template_text,

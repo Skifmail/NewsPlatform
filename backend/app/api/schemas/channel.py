@@ -87,3 +87,13 @@ class ChannelResponse(OrmSchema):
     is_active: bool
     publish_times: str
     created_at: datetime
+
+
+class GenerateArticleRequest(BaseModel):
+    """Запрос ручного запуска генерации статьи."""
+
+    topic: str | None = Field(
+        None,
+        max_length=200,
+        description="Тема статьи или повод открытки; пусто — ИИ выбирает сам",
+    )

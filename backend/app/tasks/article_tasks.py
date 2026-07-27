@@ -14,11 +14,14 @@ from app.tasks.celery_app import celery_app
     retry_backoff=True,
     retry_backoff_max=600,
 )
-def generate_article_task(self, channel_id: int) -> int:
+def generate_article_task(
+    self, channel_id: int, topic: str | None = None
+) -> int:
     """Генерирует статью для article-канала.
 
     Args:
         channel_id: ID канала.
+        topic: ручная тема/повод; None — ИИ выбирает сам.
 
     Returns:
         int: ID созданного processed_post.
@@ -31,6 +34,7 @@ def generate_article_task(self, channel_id: int) -> int:
             return await ArticleGenerationService(session).generate_for_channel(
                 channel_id,
                 celery_task_id=task_id,
+                topic=topic,
             )
 
     async def _run() -> int:

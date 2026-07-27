@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AuthDep, DbSession
-from app.api.schemas.channel import ChannelCreate, ChannelResponse, ChannelUpdate
+from app.api.schemas.channel import ChannelCreate, ChannelResponse, ChannelUpdate, GenerateArticleRequest
 from app.api.schemas.common import MessageResponse
 from app.domain.enums import ContentMode
 from app.infrastructure.models.channel import Channel
@@ -64,7 +64,10 @@ async def delete_channel(
 
 @router.post("/{channel_id}/generate-article", response_model=MessageResponse)
 async def generate_article(
-    channel_id: int, session: DbSession, _: AuthDep
+    channel_id: int,
+    session: DbSession,
+    _: AuthDep,
+    body: GenerateArticleRequest = GenerateArticleRequest(),
 ) -> MessageResponse:
     """Ставит в очередь генерацию статьи для article-канала."""
     repo = ChannelRepository(session)
@@ -76,7 +79,9 @@ async def generate_article(
             status_code=400,
             detail="Канал не в режиме «Статьи»",
         )
-    result = generate_article_task.delay(channel_id)
+    cleaned = (body.topic or "").strip()
+    manual_topic = cleaned or None
+    result = generate_article_task.delay(channel_id, topic=manual_topic)
     from app.services.job_tracker import JobTracker
 
     await JobTracker(session).enqueue_article(

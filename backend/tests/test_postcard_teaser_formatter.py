@@ -8,6 +8,7 @@ from app.infrastructure.ai.postcard_teaser_formatter import (
 
 def test_is_postcard_article_channel() -> None:
     assert is_postcard_article_channel("Открытки от души | На любой случай")
+    assert is_postcard_article_channel("Утренний канал", "postcard")
     assert not is_postcard_article_channel("ПАРАГРАФ")
 
 
@@ -16,3 +17,4 @@ def test_postcard_writing_default_mentions_teaser_limit() -> None:
     assert "{teaser_max_length}" in template
     assert "teaser" in template
     assert "body_html" in template
+    assert "greeting_text" in template

@@ -62,6 +62,10 @@ class ArticleGenerationService:
         return IdeationPrompts(
             default_template=await self._prompts.get("ideation.default"),
             postcard_template=await self._prompts.get("ideation.postcard"),
+            manual_topic_template=await self._prompts.get("ideation.manual_topic"),
+            manual_postcard_template=await self._prompts.get(
+                "ideation.manual_postcard"
+            ),
             system_default=await self._prompts.get("ideation.system_default"),
             system_postcard=await self._prompts.get("ideation.system_postcard"),
             system_paragraph=await self._prompts.get("ideation.system_paragraph"),
@@ -107,13 +111,18 @@ class ArticleGenerationService:
         )
 
     async def generate_for_channel(
-        self, channel_id: int, *, celery_task_id: str | None = None
+        self,
+        channel_id: int,
+        *,
+        celery_task_id: str | None = None,
+        topic: str | None = None,
     ) -> int:
         """Создаёт статью для канала.
 
         Args:
             channel_id: ID канала с content_mode=article.
             celery_task_id: ID Celery-задачи для поэтапных уведомлений UI.
+            topic: ручная тема/повод; None — ИИ выбирает сам.
 
         Returns:
             int: ID созданного processed_post.
@@ -189,14 +198,18 @@ class ArticleGenerationService:
         plan = None
         sources = []
         research_context = ""
+        manual_topic = (topic or "").strip() or None
 
         for draft_attempt in range(1, _MAX_DRAFT_DEDUP_ATTEMPTS + 1):
             await report_job_stage(
                 celery_task_id, "Выбор темы и угла статьи…", 25
             )
-            plan = await ideation.plan_topic(
-                channel, recent, candidate_repos=candidate_repos
-            )
+            if manual_topic:
+                plan = await ideation.plan_manual_topic(channel, manual_topic)
+            else:
+                plan = await ideation.plan_topic(
+                    channel, recent, candidate_repos=candidate_repos
+                )
 
             if is_postcard_article_channel(channel.name, channel.topic):
                 research_context = ""
@@ -225,10 +238,12 @@ class ArticleGenerationService:
                 recent_hooks=recent_hooks,
             )
 
-            # Для devtools/trending-каналов дедуп по репозиторию уже выполнен
-            # (кандидаты отфильтрованы от опубликованных) — словесную похожесть
-            # заголовка не применяем, иначе разные репо ложно отвергаются.
-            if candidate_repos or not is_topic_too_similar(draft.title, recent):
+            # Ручная тема и devtools/trending: дедуп заголовка не ретраим.
+            if (
+                manual_topic
+                or candidate_repos
+                or not is_topic_too_similar(draft.title, recent)
+            ):
                 break
 
             logger.warning(

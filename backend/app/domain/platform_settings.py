@@ -1,5 +1,6 @@
 """Ключи и значения по умолчанию настроек платформы в БД."""
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -9,6 +10,13 @@ from app.domain.article import (
 )
 from app.domain.curated_pick import CURATED_PICK_HISTORY_KEY
 from app.domain.enums import Topic
+
+_OPENAI_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9._:-]{2,100}$")
+
+
+def is_valid_openai_model_name(value: str) -> bool:
+    """Return whether a Responses API model identifier is safe to persist."""
+    return bool(_OPENAI_MODEL_NAME_RE.fullmatch(value.strip()))
 
 
 def curated_scheduler_key(topic: str) -> str:
@@ -87,8 +95,9 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "tavily_api_keys": "[]",
     "tavily_active_key_id": "",
     "tavily_auto_switch": "true",
-    # OpenAI: ключи для gpt-image-2 (открыточный канал)
+    # OpenAI: ключи и mainline-модель для открыток.
     "openai_api_keys": "[]",
+    "openai_postcard_orchestrator_model": "gpt-5.6",
     CURATED_PICK_HISTORY_KEY: "[]",
 }
 

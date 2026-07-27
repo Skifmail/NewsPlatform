@@ -141,3 +141,22 @@ def test_build_postcard_cover_prompt_does_not_sanitize_text_triggers() -> None:
     )
     assert "text overlay" in prompt
     assert "С Днём Рождения!" in prompt
+
+
+def test_default_postcard_cover_prompt_is_compact_and_delegates_composition() -> None:
+    """Default prompt provides intent while leaving visual choices to the model."""
+    from app.domain.prompt_defaults import PROMPT_DEFAULTS
+
+    prompt = ImagePromptBuilder.build_postcard_cover_prompt(
+        template=PROMPT_DEFAULTS["image.cover_prompt_postcard"].template_text,
+        title="Доброе утро",
+        scene="нежное и вдохновляющее настроение",
+        greeting_text="С добрым утром!",
+    )
+
+    assert len(prompt) < 700
+    assert "С добрым утром!" in prompt
+    assert "Сам выбери" in prompt
+    assert "ровно одна надпись" in prompt
+    assert "award-winning" not in prompt
+    assert "volumetric light" not in prompt

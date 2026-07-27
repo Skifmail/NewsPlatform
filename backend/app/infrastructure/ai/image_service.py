@@ -11,6 +11,7 @@ from PIL import Image
 
 from app.core.config import get_settings
 from app.domain.enums import ImageSource
+from app.domain.platform_settings import is_valid_openai_model_name
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
 from app.infrastructure.ai.openai_key_chain import active_openai_key
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
@@ -33,6 +34,8 @@ from app.infrastructure.parsers.image_extract import (
 
 _USER_AGENT = "Mozilla/5.0 (compatible; NewsPlatform/1.0)"
 _PAGE_FETCH_TIMEOUT = 20.0
+_DEFAULT_POSTCARD_ORCHESTRATOR_MODEL = "gpt-5.6"
+_OPENAI_POSTCARD_TIMEOUT_SECONDS = 180.0
 
 # Не-растровые/непригодные для Telegram и Pillow форматы. SVG особенно важен:
 # CNews отдаёт на каждую статью placeholder-SVG, Pillow его не открывает →
@@ -76,12 +79,22 @@ class ImageService:
         generate_models: list[str] | None = None,
         edit_models: list[str] | None = None,
         openai_db_key: str | None = None,
+        postcard_orchestrator_model: str = _DEFAULT_POSTCARD_ORCHESTRATOR_MODEL,
         prompts: ImageGenPrompts | None = None,
     ) -> None:
         self._qwen = QwenImageClient()
         self._generate_models = generate_models
         self._edit_models = edit_models
         self._openai_db_key = openai_db_key
+        model = postcard_orchestrator_model.strip()
+        if not is_valid_openai_model_name(model):
+            logger.warning(
+                "Invalid postcard orchestrator model; using default",
+                configured_model=model,
+                default_model=_DEFAULT_POSTCARD_ORCHESTRATOR_MODEL,
+            )
+            model = _DEFAULT_POSTCARD_ORCHESTRATOR_MODEL
+        self._postcard_orchestrator_model = model
         self._prompts = prompts
 
     @classmethod
@@ -95,10 +108,18 @@ class ImageService:
         generate_raw = merged.get("qwen_image_models") if merged else None
         edit_raw = merged.get("qwen_image_edit_models") if merged else None
         openai_key = active_openai_key(merged.get("openai_api_keys")) if merged else None
+        orchestrator_model = (
+            merged.get("openai_postcard_orchestrator_model")
+            if merged
+            else None
+        )
         return cls(
             generate_models=resolve_generate_models(generate_raw),
             edit_models=resolve_edit_models(edit_raw),
             openai_db_key=openai_key,
+            postcard_orchestrator_model=(
+                orchestrator_model or _DEFAULT_POSTCARD_ORCHESTRATOR_MODEL
+            ),
             prompts=prompts,
         )
 
@@ -278,7 +299,9 @@ class ImageService:
                 greeting_text=greeting_text,
             )
             logger.debug("Postcard cover prompt", preview=cover_prompt[:200])
-            generated = await self._generate_with_dalle_primary(cover_prompt)
+            generated = await self._generate_postcard_with_responses(cover_prompt)
+            if not generated:
+                generated = await self._generate_postcard_dalle_cover(cover_prompt)
             if not generated:
                 # Qwen не умеет рендерить текст — безопасный фолбэк без надписи.
                 qwen_prompt = ImagePromptBuilder.build_for_qwen(
@@ -367,24 +390,80 @@ class ImageService:
                 logger.warning("Qwen Image generation failed", error=str(exc))
         return await self._generate_dalle(prompt)
 
-    async def _generate_with_dalle_primary(self, prompt: str | None) -> str | None:
-        """Генерирует изображение: OpenAI gpt-image-2 → fallback Qwen.
+    async def _generate_postcard_with_responses(
+        self,
+        prompt: str | None,
+    ) -> str | None:
+        """Generate a postcard through a ChatGPT-like image tool workflow.
 
-        Используется для образовательных каналов (ПАРАГРАФ), где OpenAI
-        значительно лучше справляется с детальными научными иллюстрациями.
+        A mainline OpenAI model interprets the compact request and delegates
+        rendering to the hosted ``image_generation`` tool. This mirrors ChatGPT
+        more closely than a direct Images API call.
 
         Args:
-            prompt: финальный промпт.
+            prompt: Compact postcard request with occasion and exact greeting.
 
         Returns:
-            str | None: URL изображения.
+            Local media URL, or ``None`` when the orchestrated request fails.
         """
         if not prompt:
             return None
-        result = await self._generate_dalle(prompt)
-        if result:
-            return result
-        return await self._generate_with_qwen_constraints(prompt)
+        api_key = self._openai_db_key or get_settings().openai_api_key.strip()
+        if not api_key:
+            return None
+
+        try:
+            async with AsyncOpenAI(
+                api_key=api_key,
+                timeout=_OPENAI_POSTCARD_TIMEOUT_SECONDS,
+                max_retries=1,
+            ) as client:
+                response = await client.responses.create(
+                    model=self._postcard_orchestrator_model,
+                    input=prompt[:2000],
+                    tools=[
+                        {
+                            "type": "image_generation",
+                            "quality": "high",
+                            "size": "auto",
+                            "output_format": "png",
+                        }
+                    ],
+                    max_tool_calls=1,
+                    store=False,
+                )
+            for output in response.output:
+                if getattr(output, "type", None) != "image_generation_call":
+                    continue
+                encoded = getattr(output, "result", None)
+                if not encoded:
+                    continue
+                image_bytes = base64.b64decode(encoded, validate=True)
+                return save_media(image_bytes, "covers", ".png")
+            logger.warning(
+                "OpenAI Responses postcard: no image output",
+                model=self._postcard_orchestrator_model,
+            )
+        except Exception as exc:
+            logger.warning(
+                "OpenAI Responses postcard generation failed",
+                model=self._postcard_orchestrator_model,
+                error=str(exc),
+            )
+        return None
+
+    async def _generate_postcard_dalle_cover(
+        self,
+        prompt: str | None,
+    ) -> str | None:
+        """Fallback to direct gpt-image-2 without anti-text instructions."""
+        if not prompt:
+            return None
+        return await self._call_openai_image(
+            prompt[:2000],
+            size="1024x1536",
+            quality="high",
+        )
 
     async def _generate_with_qwen_constraints(self, prompt: str | None) -> str | None:
         """Генерирует изображение через Qwen без текста на картинке.
@@ -469,19 +548,23 @@ class ImageService:
         if not api_key:
             return None
         try:
-            client = AsyncOpenAI(api_key=api_key)
-            response = await client.images.generate(
-                model="gpt-image-2",
-                prompt=prompt,
-                size=size,
-                quality=quality,
-                n=1,
-            )
+            async with AsyncOpenAI(
+                api_key=api_key,
+                timeout=_OPENAI_POSTCARD_TIMEOUT_SECONDS,
+                max_retries=1,
+            ) as client:
+                response = await client.images.generate(
+                    model="gpt-image-2",
+                    prompt=prompt,
+                    size=size,
+                    quality=quality,
+                    n=1,
+                )
             b64 = response.data[0].b64_json
             if not b64:
                 logger.warning("OpenAI image: empty b64_json")
                 return None
-            image_bytes = base64.b64decode(b64)
+            image_bytes = base64.b64decode(b64, validate=True)
             return save_media(image_bytes, "covers", ".png")
         except Exception as exc:
             logger.error("OpenAI image generation failed", error=str(exc))
