@@ -31,504 +31,645 @@
 
       <div v-if="aiUsageLoading && !aiUsage" class="ai-usage-loading">Загрузка данных провайдеров…</div>
 
-      <div v-else-if="aiUsage" class="ai-usage-grid">
-        <article class="ai-usage-card">
-          <h3 class="ai-usage-card-title">DeepSeek</h3>
-          <p class="ai-usage-card-sub">Классификация, рерайт, статьи</p>
-          <template v-if="!aiUsage.deepseek.configured">
-            <p class="ai-usage-muted">DEEPSEEK_API_KEY не задан</p>
-          </template>
-          <template v-else-if="aiUsage.deepseek.error">
-            <p class="ai-usage-error-inline">{{ aiUsage.deepseek.error }}</p>
-          </template>
-          <template v-else>
-            <p class="ai-usage-balance">
-              {{ aiUsage.deepseek.total_balance }}
-              <span class="ai-usage-currency">{{ aiUsage.deepseek.currency }}</span>
-            </p>
-            <p class="ai-usage-muted">
-              Подарочный: {{ aiUsage.deepseek.granted_balance || '0' }}
-              · Пополнение: {{ aiUsage.deepseek.topped_up_balance || '0' }}
-            </p>
-            <p class="ai-usage-muted">
-              <span
-                class="badge-accent"
-                :class="{ 'badge-danger': aiUsage.deepseek.is_available === false }"
-              >
-                {{ aiUsage.deepseek.is_available === false ? 'Недостаточно средств' : 'Доступен' }}
-              </span>
-            </p>
-            <p v-if="aiUsage.deepseek.models?.length" class="ai-usage-models">
-              {{ aiUsage.deepseek.models.join(', ') }}
-            </p>
-
-            <div v-if="aiUsage.deepseek.history" class="ai-spend">
-              <p class="ai-spend-title">Расходы</p>
-              <div class="ai-spend-row">
-                <span class="ai-spend-item">
-                  <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_24h) }}</span>
-                  <span class="ai-spend-label">24 ч</span>
-                </span>
-                <span class="ai-spend-item">
-                  <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_7d) }}</span>
-                  <span class="ai-spend-label">7 дней</span>
-                </span>
-                <span class="ai-spend-item">
-                  <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_30d) }}</span>
-                  <span class="ai-spend-label">30 дней</span>
-                </span>
+      <div v-else-if="aiUsage" class="provider-list">
+        <!-- DeepSeek -->
+        <article class="provider-row" :class="{ 'is-open': expandedProvider === 'deepseek' }">
+          <button type="button" class="provider-header" @click="toggleProvider('deepseek')">
+            <div class="provider-header-main">
+              <span class="chevron" :class="{ open: expandedProvider === 'deepseek' }">▸</span>
+              <div class="provider-title-block">
+                <span class="provider-title">DeepSeek</span>
+                <span class="provider-sub">Классификация, рерайт, статьи</span>
               </div>
-              <p
-                v-if="aiUsage.deepseek.history.topped_up_30d > 0"
-                class="ai-usage-muted"
-              >
-                Пополнено за 30 дней: +{{ fmtSpend(aiUsage.deepseek.history.topped_up_30d) }} {{ aiUsage.deepseek.currency }}
-              </p>
-              <Sparkline
-                v-if="deepseekSpark.length > 1"
-                :points="deepseekSpark"
-                class="ai-spend-spark"
-              />
-              <p v-else class="ai-usage-muted ai-spend-hint">
-                История копится с каждым замером баланса (примерно раз в час) — точки появятся позже.
-              </p>
             </div>
-          </template>
-        </article>
-
-        <article class="ai-usage-card ai-usage-card-tavily">
-          <h3 class="ai-usage-card-title">Tavily</h3>
-          <p class="ai-usage-card-sub">Веб-поиск для статей · несколько ключей</p>
-
-          <template v-if="!aiUsage.tavily.configured && !tavilyKeys.length">
-            <p class="ai-usage-muted">Ключ не задан — добавьте ниже или TAVILY_API_KEY в .env</p>
-          </template>
-          <template v-else-if="aiUsage.tavily.error && !aiUsage.tavily.keys?.length">
-            <p class="ai-usage-error-inline">{{ aiUsage.tavily.error }}</p>
-          </template>
-          <template v-else>
-            <p class="ai-usage-kpi-label">Осталось у текущего ключа</p>
-            <p class="ai-usage-balance">
-              {{ aiUsage.tavily.remaining ?? '—' }}
-              <span class="ai-usage-currency">кредитов</span>
-            </p>
-            <p class="ai-usage-muted">
-              Лимит плана «{{ aiUsage.tavily.current_plan || '—' }}»:
-              {{ aiUsage.tavily.plan_limit ?? '—' }} / мес.
-            </p>
-            <div v-if="tavilyUsagePercent != null" class="ai-usage-progress-wrap">
-              <div class="ai-usage-progress">
-                <div class="ai-usage-progress-bar" :style="{ width: `${tavilyUsagePercent}%` }" />
+            <div class="provider-metrics">
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.deepseek.balance }}</span>
+                <span class="provider-metric-label">баланс</span>
               </div>
-              <p class="ai-usage-muted">
-                Потрачено {{ aiUsage.tavily.plan_usage }} из {{ aiUsage.tavily.plan_limit }}
-                ({{ tavilyUsagePercent }}%)
-              </p>
-              <p class="ai-usage-muted">
-                Из них Search: {{ aiUsage.tavily.search_usage ?? 0 }} — поиск при генерации статей
-              </p>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.deepseek.spend }}</span>
+                <span class="provider-metric-label">расход 30д</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val" :class="providerSummaries.deepseek.statusClass">{{ providerSummaries.deepseek.limit }}</span>
+                <span class="provider-metric-label">статус</span>
+              </div>
             </div>
-          </template>
-
-          <div class="tavily-keys-block">
-            <p class="ai-usage-kpi-label">Ключи</p>
-            <p class="ai-usage-muted ai-usage-explainer">
-              Выберите активный ключ. При автопереключении система уйдёт на следующий,
-              если у текущего кончатся кредиты (до конца месяца).
-            </p>
-
-            <label class="tavily-auto-switch">
-              <input v-model="tavilyAutoSwitch" type="checkbox" @change="saveTavilyAutoSwitch" />
-              Автопереключение при исчерпании лимита
-            </label>
-
-            <ul v-if="tavilyKeysDisplay.length" class="tavily-keys-list">
-              <li v-for="item in tavilyKeysDisplay" :key="item.id" class="tavily-key-row">
-                <label class="tavily-key-select">
-                  <input
-                    type="radio"
-                    name="tavily-active"
-                    :value="item.id"
-                    :checked="tavilyActiveKeyId === item.id"
-                    @change="activateTavilyKey(item.id)"
-                  />
-                  <span class="tavily-key-meta">
-                    <span class="tavily-key-label">{{ item.label }}</span>
-                    <span class="font-mono tavily-key-masked">{{ item.masked_key || item.key }}</span>
-                  </span>
-                </label>
-                <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
-                <span v-else-if="item.status === 'exhausted'" class="badge-danger">
-                  Лимит{{ item.ttl_seconds ? ` · ~${formatTtl(item.ttl_seconds)}` : '' }}
-                </span>
-                <span v-else-if="tavilyActiveKeyId === item.id" class="badge-muted">Выбрана</span>
-                <span v-if="item.remaining != null" class="tavily-key-remaining">
-                  {{ item.remaining }} кр.
-                </span>
-                <button
-                  v-if="item.source !== 'env'"
-                  type="button"
-                  class="btn-secondary btn-compact tavily-key-remove"
-                  :disabled="tavilyKeysSaving"
-                  @click="removeTavilyKey(item.id)"
-                >
-                  Удалить
-                </button>
-              </li>
-            </ul>
-            <p v-else class="ai-usage-muted">Пока нет ключей</p>
-
-            <div class="tavily-add-form">
-              <input
-                v-model="tavilyNewLabel"
-                type="text"
-                class="input input-compact-wide"
-                placeholder="Подпись (например, Аккаунт 2)"
-              />
-              <input
-                v-model="tavilyNewKey"
-                type="password"
-                class="input input-compact-wide"
-                placeholder="tvly-…"
-                autocomplete="off"
-              />
-              <button
-                type="button"
-                class="btn-secondary btn-compact"
-                :disabled="tavilyKeysSaving || !tavilyNewKey.trim()"
-                @click="addTavilyKey"
-              >
-                {{ tavilyKeysSaving ? '…' : 'Добавить' }}
-              </button>
-            </div>
-            <p v-if="tavilyKeysError" class="ai-usage-error-inline">{{ tavilyKeysError }}</p>
-          </div>
-        </article>
-
-        <article class="ai-usage-card">
-          <h3 class="ai-usage-card-title">Qwen Image</h3>
-          <p class="ai-usage-card-sub">Обложки (DashScope)</p>
-          <template v-if="!aiUsage.qwen_image.configured">
-            <p class="ai-usage-muted">QWEN_IMAGE_API_KEY не задан</p>
-          </template>
-          <template v-else>
-            <p class="ai-usage-kpi-label">Статус цепочки, не баланс</p>
-            <p class="ai-usage-muted ai-usage-explainer">
-              DashScope не отдаёт «осталось N картинок». Платформа пробует модели сверху вниз;
-              если API вернёт ошибку квоты — модель пропускается ~6&nbsp;ч, берётся следующая.
-            </p>
-            <p
-              v-if="!aiUsage.qwen_image.exhausted_count"
-              class="ai-usage-muted"
-            >
-              <span class="badge-accent">Все модели доступны</span>
-            </p>
-            <p v-else class="ai-usage-error-inline">
-              Временно пропущено из‑за квоты: {{ aiUsage.qwen_image.exhausted_count }}
-            </p>
-            <div v-if="aiUsage.qwen_image.generate_chain?.length" class="ai-usage-chain">
-              <p class="ai-usage-chain-label">Новые обложки</p>
-              <p class="ai-usage-chain-hint">Text-to-image · при каждой генерации обложки поста</p>
-              <ol class="ai-usage-chain-list">
-                <li
-                  v-for="(item, index) in aiUsage.qwen_image.generate_chain"
-                  :key="'u-gen-' + item.model"
-                >
-                  <span class="ai-usage-chain-rank">{{ index + 1 }}</span>
-                  <span class="font-mono">{{ item.model }}</span>
-                  <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
-                  <span v-else-if="item.status === 'available'" class="badge-muted">Запасная</span>
-                  <span v-else class="badge-danger">Квота · ~{{ formatTtl(item.ttl_seconds) }}</span>
-                </li>
-              </ol>
-            </div>
-            <div v-if="aiUsage.qwen_image.edit_chain?.length" class="ai-usage-chain">
-              <p class="ai-usage-chain-label">Правка картинок</p>
-              <p class="ai-usage-chain-hint">Image-edit · логотипы GitHub и доработка обложек</p>
-              <ol class="ai-usage-chain-list">
-                <li
-                  v-for="(item, index) in aiUsage.qwen_image.edit_chain"
-                  :key="'u-edit-' + item.model"
-                >
-                  <span class="ai-usage-chain-rank">{{ index + 1 }}</span>
-                  <span class="font-mono">{{ item.model }}</span>
-                  <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
-                  <span v-else-if="item.status === 'available'" class="badge-muted">Запасная</span>
-                  <span v-else class="badge-danger">Квота · ~{{ formatTtl(item.ttl_seconds) }}</span>
-                </li>
-              </ol>
-            </div>
-          </template>
-        </article>
-
-        <article class="ai-usage-card ai-usage-card-openai">
-          <h3 class="ai-usage-card-title">OpenAI</h3>
-          <p class="ai-usage-card-sub">GPT Image 2 · обложки для открыток и Параграфа</p>
-
-          <template v-if="aiUsage.openai.error">
-            <p class="ai-usage-error-inline">{{ aiUsage.openai.error }}</p>
-          </template>
-          <template v-else-if="aiUsage.openai.total_spent_30d != null">
-            <p class="ai-usage-balance">
-              {{ aiUsage.openai.total_spent_30d.toFixed(2) }}
-              <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
-              <span class="ai-usage-muted" style="margin-left:.4em">за 30 дней</span>
-            </p>
-          </template>
-          <template v-else>
-            <p class="ai-usage-muted">
-              <span :class="(aiUsage.openai.configured || openaiKeys.length) ? 'badge-accent' : 'badge-muted'">
-                {{ (aiUsage.openai.configured || openaiKeys.length) ? 'Ключ задан' : 'Не используется' }}
-              </span>
-              <span v-if="aiUsage.openai.configured" class="ai-usage-muted" style="margin-left:.5em">
-                (.env)
-              </span>
-            </p>
-          </template>
-          <p v-if="aiUsage.openai.note" class="ai-usage-muted">{{ aiUsage.openai.note }}</p>
-
-          <div class="tavily-keys-block">
-            <p class="ai-usage-kpi-label">Ключи из панели</p>
-            <p class="ai-usage-muted ai-usage-explainer">
-              Первый включённый ключ используется для генерации GPT Image 2.
-              Переключайте тумблером — выключенные ключи не расходуются.
-            </p>
-
-            <ul v-if="openaiKeys.length" class="tavily-keys-list">
-              <li v-for="item in openaiKeys" :key="item.id" class="tavily-key-row">
-                <label class="tavily-key-select openai-key-select">
-                  <input
-                    type="checkbox"
-                    :checked="item.enabled"
-                    @change="toggleOpenaiKey(item.id, $event.target.checked)"
-                  />
-                  <span class="tavily-key-meta">
-                    <span class="tavily-key-label">{{ item.label }}</span>
-                    <span v-if="item.note" class="openai-key-note">{{ item.note }}</span>
-                    <span class="font-mono tavily-key-masked">{{ item.key }}</span>
-                  </span>
-                </label>
-                <span v-if="item.enabled" class="badge-accent">Вкл</span>
-                <span v-else class="badge-muted">Выкл</span>
-                <button
-                  type="button"
-                  class="btn-secondary btn-compact tavily-key-remove"
-                  :disabled="openaiKeysSaving"
-                  @click="removeOpenaiKey(item.id)"
-                >
-                  Удалить
-                </button>
-              </li>
-            </ul>
-            <p v-else class="ai-usage-muted">Пока нет ключей</p>
-
-            <div class="tavily-add-form openai-add-form">
-              <input
-                v-model="openaiNewLabel"
-                type="text"
-                class="input input-compact-wide"
-                placeholder="Название (напр. Prod ключ)"
-              />
-              <input
-                v-model="openaiNewNote"
-                type="text"
-                class="input input-compact-wide"
-                placeholder="Заметка (напр. для канала Открытки)"
-              />
-              <input
-                v-model="openaiNewKey"
-                type="password"
-                class="input input-compact-wide"
-                placeholder="sk-…"
-                autocomplete="off"
-              />
-              <button
-                type="button"
-                class="btn-secondary btn-compact"
-                :disabled="openaiKeysSaving || !openaiNewKey.trim()"
-                @click="addOpenaiKey"
-              >
-                {{ openaiKeysSaving ? '…' : 'Добавить' }}
-              </button>
-            </div>
-            <p v-if="openaiKeysError" class="ai-usage-error-inline">{{ openaiKeysError }}</p>
-          </div>
-        </article>
-
-
-        <article class="ai-usage-card ai-usage-card-openrouter">
-          <h3 class="ai-usage-card-title">OpenRouter · Grok Imagine Video</h3>
-          <p class="ai-usage-card-sub">Анимация обложек статей и открыток</p>
-
-          <template v-if="!aiUsage.openrouter?.configured">
-            <p class="ai-usage-muted">{{ aiUsage.openrouter?.note || 'Ключ OpenRouter не задан' }}</p>
-          </template>
-          <template v-else-if="aiUsage.openrouter.error">
-            <p class="ai-usage-error-inline">{{ aiUsage.openrouter.error }}</p>
-          </template>
-          <template v-else>
-            <p v-if="aiUsage.openrouter.remaining != null" class="ai-usage-balance">
-              {{ fmtSpend(aiUsage.openrouter.remaining) }}
-              <span class="ai-usage-currency">USD</span>
-              <span class="ai-usage-muted" style="margin-left:.4em">остаток</span>
-            </p>
-            <p v-else class="ai-usage-balance">
-              {{ fmtSpend(aiUsage.openrouter.key_usage) }}
-              <span class="ai-usage-currency">USD</span>
-              <span class="ai-usage-muted" style="margin-left:.4em">потрачено ключом</span>
-            </p>
-            <p class="ai-usage-muted">
-              <template v-if="aiUsage.openrouter.total_credits != null">
-                Куплено: {{ fmtSpend(aiUsage.openrouter.total_credits) }}
-                · Потрачено: {{ fmtSpend(aiUsage.openrouter.total_usage) }}
+          </button>
+          <transition name="expand" @enter="startExpand" @after-enter="endExpand" @before-leave="startCollapse" @leave="doCollapse">
+            <div v-if="expandedProvider === 'deepseek'" class="expand-body provider-body">
+              <template v-if="!aiUsage.deepseek.configured">
+                <p class="ai-usage-muted">DEEPSEEK_API_KEY не задан</p>
+              </template>
+              <template v-else-if="aiUsage.deepseek.error">
+                <p class="ai-usage-error-inline">{{ aiUsage.deepseek.error }}</p>
               </template>
               <template v-else>
-                Ключ сегодня: {{ fmtSpend(aiUsage.openrouter.key_usage_daily) }}
-                · месяц: {{ fmtSpend(aiUsage.openrouter.key_usage_monthly) }}
-                <template v-if="aiUsage.openrouter.limit != null">
-                  · лимит ключа: {{ fmtSpend(aiUsage.openrouter.limit_remaining) }} / {{ fmtSpend(aiUsage.openrouter.limit) }}
-                </template>
-              </template>
-            </p>
-            <p v-if="aiUsage.openrouter.key_label" class="ai-usage-muted">
-              Активный ключ: {{ aiUsage.openrouter.key_label }}
-            </p>
-            <p v-if="aiUsage.openrouter.note" class="ai-usage-muted">{{ aiUsage.openrouter.note }}</p>
-          </template>
-
-          <p class="field-hint mt-3">
-            Ключ с <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a>.
-            Модель по умолчанию: <span class="font-mono">x-ai/grok-imagine-video</span>.
-          </p>
-
-          <div class="tavily-keys-block mt-3">
-            <p class="ai-usage-kpi-label">Ключи из панели</p>
-            <p class="ai-usage-muted ai-usage-explainer">
-              Первый включённый ключ используется для анимации обложек.
-            </p>
-
-            <ul v-if="openrouterKeys.length" class="tavily-keys-list">
-              <li v-for="item in openrouterKeys" :key="item.id" class="tavily-key-row">
-                <label class="tavily-key-select openai-key-select">
-                  <input
-                    type="checkbox"
-                    :checked="item.enabled"
-                    @change="toggleOpenrouterKey(item.id, $event.target.checked)"
-                  />
-                  <span class="tavily-key-meta">
-                    <span class="tavily-key-label">{{ item.label }}</span>
-                    <span v-if="item.note" class="openai-key-note">{{ item.note }}</span>
-                    <span class="font-mono tavily-key-masked">{{ item.key }}</span>
+                <p class="ai-usage-balance">
+                  {{ aiUsage.deepseek.total_balance }}
+                  <span class="ai-usage-currency">{{ aiUsage.deepseek.currency }}</span>
+                </p>
+                <p class="ai-usage-muted">
+                  Подарочный: {{ aiUsage.deepseek.granted_balance || '0' }}
+                  · Пополнение: {{ aiUsage.deepseek.topped_up_balance || '0' }}
+                </p>
+                <p class="ai-usage-muted">
+                  <span
+                    class="badge-accent"
+                    :class="{ 'badge-danger': aiUsage.deepseek.is_available === false }"
+                  >
+                    {{ aiUsage.deepseek.is_available === false ? 'Недостаточно средств' : 'Доступен' }}
                   </span>
-                </label>
-                <span v-if="item.enabled" class="badge-accent">Вкл</span>
-                <span v-else class="badge-muted">Выкл</span>
-                <button
-                  type="button"
-                  class="btn-secondary btn-compact tavily-key-remove"
-                  :disabled="openrouterKeysSaving"
-                  @click="removeOpenrouterKey(item.id)"
-                >
-                  Удалить
-                </button>
-              </li>
-            </ul>
-            <p v-else class="ai-usage-muted">Пока нет ключей</p>
-
-            <div class="tavily-add-form openai-add-form">
-              <input
-                v-model="openrouterNewLabel"
-                type="text"
-                class="input input-compact-wide"
-                placeholder="Название (напр. Prod OpenRouter)"
-              />
-              <input
-                v-model="openrouterNewNote"
-                type="text"
-                class="input input-compact-wide"
-                placeholder="Заметка (напр. анимация обложек)"
-              />
-              <input
-                v-model="openrouterNewKey"
-                type="password"
-                class="input input-compact-wide"
-                placeholder="sk-or-v1-…"
-                autocomplete="off"
-              />
-              <button
-                type="button"
-                class="btn-secondary btn-compact"
-                :disabled="openrouterKeysSaving || !openrouterNewKey.trim()"
-                @click="addOpenrouterKey"
-              >
-                {{ openrouterKeysSaving ? '…' : 'Сохранить ключ' }}
-              </button>
+                </p>
+                <p v-if="aiUsage.deepseek.models?.length" class="ai-usage-models">
+                  {{ aiUsage.deepseek.models.join(', ') }}
+                </p>
+                <div v-if="aiUsage.deepseek.history" class="ai-spend">
+                  <p class="ai-spend-title">Расходы</p>
+                  <div class="ai-spend-row">
+                    <span class="ai-spend-item">
+                      <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_24h) }}</span>
+                      <span class="ai-spend-label">24 ч</span>
+                    </span>
+                    <span class="ai-spend-item">
+                      <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_7d) }}</span>
+                      <span class="ai-spend-label">7 дней</span>
+                    </span>
+                    <span class="ai-spend-item">
+                      <span class="ai-spend-val">{{ fmtSpend(aiUsage.deepseek.history.spent_30d) }}</span>
+                      <span class="ai-spend-label">30 дней</span>
+                    </span>
+                  </div>
+                  <p
+                    v-if="aiUsage.deepseek.history.topped_up_30d > 0"
+                    class="ai-usage-muted"
+                  >
+                    Пополнено за 30 дней: +{{ fmtSpend(aiUsage.deepseek.history.topped_up_30d) }} {{ aiUsage.deepseek.currency }}
+                  </p>
+                  <Sparkline
+                    v-if="deepseekSpark.length > 1"
+                    :points="deepseekSpark"
+                    class="ai-spend-spark"
+                  />
+                  <p v-else class="ai-usage-muted ai-spend-hint">
+                    История копится с каждым замером баланса (примерно раз в час) — точки появятся позже.
+                  </p>
+                </div>
+              </template>
             </div>
-            <p v-if="openrouterKeysError" class="ai-usage-error-inline">{{ openrouterKeysError }}</p>
-          </div>
-
-          <label class="field-label mt-4" for="openrouter-video-model">Модель видео</label>
-          <input
-            id="openrouter-video-model"
-            v-model="openrouterVideoModel"
-            type="text"
-            class="input w-full mt-1 font-mono text-xs"
-            placeholder="x-ai/grok-imagine-video"
-          />
-          <label class="field-label mt-3" for="postcard-animation-duration">
-            Длительность анимации (сек)
-          </label>
-          <input
-            id="postcard-animation-duration"
-            v-model.number="postcardAnimationDuration"
-            type="number"
-            min="1"
-            max="15"
-            step="1"
-            class="input w-full mt-1 font-mono text-xs"
-          />
-          <p class="field-hint mt-1">
-            Короткий GIF-эффект: 1–2 сек. Диапазон модели Grok: 1–15 сек.
-          </p>
-          <label class="active-toggle mt-4 block">
-            <input v-model="postcardAnimationEnabled" type="checkbox" class="active-checkbox" />
-            <span>Анимация обложек включена глобально</span>
-          </label>
-          <p class="field-hint mt-2">
-            Если выключено — все каналы получают только статичные картинки.
-            На каждом канале со статьями можно включить анимацию отдельно.
-          </p>
-          <button
-            type="button"
-            class="btn-secondary btn-compact mt-4"
-            :disabled="openrouterParamsSaving"
-            @click="saveOpenrouterParams"
-          >
-            {{ openrouterParamsSaving ? 'Сохранение…' : 'Сохранить параметры' }}
-          </button>
+          </transition>
         </article>
 
-        <article class="ai-usage-card ai-usage-card-wide">
-          <h3 class="ai-usage-card-title">Активность платформы</h3>
-          <p class="ai-usage-card-sub">Локальный счётчик задач (не квоты провайдеров)</p>
-          <div class="ai-usage-stats">
-            <div>
-              <p class="ai-usage-stat-value">{{ aiUsage.local.deepseek_jobs_24h }}</p>
-              <p class="ai-usage-stat-label">AI-задач за 24 ч</p>
+        <!-- Tavily -->
+        <article class="provider-row" :class="{ 'is-open': expandedProvider === 'tavily' }">
+          <button type="button" class="provider-header" @click="toggleProvider('tavily')">
+            <div class="provider-header-main">
+              <span class="chevron" :class="{ open: expandedProvider === 'tavily' }">▸</span>
+              <div class="provider-title-block">
+                <span class="provider-title">Tavily</span>
+                <span class="provider-sub">Веб-поиск для статей</span>
+              </div>
             </div>
-            <div>
-              <p class="ai-usage-stat-value">{{ aiUsage.local.deepseek_jobs_30d }}</p>
-              <p class="ai-usage-stat-label">AI-задач за 30 дн.</p>
+            <div class="provider-metrics">
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.tavily.balance }}</span>
+                <span class="provider-metric-label">остаток</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.tavily.spend }}</span>
+                <span class="provider-metric-label">расход</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.tavily.limit }}</span>
+                <span class="provider-metric-label">лимит / мес</span>
+              </div>
             </div>
-            <div>
-              <p class="ai-usage-stat-value">{{ aiUsage.local.articles_24h }}</p>
-              <p class="ai-usage-stat-label">Статей за 24 ч</p>
+          </button>
+          <transition name="expand" @enter="startExpand" @after-enter="endExpand" @before-leave="startCollapse" @leave="doCollapse">
+            <div v-if="expandedProvider === 'tavily'" class="expand-body provider-body">
+              <template v-if="!aiUsage.tavily.configured && !tavilyKeys.length">
+                <p class="ai-usage-muted">Ключ не задан — добавьте ниже или TAVILY_API_KEY в .env</p>
+              </template>
+              <template v-else-if="aiUsage.tavily.error && !aiUsage.tavily.keys?.length">
+                <p class="ai-usage-error-inline">{{ aiUsage.tavily.error }}</p>
+              </template>
+              <template v-else>
+                <p class="ai-usage-kpi-label">Осталось у текущего ключа</p>
+                <p class="ai-usage-balance">
+                  {{ aiUsage.tavily.remaining ?? '—' }}
+                  <span class="ai-usage-currency">кредитов</span>
+                </p>
+                <p class="ai-usage-muted">
+                  Лимит плана «{{ aiUsage.tavily.current_plan || '—' }}»:
+                  {{ aiUsage.tavily.plan_limit ?? '—' }} / мес.
+                </p>
+                <div v-if="tavilyUsagePercent != null" class="ai-usage-progress-wrap">
+                  <div class="ai-usage-progress">
+                    <div class="ai-usage-progress-bar" :style="{ width: `${tavilyUsagePercent}%` }" />
+                  </div>
+                  <p class="ai-usage-muted">
+                    Потрачено {{ aiUsage.tavily.plan_usage }} из {{ aiUsage.tavily.plan_limit }}
+                    ({{ tavilyUsagePercent }}%)
+                  </p>
+                  <p class="ai-usage-muted">
+                    Из них Search: {{ aiUsage.tavily.search_usage ?? 0 }} — поиск при генерации статей
+                  </p>
+                </div>
+              </template>
+
+              <div class="tavily-keys-block">
+                <p class="ai-usage-kpi-label">Ключи</p>
+                <p class="ai-usage-muted ai-usage-explainer">
+                  Выберите активный ключ. При автопереключении система уйдёт на следующий,
+                  если у текущего кончатся кредиты (до конца месяца).
+                </p>
+                <label class="tavily-auto-switch">
+                  <input v-model="tavilyAutoSwitch" type="checkbox" @change="saveTavilyAutoSwitch" />
+                  Автопереключение при исчерпании лимита
+                </label>
+                <ul v-if="tavilyKeysDisplay.length" class="tavily-keys-list">
+                  <li v-for="item in tavilyKeysDisplay" :key="item.id" class="tavily-key-row">
+                    <label class="tavily-key-select">
+                      <input
+                        type="radio"
+                        name="tavily-active"
+                        :value="item.id"
+                        :checked="tavilyActiveKeyId === item.id"
+                        @change="activateTavilyKey(item.id)"
+                      />
+                      <span class="tavily-key-meta">
+                        <span class="tavily-key-label">{{ item.label }}</span>
+                        <span class="font-mono tavily-key-masked">{{ item.masked_key || item.key }}</span>
+                      </span>
+                    </label>
+                    <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
+                    <span v-else-if="item.status === 'exhausted'" class="badge-danger">
+                      Лимит{{ item.ttl_seconds ? ` · ~${formatTtl(item.ttl_seconds)}` : '' }}
+                    </span>
+                    <span v-else-if="tavilyActiveKeyId === item.id" class="badge-muted">Выбрана</span>
+                    <span v-if="item.remaining != null" class="tavily-key-remaining">
+                      {{ item.remaining }} кр.
+                    </span>
+                    <button
+                      v-if="item.source !== 'env'"
+                      type="button"
+                      class="btn-secondary btn-compact tavily-key-remove"
+                      :disabled="tavilyKeysSaving"
+                      @click="removeTavilyKey(item.id)"
+                    >
+                      Удалить
+                    </button>
+                  </li>
+                </ul>
+                <p v-else class="ai-usage-muted">Пока нет ключей</p>
+                <div class="tavily-add-form">
+                  <input
+                    v-model="tavilyNewLabel"
+                    type="text"
+                    class="input input-compact-wide"
+                    placeholder="Подпись (например, Аккаунт 2)"
+                  />
+                  <input
+                    v-model="tavilyNewKey"
+                    type="password"
+                    class="input input-compact-wide"
+                    placeholder="tvly-…"
+                    autocomplete="off"
+                  />
+                  <button
+                    type="button"
+                    class="btn-secondary btn-compact"
+                    :disabled="tavilyKeysSaving || !tavilyNewKey.trim()"
+                    @click="addTavilyKey"
+                  >
+                    {{ tavilyKeysSaving ? '…' : 'Добавить' }}
+                  </button>
+                </div>
+                <p v-if="tavilyKeysError" class="ai-usage-error-inline">{{ tavilyKeysError }}</p>
+              </div>
             </div>
-            <div>
-              <p class="ai-usage-stat-value">{{ aiUsage.local.generated_images_30d }}</p>
-              <p class="ai-usage-stat-label">Обложек за 30 дн.</p>
+          </transition>
+        </article>
+
+        <!-- Qwen -->
+        <article class="provider-row" :class="{ 'is-open': expandedProvider === 'qwen' }">
+          <button type="button" class="provider-header" @click="toggleProvider('qwen')">
+            <div class="provider-header-main">
+              <span class="chevron" :class="{ open: expandedProvider === 'qwen' }">▸</span>
+              <div class="provider-title-block">
+                <span class="provider-title">Qwen Image</span>
+                <span class="provider-sub">Обложки (DashScope)</span>
+              </div>
             </div>
-          </div>
+            <div class="provider-metrics">
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.qwen.balance }}</span>
+                <span class="provider-metric-label">активная</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.qwen.spend }}</span>
+                <span class="provider-metric-label">в цепочке</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val" :class="providerSummaries.qwen.statusClass">{{ providerSummaries.qwen.limit }}</span>
+                <span class="provider-metric-label">квота</span>
+              </div>
+            </div>
+          </button>
+          <transition name="expand" @enter="startExpand" @after-enter="endExpand" @before-leave="startCollapse" @leave="doCollapse">
+            <div v-if="expandedProvider === 'qwen'" class="expand-body provider-body">
+              <template v-if="!aiUsage.qwen_image.configured">
+                <p class="ai-usage-muted">QWEN_IMAGE_API_KEY не задан</p>
+              </template>
+              <template v-else>
+                <p class="ai-usage-kpi-label">Статус цепочки, не баланс</p>
+                <p class="ai-usage-muted ai-usage-explainer">
+                  DashScope не отдаёт «осталось N картинок». Платформа пробует модели сверху вниз;
+                  если API вернёт ошибку квоты — модель пропускается ~6&nbsp;ч, берётся следующая.
+                </p>
+                <p v-if="!aiUsage.qwen_image.exhausted_count" class="ai-usage-muted">
+                  <span class="badge-accent">Все модели доступны</span>
+                </p>
+                <p v-else class="ai-usage-error-inline">
+                  Временно пропущено из‑за квоты: {{ aiUsage.qwen_image.exhausted_count }}
+                </p>
+                <div v-if="aiUsage.qwen_image.generate_chain?.length" class="ai-usage-chain">
+                  <p class="ai-usage-chain-label">Новые обложки</p>
+                  <p class="ai-usage-chain-hint">Text-to-image · при каждой генерации обложки поста</p>
+                  <ol class="ai-usage-chain-list">
+                    <li
+                      v-for="(item, index) in aiUsage.qwen_image.generate_chain"
+                      :key="'u-gen-' + item.model"
+                    >
+                      <span class="ai-usage-chain-rank">{{ index + 1 }}</span>
+                      <span class="font-mono">{{ item.model }}</span>
+                      <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
+                      <span v-else-if="item.status === 'available'" class="badge-muted">Запасная</span>
+                      <span v-else class="badge-danger">Квота · ~{{ formatTtl(item.ttl_seconds) }}</span>
+                    </li>
+                  </ol>
+                </div>
+                <div v-if="aiUsage.qwen_image.edit_chain?.length" class="ai-usage-chain">
+                  <p class="ai-usage-chain-label">Правка картинок</p>
+                  <p class="ai-usage-chain-hint">Image-edit · логотипы GitHub и доработка обложек</p>
+                  <ol class="ai-usage-chain-list">
+                    <li
+                      v-for="(item, index) in aiUsage.qwen_image.edit_chain"
+                      :key="'u-edit-' + item.model"
+                    >
+                      <span class="ai-usage-chain-rank">{{ index + 1 }}</span>
+                      <span class="font-mono">{{ item.model }}</span>
+                      <span v-if="item.status === 'next'" class="badge-accent">Сейчас эта</span>
+                      <span v-else-if="item.status === 'available'" class="badge-muted">Запасная</span>
+                      <span v-else class="badge-danger">Квота · ~{{ formatTtl(item.ttl_seconds) }}</span>
+                    </li>
+                  </ol>
+                </div>
+              </template>
+            </div>
+          </transition>
+        </article>
+
+        <!-- OpenAI -->
+        <article class="provider-row" :class="{ 'is-open': expandedProvider === 'openai' }">
+          <button type="button" class="provider-header" @click="toggleProvider('openai')">
+            <div class="provider-header-main">
+              <span class="chevron" :class="{ open: expandedProvider === 'openai' }">▸</span>
+              <div class="provider-title-block">
+                <span class="provider-title">OpenAI</span>
+                <span class="provider-sub">GPT Image 2 · обложки</span>
+              </div>
+            </div>
+            <div class="provider-metrics">
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.openai.balance }}</span>
+                <span class="provider-metric-label">ключи</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.openai.spend }}</span>
+                <span class="provider-metric-label">расход 30д</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val" :class="providerSummaries.openai.statusClass">{{ providerSummaries.openai.limit }}</span>
+                <span class="provider-metric-label">статус</span>
+              </div>
+            </div>
+          </button>
+          <transition name="expand" @enter="startExpand" @after-enter="endExpand" @before-leave="startCollapse" @leave="doCollapse">
+            <div v-if="expandedProvider === 'openai'" class="expand-body provider-body">
+              <template v-if="aiUsage.openai.error">
+                <p class="ai-usage-error-inline">{{ aiUsage.openai.error }}</p>
+              </template>
+              <template v-else-if="aiUsage.openai.total_spent_30d != null">
+                <p class="ai-usage-balance">
+                  {{ aiUsage.openai.total_spent_30d.toFixed(2) }}
+                  <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
+                  <span class="ai-usage-muted" style="margin-left:.4em">за 30 дней</span>
+                </p>
+              </template>
+              <template v-else>
+                <p class="ai-usage-muted">
+                  <span :class="(aiUsage.openai.configured || openaiKeys.length) ? 'badge-accent' : 'badge-muted'">
+                    {{ (aiUsage.openai.configured || openaiKeys.length) ? 'Ключ задан' : 'Не используется' }}
+                  </span>
+                  <span v-if="aiUsage.openai.configured" class="ai-usage-muted" style="margin-left:.5em">
+                    (.env)
+                  </span>
+                </p>
+              </template>
+              <p v-if="aiUsage.openai.note" class="ai-usage-muted">{{ aiUsage.openai.note }}</p>
+
+              <div class="tavily-keys-block">
+                <p class="ai-usage-kpi-label">Ключи из панели</p>
+                <p class="ai-usage-muted ai-usage-explainer">
+                  Первый включённый ключ используется для генерации GPT Image 2.
+                  Переключайте тумблером — выключенные ключи не расходуются.
+                </p>
+                <ul v-if="openaiKeys.length" class="tavily-keys-list">
+                  <li v-for="item in openaiKeys" :key="item.id" class="tavily-key-row">
+                    <label class="tavily-key-select openai-key-select">
+                      <input
+                        type="checkbox"
+                        :checked="item.enabled"
+                        @change="toggleOpenaiKey(item.id, $event.target.checked)"
+                      />
+                      <span class="tavily-key-meta">
+                        <span class="tavily-key-label">{{ item.label }}</span>
+                        <span v-if="item.note" class="openai-key-note">{{ item.note }}</span>
+                        <span class="font-mono tavily-key-masked">{{ item.key }}</span>
+                      </span>
+                    </label>
+                    <span v-if="item.enabled" class="badge-accent">Вкл</span>
+                    <span v-else class="badge-muted">Выкл</span>
+                    <button
+                      type="button"
+                      class="btn-secondary btn-compact tavily-key-remove"
+                      :disabled="openaiKeysSaving"
+                      @click="removeOpenaiKey(item.id)"
+                    >
+                      Удалить
+                    </button>
+                  </li>
+                </ul>
+                <p v-else class="ai-usage-muted">Пока нет ключей</p>
+                <div class="tavily-add-form openai-add-form">
+                  <input
+                    v-model="openaiNewLabel"
+                    type="text"
+                    class="input input-compact-wide"
+                    placeholder="Название (напр. Prod ключ)"
+                  />
+                  <input
+                    v-model="openaiNewNote"
+                    type="text"
+                    class="input input-compact-wide"
+                    placeholder="Заметка (напр. для канала Открытки)"
+                  />
+                  <input
+                    v-model="openaiNewKey"
+                    type="password"
+                    class="input input-compact-wide"
+                    placeholder="sk-…"
+                    autocomplete="off"
+                  />
+                  <button
+                    type="button"
+                    class="btn-secondary btn-compact"
+                    :disabled="openaiKeysSaving || !openaiNewKey.trim()"
+                    @click="addOpenaiKey"
+                  >
+                    {{ openaiKeysSaving ? '…' : 'Добавить' }}
+                  </button>
+                </div>
+                <p v-if="openaiKeysError" class="ai-usage-error-inline">{{ openaiKeysError }}</p>
+              </div>
+            </div>
+          </transition>
+        </article>
+
+        <!-- OpenRouter -->
+        <article class="provider-row" :class="{ 'is-open': expandedProvider === 'openrouter' }">
+          <button type="button" class="provider-header" @click="toggleProvider('openrouter')">
+            <div class="provider-header-main">
+              <span class="chevron" :class="{ open: expandedProvider === 'openrouter' }">▸</span>
+              <div class="provider-title-block">
+                <span class="provider-title">OpenRouter</span>
+                <span class="provider-sub">Grok Imagine Video · анимация</span>
+              </div>
+            </div>
+            <div class="provider-metrics">
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.openrouter.balance }}</span>
+                <span class="provider-metric-label">остаток</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.openrouter.spend }}</span>
+                <span class="provider-metric-label">расход</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ providerSummaries.openrouter.limit }}</span>
+                <span class="provider-metric-label">куплено</span>
+              </div>
+            </div>
+          </button>
+          <transition name="expand" @enter="startExpand" @after-enter="endExpand" @before-leave="startCollapse" @leave="doCollapse">
+            <div v-if="expandedProvider === 'openrouter'" class="expand-body provider-body">
+              <template v-if="!aiUsage.openrouter?.configured">
+                <p class="ai-usage-muted">{{ aiUsage.openrouter?.note || 'Ключ OpenRouter не задан' }}</p>
+              </template>
+              <template v-else-if="aiUsage.openrouter.error">
+                <p class="ai-usage-error-inline">{{ aiUsage.openrouter.error }}</p>
+              </template>
+              <template v-else>
+                <p v-if="aiUsage.openrouter.remaining != null" class="ai-usage-balance">
+                  {{ fmtSpend(aiUsage.openrouter.remaining) }}
+                  <span class="ai-usage-currency">USD</span>
+                  <span class="ai-usage-muted" style="margin-left:.4em">остаток</span>
+                </p>
+                <p v-else class="ai-usage-balance">
+                  {{ fmtSpend(aiUsage.openrouter.key_usage) }}
+                  <span class="ai-usage-currency">USD</span>
+                  <span class="ai-usage-muted" style="margin-left:.4em">потрачено ключом</span>
+                </p>
+                <p class="ai-usage-muted">
+                  <template v-if="aiUsage.openrouter.total_credits != null">
+                    Куплено: {{ fmtSpend(aiUsage.openrouter.total_credits) }}
+                    · Потрачено: {{ fmtSpend(aiUsage.openrouter.total_usage) }}
+                  </template>
+                  <template v-else>
+                    Ключ сегодня: {{ fmtSpend(aiUsage.openrouter.key_usage_daily) }}
+                    · месяц: {{ fmtSpend(aiUsage.openrouter.key_usage_monthly) }}
+                    <template v-if="aiUsage.openrouter.limit != null">
+                      · лимит ключа: {{ fmtSpend(aiUsage.openrouter.limit_remaining) }} / {{ fmtSpend(aiUsage.openrouter.limit) }}
+                    </template>
+                  </template>
+                </p>
+                <p v-if="aiUsage.openrouter.key_label" class="ai-usage-muted">
+                  Активный ключ: {{ aiUsage.openrouter.key_label }}
+                </p>
+                <p v-if="aiUsage.openrouter.note" class="ai-usage-muted">{{ aiUsage.openrouter.note }}</p>
+              </template>
+
+              <p class="field-hint mt-3">
+                Ключ с <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a>.
+                Модель по умолчанию: <span class="font-mono">x-ai/grok-imagine-video</span>.
+              </p>
+
+              <div class="tavily-keys-block mt-3">
+                <p class="ai-usage-kpi-label">Ключи из панели</p>
+                <p class="ai-usage-muted ai-usage-explainer">
+                  Первый включённый ключ используется для анимации обложек.
+                </p>
+                <ul v-if="openrouterKeys.length" class="tavily-keys-list">
+                  <li v-for="item in openrouterKeys" :key="item.id" class="tavily-key-row">
+                    <label class="tavily-key-select openai-key-select">
+                      <input
+                        type="checkbox"
+                        :checked="item.enabled"
+                        @change="toggleOpenrouterKey(item.id, $event.target.checked)"
+                      />
+                      <span class="tavily-key-meta">
+                        <span class="tavily-key-label">{{ item.label }}</span>
+                        <span v-if="item.note" class="openai-key-note">{{ item.note }}</span>
+                        <span class="font-mono tavily-key-masked">{{ item.key }}</span>
+                      </span>
+                    </label>
+                    <span v-if="item.enabled" class="badge-accent">Вкл</span>
+                    <span v-else class="badge-muted">Выкл</span>
+                    <button
+                      type="button"
+                      class="btn-secondary btn-compact tavily-key-remove"
+                      :disabled="openrouterKeysSaving"
+                      @click="removeOpenrouterKey(item.id)"
+                    >
+                      Удалить
+                    </button>
+                  </li>
+                </ul>
+                <p v-else class="ai-usage-muted">Пока нет ключей</p>
+                <div class="tavily-add-form openai-add-form">
+                  <input
+                    v-model="openrouterNewLabel"
+                    type="text"
+                    class="input input-compact-wide"
+                    placeholder="Название (напр. Prod OpenRouter)"
+                  />
+                  <input
+                    v-model="openrouterNewNote"
+                    type="text"
+                    class="input input-compact-wide"
+                    placeholder="Заметка (напр. анимация обложек)"
+                  />
+                  <input
+                    v-model="openrouterNewKey"
+                    type="password"
+                    class="input input-compact-wide"
+                    placeholder="sk-or-v1-…"
+                    autocomplete="off"
+                  />
+                  <button
+                    type="button"
+                    class="btn-secondary btn-compact"
+                    :disabled="openrouterKeysSaving || !openrouterNewKey.trim()"
+                    @click="addOpenrouterKey"
+                  >
+                    {{ openrouterKeysSaving ? '…' : 'Сохранить ключ' }}
+                  </button>
+                </div>
+                <p v-if="openrouterKeysError" class="ai-usage-error-inline">{{ openrouterKeysError }}</p>
+              </div>
+
+              <label class="field-label mt-4" for="openrouter-video-model">Модель видео</label>
+              <input
+                id="openrouter-video-model"
+                v-model="openrouterVideoModel"
+                type="text"
+                class="input w-full mt-1 font-mono text-xs"
+                placeholder="x-ai/grok-imagine-video"
+              />
+              <label class="field-label mt-3" for="postcard-animation-duration">
+                Длительность анимации (сек)
+              </label>
+              <input
+                id="postcard-animation-duration"
+                v-model.number="postcardAnimationDuration"
+                type="number"
+                min="1"
+                max="15"
+                step="1"
+                class="input w-full mt-1 font-mono text-xs"
+              />
+              <p class="field-hint mt-1">
+                Короткий GIF-эффект: 1–2 сек. Диапазон модели Grok: 1–15 сек.
+              </p>
+              <label class="active-toggle mt-4 block">
+                <input v-model="postcardAnimationEnabled" type="checkbox" class="active-checkbox" />
+                <span>Анимация обложек включена глобально</span>
+              </label>
+              <p class="field-hint mt-2">
+                Если выключено — все каналы получают только статичные картинки.
+                На каждом канале со статьями можно включить анимацию отдельно.
+              </p>
+              <button
+                type="button"
+                class="btn-secondary btn-compact mt-4"
+                :disabled="openrouterParamsSaving"
+                @click="saveOpenrouterParams"
+              >
+                {{ openrouterParamsSaving ? 'Сохранение…' : 'Сохранить параметры' }}
+              </button>
+            </div>
+          </transition>
+        </article>
+
+        <!-- Platform activity -->
+        <article class="provider-row" :class="{ 'is-open': expandedProvider === 'local' }">
+          <button type="button" class="provider-header" @click="toggleProvider('local')">
+            <div class="provider-header-main">
+              <span class="chevron" :class="{ open: expandedProvider === 'local' }">▸</span>
+              <div class="provider-title-block">
+                <span class="provider-title">Активность платформы</span>
+                <span class="provider-sub">Локальный счётчик задач</span>
+              </div>
+            </div>
+            <div class="provider-metrics">
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ aiUsage.local.deepseek_jobs_24h }}</span>
+                <span class="provider-metric-label">AI 24ч</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ aiUsage.local.articles_24h }}</span>
+                <span class="provider-metric-label">статьи 24ч</span>
+              </div>
+              <div class="provider-metric">
+                <span class="provider-metric-val">{{ aiUsage.local.generated_images_30d }}</span>
+                <span class="provider-metric-label">обложки 30д</span>
+              </div>
+            </div>
+          </button>
+          <transition name="expand" @enter="startExpand" @after-enter="endExpand" @before-leave="startCollapse" @leave="doCollapse">
+            <div v-if="expandedProvider === 'local'" class="expand-body provider-body">
+              <div class="ai-usage-stats">
+                <div>
+                  <p class="ai-usage-stat-value">{{ aiUsage.local.deepseek_jobs_24h }}</p>
+                  <p class="ai-usage-stat-label">AI-задач за 24 ч</p>
+                </div>
+                <div>
+                  <p class="ai-usage-stat-value">{{ aiUsage.local.deepseek_jobs_30d }}</p>
+                  <p class="ai-usage-stat-label">AI-задач за 30 дн.</p>
+                </div>
+                <div>
+                  <p class="ai-usage-stat-value">{{ aiUsage.local.articles_24h }}</p>
+                  <p class="ai-usage-stat-label">Статей за 24 ч</p>
+                </div>
+                <div>
+                  <p class="ai-usage-stat-value">{{ aiUsage.local.generated_images_30d }}</p>
+                  <p class="ai-usage-stat-label">Обложек за 30 дн.</p>
+                </div>
+              </div>
+            </div>
+          </transition>
         </article>
       </div>
     </section>
@@ -919,11 +1060,30 @@ const savedSnapshot = ref('')
 const aiUsage = ref(null)
 const aiUsageLoading = ref(false)
 const aiUsageError = ref('')
+const expandedProvider = ref(null)
 
-const deepseekSpark = computed(() => {
-  const pts = aiUsage.value?.deepseek?.history?.points || []
-  return pts.map((p) => Number(p.balance)).filter((n) => !Number.isNaN(n))
-})
+function toggleProvider(id) {
+  expandedProvider.value = expandedProvider.value === id ? null : id
+}
+
+function startExpand(el) {
+  el.style.height = '0'
+  el.style.overflow = 'hidden'
+  void el.offsetHeight
+  el.style.height = `${el.scrollHeight}px`
+}
+function endExpand(el) {
+  el.style.height = ''
+  el.style.overflow = ''
+}
+function startCollapse(el) {
+  el.style.height = `${el.scrollHeight}px`
+  el.style.overflow = 'hidden'
+  void el.offsetHeight
+}
+function doCollapse(el) {
+  el.style.height = '0'
+}
 
 function fmtSpend(n) {
   if (n == null) return '—'
@@ -932,6 +1092,57 @@ function fmtSpend(n) {
   if (num === 0) return '0'
   return num < 0.01 ? num.toFixed(4) : num.toFixed(2)
 }
+
+const providerSummaries = computed(() => {
+  const u = aiUsage.value
+  const ds = u?.deepseek
+  const tv = u?.tavily
+  const qw = u?.qwen_image
+  const oa = u?.openai
+  const or_ = u?.openrouter
+
+  const qwenNext = (qw?.generate_chain || []).find((m) => m.status === 'next')
+  const qwenCount = (qw?.generate_chain || []).length
+
+  return {
+    deepseek: {
+      balance: ds?.configured && !ds.error ? `${ds.total_balance || '—'} ${ds.currency || ''}`.trim() : '—',
+      spend: ds?.history ? fmtSpend(ds.history.spent_30d) : '—',
+      limit: !ds?.configured ? 'нет ключа' : ds.error ? 'ошибка' : ds.is_available === false ? 'нет средств' : 'OK',
+      statusClass: ds?.is_available === false || ds?.error ? 'is-bad' : '',
+    },
+    tavily: {
+      balance: tv?.remaining != null ? String(tv.remaining) : '—',
+      spend: tv?.plan_usage != null ? String(tv.plan_usage) : '—',
+      limit: tv?.plan_limit != null ? String(tv.plan_limit) : '—',
+      statusClass: '',
+    },
+    qwen: {
+      balance: !qw?.configured ? '—' : qwenNext ? qwenNext.model.replace(/^.*\//, '').slice(0, 18) : '—',
+      spend: qw?.configured ? String(qwenCount) : '—',
+      limit: !qw?.configured ? 'нет ключа' : qw.exhausted_count ? `${qw.exhausted_count} skip` : 'OK',
+      statusClass: qw?.exhausted_count ? 'is-bad' : '',
+    },
+    openai: {
+      balance: String(openaiKeys.value.filter((k) => k.enabled).length || (oa?.configured ? 1 : 0)),
+      spend: oa?.total_spent_30d != null ? fmtSpend(oa.total_spent_30d) : '—',
+      limit: oa?.error ? 'ошибка' : oa?.configured || openaiKeys.value.length ? 'OK' : 'нет ключа',
+      statusClass: oa?.error ? 'is-bad' : '',
+    },
+    openrouter: {
+      balance: or_?.remaining != null ? fmtSpend(or_.remaining) : or_?.configured ? fmtSpend(or_.key_usage) : '—',
+      spend: or_?.total_usage != null ? fmtSpend(or_.total_usage) : or_?.key_usage_monthly != null ? fmtSpend(or_.key_usage_monthly) : '—',
+      limit: or_?.total_credits != null ? fmtSpend(or_.total_credits) : or_?.limit != null ? fmtSpend(or_.limit) : or_?.configured ? '∞' : '—',
+      statusClass: or_?.error ? 'is-bad' : '',
+    },
+  }
+})
+
+const deepseekSpark = computed(() => {
+  const pts = aiUsage.value?.deepseek?.history?.points || []
+  return pts.map((p) => Number(p.balance)).filter((n) => !Number.isNaN(n))
+})
+
 const tavilyKeys = ref([])
 const tavilyActiveKeyId = ref('')
 const tavilyAutoSwitch = ref(true)
@@ -1678,6 +1889,77 @@ async function save({ silent = false } = {}) {
 
 .ai-usage-grid {
   @apply grid gap-4 md:grid-cols-2 xl:grid-cols-3;
+}
+
+.provider-list {
+  @apply flex flex-col gap-3;
+}
+
+.provider-row {
+  @apply panel-card overflow-hidden transition-colors;
+}
+
+.provider-row.is-open {
+  @apply ring-1 ring-accent;
+}
+
+.provider-header {
+  @apply flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left
+         cursor-pointer hover:bg-panel-hover transition-colors;
+}
+
+.provider-header-main {
+  @apply flex items-center gap-3 min-w-0;
+}
+
+.provider-title-block {
+  @apply flex min-w-0 flex-col;
+}
+
+.provider-title {
+  @apply text-sm font-semibold text-[var(--text-primary)] truncate;
+}
+
+.provider-sub {
+  @apply text-[11px] text-[var(--text-secondary)] truncate;
+}
+
+.provider-metrics {
+  @apply flex flex-wrap items-center gap-4 sm:gap-6;
+}
+
+.provider-metric {
+  @apply flex flex-col items-end min-w-[4.5rem];
+}
+
+.provider-metric-val {
+  @apply text-sm font-semibold tabular-nums text-[var(--text-primary)];
+}
+
+.provider-metric-val.is-bad {
+  @apply text-red-400;
+}
+
+.provider-metric-label {
+  @apply text-[10px] uppercase tracking-wide text-[var(--text-secondary)];
+}
+
+.chevron {
+  @apply inline-block text-[var(--text-secondary)] text-xs transition-transform duration-200;
+}
+
+.chevron.open {
+  @apply rotate-90;
+}
+
+.provider-body {
+  @apply px-4 pb-5 pt-1 border-t border-panel-border space-y-2;
+}
+
+.expand-enter-active,
+.expand-leave-active {
+  transition: height 0.28s ease;
+  overflow: hidden;
 }
 
 .ai-usage-card {
