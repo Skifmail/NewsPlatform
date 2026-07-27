@@ -110,6 +110,7 @@ async def notify_job(job: BackgroundJob) -> None:
         "id": f"job-{job.id}",
         "kind": "job",
         "job_id": job.id,
+        "celery_task_id": job.celery_task_id,
         "job_type": job.job_type,
         "phase": phase_for_status(job.status),
         "title": title,

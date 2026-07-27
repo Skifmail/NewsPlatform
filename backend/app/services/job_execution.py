@@ -14,6 +14,7 @@ from app.infrastructure.models.background_job import BackgroundJob
 from app.repositories.background_job_repository import BackgroundJobRepository
 from app.services.activity_notifier import notify_job
 from app.services.job_tracker import JobTracker, _format_fetch_result, _format_process_result
+from app.services.pipeline_emitter import bind_pipeline, finish_pipeline, unbind_pipeline
 from app.tasks.celery_app import celery_app
 
 T = TypeVar("T")
@@ -40,12 +41,23 @@ async def with_job_tracking(
     Raises:
         Exception: пробрасывает исключение из fn после записи failed.
     """
+    job: BackgroundJob | None = None
     async with async_session_factory() as session:
         await JobTracker(session).mark_running(celery_task_id)
+        job = await BackgroundJobRepository(session).get_by_celery_id(celery_task_id)
         await session.commit()
+
+    if job:
+        bind_pipeline(
+            celery_task_id,
+            job_type=job.job_type,
+            label=job.label or "Задача",
+        )
+
     try:
         result = await fn()
         summary = success_summary(result)
+        finish_pipeline(status="done")
         async with async_session_factory() as session:
             tracker = JobTracker(session)
             await tracker.mark_success(celery_task_id, summary)
@@ -57,6 +69,7 @@ async def with_job_tracking(
                 await notify_job(job)
         return result
     except Exception as exc:
+        finish_pipeline(status="error")
         async with async_session_factory() as session:
             tracker = JobTracker(session)
             await tracker.mark_failed(celery_task_id, str(exc))
@@ -67,6 +80,8 @@ async def with_job_tracking(
             if job:
                 await notify_job(job)
         raise
+    finally:
+        unbind_pipeline()
 
 
 def _summary_for_job(job: BackgroundJob, result: object) -> str | None:

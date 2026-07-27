@@ -11,6 +11,9 @@ from typing import Any
 import httpx
 from loguru import logger
 
+from app.services.pipeline_emitter import begin_step, complete_step, fail_step
+from app.services.pipeline_progress import truncate_text
+
 _OPENROUTER_VIDEOS_URL = "https://openrouter.ai/api/v1/videos"
 _DEFAULT_MODEL = "x-ai/grok-imagine-video"
 _POLL_INTERVAL_SECONDS = 5.0
@@ -124,28 +127,55 @@ class OpenRouterVideoClient:
             resolution=resolution,
         )
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            submit = await client.post(_OPENROUTER_VIDEOS_URL, headers=headers, json=payload)
-            if submit.status_code >= 400:
-                msg = f"OpenRouter video submit failed: {submit.status_code} {submit.text}"
-                raise RuntimeError(msg)
-            job = submit.json()
-            job_id = str(job.get("id") or "")
-            polling_url = job.get("polling_url")
-            if not job_id and not polling_url:
-                msg = f"OpenRouter video: unexpected submit response: {job}"
-                raise RuntimeError(msg)
+        event_id = begin_step(
+            label=f"OpenRouter → {self._model}",
+            from_node="platform",
+            to_node="openrouter",
+            provider="OpenRouter",
+            model=self._model,
+            request_summary=truncate_text(
+                f"image-to-video | {duration}s {resolution} | {silent_prompt}",
+                480,
+            ),
+            progress=88,
+            metadata={"duration": duration, "resolution": resolution},
+        )
 
-            status_data = await self._poll_job(client, headers, job, job_id=job_id)
-            video_bytes, content_type = await self._download_video(client, headers, status_data)
-            usage = status_data.get("usage")
-            if usage:
-                logger.info("OpenRouter video usage", job_id=job_id, usage=usage)
-            return OpenRouterVideoResult(
-                job_id=job_id or str(status_data.get("id") or ""),
-                video_bytes=video_bytes,
-                content_type=content_type,
-            )
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                submit = await client.post(_OPENROUTER_VIDEOS_URL, headers=headers, json=payload)
+                if submit.status_code >= 400:
+                    msg = f"OpenRouter video submit failed: {submit.status_code} {submit.text}"
+                    fail_step(event_id, msg)
+                    raise RuntimeError(msg)
+                job = submit.json()
+                job_id = str(job.get("id") or "")
+                polling_url = job.get("polling_url")
+                if not job_id and not polling_url:
+                    msg = f"OpenRouter video: unexpected submit response: {job}"
+                    fail_step(event_id, msg)
+                    raise RuntimeError(msg)
+
+                status_data = await self._poll_job(client, headers, job, job_id=job_id)
+                video_bytes, content_type = await self._download_video(client, headers, status_data)
+                usage = status_data.get("usage")
+                complete_step(
+                    event_id,
+                    response_summary=f"MP4 {len(video_bytes) // 1024} KB, job {job_id}",
+                    metadata={"usage": usage, "job_id": job_id},
+                )
+                if usage:
+                    logger.info("OpenRouter video usage", job_id=job_id, usage=usage)
+                return OpenRouterVideoResult(
+                    job_id=job_id or str(status_data.get("id") or ""),
+                    video_bytes=video_bytes,
+                    content_type=content_type,
+                )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            fail_step(event_id, str(exc))
+            raise
 
     async def _poll_job(
         self,

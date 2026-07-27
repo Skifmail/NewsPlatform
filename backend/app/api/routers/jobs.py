@@ -8,6 +8,7 @@ from app.api.schemas.job import (
     BackgroundJobActivityResponse,
     BackgroundJobResponse,
     JobsSummaryResponse,
+    PipelineProgressResponse,
     ProcessQueuedResponse,
 )
 from app.services.activity_notifier import detail_for_job, phase_for_status, progress_for_job
@@ -17,6 +18,7 @@ from app.tasks.ai_tasks import process_post_task
 from app.domain.enums import JobStatus
 from app.repositories.background_job_repository import BackgroundJobRepository
 from app.services.job_execution import reconcile_jobs_with_celery
+from app.services.pipeline_progress import read_pipeline_progress_async
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -72,6 +74,28 @@ async def list_active_jobs(
         )
         for job in jobs
     ]
+
+
+@router.get("/pipeline/{celery_task_id}", response_model=PipelineProgressResponse)
+async def get_pipeline_progress(
+    celery_task_id: str,
+    _: AuthDep,
+) -> PipelineProgressResponse:
+    """Детальный пошаговый прогресс пайплайна (Redis, TTL ~10 мин).
+
+    Args:
+        celery_task_id: ID задачи Celery.
+
+    Returns:
+        PipelineProgressResponse: события и текущий этап.
+
+    Raises:
+        HTTPException: если прогресс не найден или истёк TTL.
+    """
+    data = await read_pipeline_progress_async(celery_task_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Pipeline progress not found")
+    return PipelineProgressResponse(**data)
 
 
 @router.get("/summary", response_model=JobsSummaryResponse)

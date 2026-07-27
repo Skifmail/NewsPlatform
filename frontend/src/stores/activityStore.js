@@ -26,13 +26,10 @@ const LEGACY_MAP = {
   }),
 }
 
-/**
- * @param {object} raw
- * @returns {object}
- */
 function normalizeActivity(raw) {
   const phase = raw.phase || 'running'
   const target = Math.min(100, Math.max(0, Number(raw.progress) || 0))
+  const latest = raw.latest_event || null
   return {
     id: raw.id || `act-${Date.now()}`,
     kind: raw.kind || 'system',
@@ -42,8 +39,11 @@ function normalizeActivity(raw) {
     progress: target,
     displayProgress: target,
     jobId: raw.job_id ?? null,
+    celeryTaskId: raw.celery_task_id ?? null,
     jobType: raw.job_type ?? null,
     rawPostId: raw.raw_post_id ?? null,
+    eventCount: raw.event_count ?? 0,
+    latestEvent: latest,
     hideAt: phase === 'done' || phase === 'error' ? Date.now() + DONE_TTL_MS : null,
   }
 }
@@ -57,10 +57,6 @@ function phaseFromStatus(status) {
 
 const STAGE_SEPARATOR = '|'
 
-/**
- * @param {string|null|undefined} raw
- * @returns {{ progress: number|null, text: string|null }}
- */
 function decodeStage(raw) {
   if (!raw) return { progress: null, text: null }
   const idx = raw.indexOf(STAGE_SEPARATOR)
@@ -73,10 +69,6 @@ function decodeStage(raw) {
   return { progress: null, text: raw }
 }
 
-/**
- * @param {object} job
- * @returns {string}
- */
 function detailFromJob(job) {
   if (job.detail) return job.detail
   if (job.status === 'success') return job.result_summary || 'Успешно завершено'
@@ -108,6 +100,24 @@ function progressFromJob(job) {
   return 40
 }
 
+function mergeActivity(prev, entry) {
+  if (!prev) return entry
+  return {
+    ...entry,
+    displayProgress:
+      entry.phase === 'done' || entry.phase === 'error'
+        ? 100
+        : Math.max(prev.displayProgress, entry.progress),
+    celeryTaskId: entry.celeryTaskId || prev.celeryTaskId,
+    eventCount: Math.max(entry.eventCount || 0, prev.eventCount || 0),
+    latestEvent: entry.latestEvent || prev.latestEvent,
+    hideAt:
+      entry.phase === 'done' || entry.phase === 'error'
+        ? Date.now() + DONE_TTL_MS
+        : prev.hideAt,
+  }
+}
+
 export const useActivityStore = defineStore('activity', () => {
   const items = ref([])
   let tickTimer = null
@@ -117,15 +127,7 @@ export const useActivityStore = defineStore('activity', () => {
     const entry = normalizeActivity(raw)
     const idx = items.value.findIndex((a) => a.id === entry.id)
     if (idx >= 0) {
-      const prev = items.value[idx]
-      entry.displayProgress =
-        entry.phase === 'done' || entry.phase === 'error'
-          ? 100
-          : Math.max(prev.displayProgress, entry.progress)
-      if (entry.phase === 'done' || entry.phase === 'error') {
-        entry.hideAt = Date.now() + DONE_TTL_MS
-      }
-      items.value[idx] = entry
+      items.value[idx] = mergeActivity(items.value[idx], entry)
     } else {
       items.value.unshift(entry)
       if (items.value.length > MAX_VISIBLE) {
@@ -138,9 +140,27 @@ export const useActivityStore = defineStore('activity', () => {
     }
   }
 
+  function applyPipelineUpdate(payload) {
+    if (!payload?.celery_task_id) return
+    const idx = items.value.findIndex((a) => a.celeryTaskId === payload.celery_task_id)
+    if (idx < 0) return
+    const prev = items.value[idx]
+    items.value[idx] = {
+      ...prev,
+      detail: payload.current_detail || prev.detail,
+      progress: payload.progress ?? prev.progress,
+      eventCount: payload.event_count ?? prev.eventCount,
+      latestEvent: payload.latest_event || prev.latestEvent,
+    }
+  }
+
   function handleWebSocketMessage(msg) {
     if (msg.type === 'activity' && msg.payload) {
       upsert(msg.payload)
+      return
+    }
+    if (msg.type === 'pipeline' && msg.payload) {
+      applyPipelineUpdate(msg.payload)
       return
     }
     const mapper = LEGACY_MAP[msg.type]
@@ -153,6 +173,7 @@ export const useActivityStore = defineStore('activity', () => {
       id: `job-${job.id}`,
       kind: 'job',
       job_id: job.id,
+      celery_task_id: job.celery_task_id,
       job_type: job.job_type,
       raw_post_id: job.raw_post_id ?? null,
       phase,
@@ -275,6 +296,7 @@ export const useActivityStore = defineStore('activity', () => {
     items,
     upsert,
     handleWebSocketMessage,
+    applyPipelineUpdate,
     syncActiveJobs,
     startPolling,
     reset,

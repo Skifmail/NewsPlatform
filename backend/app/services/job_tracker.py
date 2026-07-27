@@ -324,7 +324,9 @@ async def report_job_stage(
     if not celery_task_id:
         return
     from app.infrastructure.database import async_session_factory
+    from app.services.pipeline_emitter import sync_overview
 
+    sync_overview(detail, progress)
     async with async_session_factory() as session:
         await JobTracker(session).update_stage(celery_task_id, detail, progress)
         await session.commit()

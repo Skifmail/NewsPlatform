@@ -35,6 +35,7 @@ from app.repositories.channel_repository import ChannelRepository
 from app.repositories.processed_post_repository import ProcessedPostRepository
 from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import report_job_stage
+from app.services.pipeline_emitter import emit_internal, skip_step
 from app.services.platform_settings_service import PlatformSettingsService
 from app.services.prompt_service import PromptService
 from app.services.web_research_service import WebResearchService
@@ -213,10 +214,22 @@ class ArticleGenerationService:
                 plan = await ideation.plan_topic(
                     channel, recent, candidate_repos=candidate_repos
                 )
+            emit_internal(
+                label="Тема и угол определены",
+                detail=f"«{plan.topic}» — {plan.angle}",
+                progress=30,
+                metadata={"queries": plan.search_queries},
+            )
 
             if is_postcard_article_channel(channel.name, channel.topic):
                 research_context = ""
                 sources = []
+                skip_step(
+                    label="Веб-поиск пропущен",
+                    reason="Открытки не требуют внешних источников",
+                    progress=42,
+                    to_node="tavily",
+                )
             else:
                 await report_job_stage(
                     celery_task_id, "Поиск материалов в интернете…", 42
@@ -239,6 +252,11 @@ class ArticleGenerationService:
                 body_max_length=body_max,
                 teaser_max_length=teaser_max,
                 recent_hooks=recent_hooks,
+            )
+            emit_internal(
+                label="Черновик статьи готов",
+                detail=f"«{draft.title}» — {len(draft.body_html)} симв. HTML",
+                progress=75,
             )
 
             # Ручная тема и devtools/trending: дедуп заголовка не ретраим.
@@ -296,6 +314,29 @@ class ArticleGenerationService:
                 image_url=image_url,
                 article_title=draft.title,
             )
+            if not video_url:
+                skip_step(
+                    label="Анимация обложки пропущена",
+                    reason="Отключена для канала или недоступен OpenRouter",
+                    progress=90,
+                    to_node="openrouter",
+                )
+        elif not image_url:
+            skip_step(
+                label="Обложка не сгенерирована",
+                reason="Нет изображения для публикации",
+                progress=85,
+                to_node="openai",
+            )
+
+        emit_internal(
+            label="Медиа подготовлено",
+            detail=(
+                f"Изображение: {image_source or 'нет'}"
+                + (f", видео: {video_url}" if video_url else "")
+            ),
+            progress=91,
+        )
 
         await report_job_stage(
             celery_task_id, "Сохранение в очередь модерации…", 92
@@ -316,6 +357,12 @@ class ArticleGenerationService:
             status=PostStatus.PENDING.value,
         )
         saved = await self._processed.create(processed)
+        emit_internal(
+            label="Сохранено в очередь модерации",
+            detail=f"processed_post #{saved.id}",
+            progress=95,
+            metadata={"processed_post_id": saved.id},
+        )
 
         updated_history = merge_topic_lists(
             [plan.topic, draft.title],

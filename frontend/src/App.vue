@@ -18,6 +18,7 @@
     </div>
 
     <ActivityToastStack />
+    <PipelineMissionModal />
     <AppDialog />
   </div>
 </template>
@@ -26,17 +27,20 @@
 import { onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ActivityToastStack from './components/ActivityToastStack.vue'
+import PipelineMissionModal from './components/pipeline/PipelineMissionModal.vue'
 import AppDialog from './components/AppDialog.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import ThemeToggle from './components/layout/ThemeToggle.vue'
 import { jobsApi, rawPostsApi } from './api/index.js'
 import { useActivityStore } from './stores/activityStore'
+import { usePipelineStore } from './stores/pipelineStore'
 import { useAuthStore } from './stores/authStore'
 import { usePostsStore } from './stores/postsStore'
 
 const auth = useAuthStore()
 const postsStore = usePostsStore()
 const activityStore = useActivityStore()
+const pipelineStore = usePipelineStore()
 const router = useRouter()
 const activeJobsCount = ref(0)
 const materialsCount = ref(0)
@@ -60,6 +64,9 @@ async function pollSidebarBadges() {
 
 function onActivityEvent(msg) {
   activityStore.handleWebSocketMessage(msg)
+  if (msg.type === 'pipeline' && msg.payload) {
+    pipelineStore.applyWsUpdate(msg.payload)
+  }
   postsStore.loadQueue()
   postsStore.loadApproved()
   postsStore.loadApprovedSummary()
@@ -70,6 +77,7 @@ async function onLogout() {
   if (jobsPollTimer) clearInterval(jobsPollTimer)
   postsStore.disconnectWebSocket()
   activityStore.reset()
+  pipelineStore.reset()
   auth.logout()
   await router.push('/login')
 }

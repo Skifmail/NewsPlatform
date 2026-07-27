@@ -11,6 +11,8 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.domain.ai_errors import DeepSeekAuthError
+from app.services.pipeline_emitter import begin_step, complete_step, fail_step
+from app.services.pipeline_progress import truncate_text
 
 _PLACEHOLDER_KEYS = frozenset({"sk-...", "sk-…", "your_api_key", "change_me"})
 
@@ -95,53 +97,90 @@ class DeepSeekClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            if response.status_code == 401:
-                logger.error(
-                    "DeepSeek API authentication failed",
-                    status=401,
-                    body=response.text[:500],
+        used_model = str(model or self._model)
+        event_id = begin_step(
+            label=f"DeepSeek → {used_model}",
+            from_node="platform",
+            to_node="deepseek",
+            provider="DeepSeek",
+            model=used_model,
+            request_summary=truncate_text(
+                f"system: {system_prompt} | user: {user_prompt}",
+                480,
+            ),
+            metadata={"max_tokens": max_tokens, "json_mode": json_mode},
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                if response.status_code == 401:
+                    logger.error(
+                        "DeepSeek API authentication failed",
+                        status=401,
+                        body=response.text[:500],
+                    )
+                    msg = (
+                        "DeepSeek API: неверный DEEPSEEK_API_KEY (401). "
+                        "Проверьте ключ на https://platform.deepseek.com и "
+                        "перезапустите: docker compose restart celery_worker backend"
+                    )
+                    fail_step(event_id, msg)
+                    raise DeepSeekAuthError(msg)
+                if response.status_code != 200:
+                    logger.error(
+                        "DeepSeek API error",
+                        status=response.status_code,
+                        body=response.text[:500],
+                    )
+                    msg = f"DeepSeek API error: {response.status_code}"
+                    fail_step(event_id, msg)
+                    raise RuntimeError(msg)
+                data = response.json()
+                choices = data.get("choices") or []
+                if not choices:
+                    msg = "DeepSeek API: пустой ответ (нет choices)"
+                    fail_step(event_id, msg)
+                    raise RuntimeError(msg)
+                message = choices[0].get("message") or {}
+                finish = choices[0].get("finish_reason")
+                content = self._extract_message_text(message, json_mode=json_mode)
+                if not content:
+                    logger.warning(
+                        "DeepSeek API: пустой текст ответа",
+                        model=used_model,
+                        finish_reason=finish,
+                        max_tokens=max_tokens,
+                    )
+                    msg = "DeepSeek API: пустой content в ответе"
+                    fail_step(event_id, msg)
+                    raise RuntimeError(msg)
+                if finish == "length":
+                    logger.warning(
+                        "DeepSeek API: ответ обрезан по max_tokens",
+                        model=used_model,
+                        max_tokens=max_tokens,
+                        chars=len(content),
+                    )
+                usage = data.get("usage") or {}
+                complete_step(
+                    event_id,
+                    response_summary=content,
+                    metadata={
+                        "finish_reason": finish,
+                        "total_tokens": usage.get("total_tokens"),
+                        "prompt_tokens": usage.get("prompt_tokens"),
+                        "completion_tokens": usage.get("completion_tokens"),
+                    },
                 )
-                msg = (
-                    "DeepSeek API: неверный DEEPSEEK_API_KEY (401). "
-                    "Проверьте ключ на https://platform.deepseek.com и "
-                    "перезапустите: docker compose restart celery_worker backend"
-                )
-                raise DeepSeekAuthError(msg)
-            if response.status_code != 200:
-                logger.error(
-                    "DeepSeek API error",
-                    status=response.status_code,
-                    body=response.text[:500],
-                )
-                msg = f"DeepSeek API error: {response.status_code}"
-                raise RuntimeError(msg)
-            data = response.json()
-            choices = data.get("choices") or []
-            if not choices:
-                msg = "DeepSeek API: пустой ответ (нет choices)"
-                raise RuntimeError(msg)
-            message = choices[0].get("message") or {}
-            finish = choices[0].get("finish_reason")
-            content = self._extract_message_text(message, json_mode=json_mode)
-            if not content:
-                logger.warning(
-                    "DeepSeek API: пустой текст ответа",
-                    model=model or self._model,
-                    finish_reason=finish,
-                    max_tokens=max_tokens,
-                )
-                msg = "DeepSeek API: пустой content в ответе"
-                raise RuntimeError(msg)
-            if finish == "length":
-                logger.warning(
-                    "DeepSeek API: ответ обрезан по max_tokens",
-                    model=model or self._model,
-                    max_tokens=max_tokens,
-                    chars=len(content),
-                )
-            return content
+                return content
+        except DeepSeekAuthError:
+            raise
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            fail_step(event_id, str(exc))
+            raise
 
     async def chat_completion_with_meta(
         self,

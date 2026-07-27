@@ -5,6 +5,7 @@ from loguru import logger
 from app.domain.article import ResearchSource
 from app.infrastructure.search.tavily_client import TavilyClient
 from app.infrastructure.search.tavily_key_chain import resolve_keys
+from app.services.pipeline_emitter import begin_step, complete_step, fail_step
 
 _MAX_CONTEXT_CHARS = 12_000
 _MAX_SNIPPET = 1200
@@ -43,6 +44,15 @@ class WebResearchService:
         blocks: list[str] = []
 
         for query in queries[:3]:
+            event_id = begin_step(
+                label=f"Tavily → поиск: {query[:80]}",
+                from_node="platform",
+                to_node="tavily",
+                provider="Tavily",
+                model="search",
+                request_summary=query,
+                progress=42,
+            )
             try:
                 results = await self._client.search(
                     query,
@@ -53,7 +63,13 @@ class WebResearchService:
                 )
             except Exception as exc:
                 logger.warning("Tavily query failed", query=query, error=str(exc))
+                fail_step(event_id, str(exc))
                 continue
+            complete_step(
+                event_id,
+                response_summary=f"Найдено результатов: {len(results)}",
+                metadata={"query": query, "result_count": len(results)},
+            )
             for item in results:
                 if item.url in seen_urls:
                     continue
