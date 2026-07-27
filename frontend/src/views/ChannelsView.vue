@@ -207,6 +207,27 @@
               class="input w-full text-xs font-mono mt-1"
             />
 
+
+            <label
+              v-if="isPostcardChannelForm(editForms[ch.id])"
+              class="active-toggle mt-5 block"
+            >
+              <input
+                v-model="editForms[ch.id].animate_postcards"
+                type="checkbox"
+                class="active-checkbox"
+              />
+              <span>Анимировать открытки (Grok Imagine Video через OpenRouter)</span>
+            </label>
+            <p
+              v-if="isPostcardChannelForm(editForms[ch.id])"
+              class="field-hint mb-1"
+            >
+              После генерации картинки gpt-image-2 платформа создаст короткое видео:
+              движется только сцена (волны, пар, свечи), текст остаётся неподвижным.
+              Нужен ключ OpenRouter в настройках и включённая анимация в платформе.
+            </p>
+
             <label class="field-label mt-5">Промпт обложек (Qwen-Image)</label>
             <p class="field-hint mb-1">
               Обязательно для AI-обложек. Шаблон на английском. Плейсхолдеры:
@@ -381,6 +402,7 @@ function buildEditForm(ch) {
     platform_id: ch.platform_id,
     topic: ch.topic,
     content_mode: ch.content_mode || 'news',
+    animate_postcards: Boolean(ch.animate_postcards),
     is_active: ch.is_active,
     style_prompt: ch.style_prompt || '',
     image_prompt_guidelines: ch.image_prompt_guidelines || '',
@@ -505,6 +527,7 @@ async function saveChannel(id) {
       cross_promote_emoji_id: payload.cross_promote_emoji_id?.trim() || null,
       post_footer: payload.post_footer?.trim() || null,
       publish_times: payload.publish_times?.trim(),
+      animate_postcards: Boolean(payload.animate_postcards),
     })
   } catch (e) {
     await dialog.alertApiError(e, 'Не удалось сохранить канал')

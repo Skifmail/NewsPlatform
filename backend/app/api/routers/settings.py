@@ -8,7 +8,10 @@ from fastapi import APIRouter, HTTPException
 
 from app.api.deps import AuthDep, DbSession
 from app.api.schemas.settings import SettingsResponse, SettingsUpdate
-from app.domain.platform_settings import is_internal_setting_key
+from app.domain.platform_settings import (
+    clamp_postcard_animation_duration,
+    is_internal_setting_key,
+)
 from app.infrastructure.ai.qwen_image_chain import exhausted_models_json
 from app.infrastructure.ai.openai_key_chain import (
     mask_openai_keys_json,
@@ -54,6 +57,8 @@ def _public_settings(merged: dict[str, str]) -> dict[str, str]:
     public["qwen_image_exhausted_models"] = exhausted_models_json()
     public["tavily_api_keys"] = mask_keys_json(merged.get("tavily_api_keys"))
     public["openai_api_keys"] = mask_openai_keys_json(merged.get("openai_api_keys"))
+    raw_openrouter = (merged.get("openrouter_api_key") or "").strip()
+    public["openrouter_api_key"] = mask_api_key(raw_openrouter) if raw_openrouter else ""
 
     resolved = [
         {
@@ -95,6 +100,19 @@ async def update_settings(
     filtered.pop("qwen_image_exhausted_models", None)
 
     repo = SettingRepository(session)
+
+    if "openrouter_api_key" in filtered:
+        incoming = (filtered.get("openrouter_api_key") or "").strip()
+        if is_masked_api_key(incoming):
+            previous = await repo.get("openrouter_api_key", "")
+            filtered["openrouter_api_key"] = previous
+        else:
+            filtered["openrouter_api_key"] = incoming
+
+    if "postcard_animation_duration" in filtered:
+        filtered["postcard_animation_duration"] = str(
+            clamp_postcard_animation_duration(filtered["postcard_animation_duration"])
+        )
 
     if "openai_api_keys" in filtered:
         previous_openai = await repo.get("openai_api_keys", "[]")

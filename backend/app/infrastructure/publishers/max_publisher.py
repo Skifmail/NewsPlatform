@@ -36,8 +36,17 @@ class MaxPublisher(BasePublisher):
     """Публикует посты в канал MAX (Bot API platform-api.max.ru)."""
 
     async def publish(
-        self, post: ProcessedPost, channel: Channel, image_bytes: bytes | None
+        self,
+        post: ProcessedPost,
+        channel: Channel,
+        image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
+        if video_bytes:
+            logger.warning(
+                "MAX publish: video not supported, using static image",
+                channel_id=channel.id,
+            )
         """Отправляет сообщение в канал MAX.
 
         Args:

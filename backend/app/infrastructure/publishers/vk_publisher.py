@@ -48,8 +48,17 @@ class VkPublisher(BasePublisher):
     """Публикует на стену VK."""
 
     async def publish(
-        self, post: ProcessedPost, channel: Channel, image_bytes: bytes | None
+        self,
+        post: ProcessedPost,
+        channel: Channel,
+        image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
+        if video_bytes:
+            logger.warning(
+                "VK publish: video not supported, using static image",
+                channel_id=channel.id,
+            )
         """Публикует пост на VK.
 
         Args:

@@ -82,6 +82,7 @@ class Settings(BaseSettings):
 
     # OpenAI (optional, gpt-image-2)
     openai_api_key: str = ""
+    openrouter_api_key: str = ""
 
     # Qwen-Image (DashScope) — основная генерация обложек
     qwen_image_api_key: str = ""

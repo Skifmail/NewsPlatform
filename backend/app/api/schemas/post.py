@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.api.schemas.channel import ChannelResponse
 from app.api.schemas.common import OrmSchema
+from app.infrastructure.media_store import public_media_url
 
 
 class RawPostPreview(OrmSchema):
@@ -34,6 +35,7 @@ class ProcessedPostResponse(OrmSchema):
     telegraph_url: str | None = None
     research_sources: str | None = None
     generated_image_url: str | None
+    generated_video_url: str | None
     image_source: str | None
     ai_model: str | None
     status: str
@@ -46,6 +48,12 @@ class ProcessedPostResponse(OrmSchema):
     updated_at: datetime
     raw_post: RawPostPreview | None = None
     channel: ChannelResponse | None = None
+
+    @model_validator(mode="after")
+    def _expose_public_media_urls(self) -> "ProcessedPostResponse":
+        self.generated_image_url = public_media_url(self.generated_image_url)
+        self.generated_video_url = public_media_url(self.generated_video_url)
+        return self
 
 
 class PublishHistoryResponse(BaseModel):
@@ -65,6 +73,7 @@ class ApproveRequest(BaseModel):
 
     rewritten_text: str | None = None
     generated_image_url: str | None = None
+    generated_video_url: str | None = None
     publish_immediately: bool = False
 
 
@@ -79,6 +88,7 @@ class UpdatePostRequest(BaseModel):
 
     rewritten_text: str | None = None
     generated_image_url: str | None = None
+    generated_video_url: str | None = None
 
 
 class ApprovedSummaryResponse(BaseModel):

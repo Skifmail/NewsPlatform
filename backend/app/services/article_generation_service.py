@@ -108,6 +108,9 @@ class ArticleGenerationService:
             postcard_cover_template=await self._prompts.get(
                 "image.cover_prompt_postcard"
             ),
+            postcard_animation_template=await self._prompts.get(
+                "image.postcard_animation"
+            ),
         )
 
     async def generate_for_channel(
@@ -283,6 +286,17 @@ class ArticleGenerationService:
             greeting_text=draft.greeting_text,
         )
 
+        video_url = None
+        if image_url:
+            await report_job_stage(
+                celery_task_id, "Анимация открытки…", 88
+            )
+            video_url = await images.maybe_animate_postcard(
+                channel=channel,
+                image_url=image_url,
+                article_title=draft.title,
+            )
+
         await report_job_stage(
             celery_task_id, "Сохранение в очередь модерации…", 92
         )
@@ -296,6 +310,7 @@ class ArticleGenerationService:
             article_body=draft.body_html,
             research_sources=serialize_research_sources(sources),
             generated_image_url=image_url,
+            generated_video_url=video_url,
             image_source=image_source,
             ai_model=settings.deepseek_model,
             status=PostStatus.PENDING.value,

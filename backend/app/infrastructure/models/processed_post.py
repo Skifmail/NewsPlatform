@@ -27,6 +27,7 @@ class ProcessedPost(Base):
     telegraph_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     research_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_video_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ai_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending")

@@ -11,7 +11,11 @@ class BasePublisher(ABC):
 
     @abstractmethod
     async def publish(
-        self, post: ProcessedPost, channel: Channel, image_bytes: bytes | None
+        self,
+        post: ProcessedPost,
+        channel: Channel,
+        image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Публикует пост.
 

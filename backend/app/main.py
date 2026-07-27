@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import analytics, ai_usage, auth, channels, history, jobs, logs, overview, posts, raw_posts, settings as settings_router
+from app.api.routers import analytics, ai_usage, auth, channels, history, jobs, logs, media, overview, posts, raw_posts, settings as settings_router
 from app.api.routers import prompts, sources, vk_oauth
 from app.api.websocket import router as ws_router, start_redis_listener
 from app.core.config import get_settings
@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    application.include_router(media.router, prefix="/api")
     application.include_router(auth.router, prefix="/api")
     application.include_router(jobs.router, prefix="/api")
     application.include_router(logs.router, prefix="/api")

@@ -355,6 +355,56 @@
           </div>
         </article>
 
+
+        <article class="ai-usage-card ai-usage-card-openrouter">
+          <h3 class="ai-usage-card-title">OpenRouter · Grok Imagine Video</h3>
+          <p class="ai-usage-card-sub">Анимация открыток после gpt-image-2</p>
+          <p class="field-hint">
+            Ключ с <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a>.
+            Модель по умолчанию: <span class="font-mono">x-ai/grok-imagine-video</span>.
+          </p>
+          <label class="field-label mt-3" for="openrouter-api-key">API-ключ OpenRouter</label>
+          <input
+            id="openrouter-api-key"
+            v-model="openrouterApiKey"
+            type="password"
+            class="input w-full mt-1 font-mono text-xs"
+            placeholder="sk-or-v1-…"
+            autocomplete="off"
+          />
+          <label class="field-label mt-3" for="openrouter-video-model">Модель видео</label>
+          <input
+            id="openrouter-video-model"
+            v-model="openrouterVideoModel"
+            type="text"
+            class="input w-full mt-1 font-mono text-xs"
+            placeholder="x-ai/grok-imagine-video"
+          />
+          <label class="field-label mt-3" for="postcard-animation-duration">
+            Длительность анимации (сек)
+          </label>
+          <input
+            id="postcard-animation-duration"
+            v-model.number="postcardAnimationDuration"
+            type="number"
+            min="1"
+            max="15"
+            step="1"
+            class="input w-full mt-1 font-mono text-xs"
+          />
+          <p class="field-hint mt-1">
+            Короткий GIF-эффект: 1–2 сек. Диапазон модели Grok: 1–15 сек.
+          </p>
+          <label class="active-toggle mt-4 block">
+            <input v-model="postcardAnimationEnabled" type="checkbox" class="active-checkbox" />
+            <span>Анимация открыток включена глобально</span>
+          </label>
+          <p class="field-hint mt-2">
+            Если выключено — все каналы получают только статичные картинки.
+            На канале открыток можно включить анимацию отдельно.
+          </p>
+        </article>
+
         <article class="ai-usage-card ai-usage-card-wide">
           <h3 class="ai-usage-card-title">Активность платформы</h3>
           <p class="ai-usage-card-sub">Локальный счётчик задач (не квоты провайдеров)</p>
@@ -794,6 +844,11 @@ const openaiNewKey = ref('')
 const openaiKeysSaving = ref(false)
 const openaiKeysError = ref('')
 
+const openrouterApiKey = ref('')
+const openrouterVideoModel = ref('x-ai/grok-imagine-video')
+const postcardAnimationEnabled = ref(true)
+const postcardAnimationDuration = ref(2)
+
 const tavilyUsagePercent = computed(() => {
   const t = aiUsage.value?.tavily
   if (!t || t.plan_limit == null || t.plan_usage == null || t.plan_limit <= 0) return null
@@ -890,6 +945,10 @@ function getFormSnapshot() {
     posts_per_day: postsPerDay.value,
     qwen_image_models: qwenImageModels.value,
     qwen_image_edit_models: qwenImageEditModels.value,
+    openrouter_api_key: openrouterApiKey.value,
+    openrouter_video_model: openrouterVideoModel.value,
+    postcard_animation_enabled: String(postcardAnimationEnabled.value),
+    postcard_animation_duration: String(postcardAnimationDuration.value),
   })
 }
 
@@ -979,6 +1038,10 @@ async function loadSettings() {
   postsPerDay.value = parseInt(s.posts_per_day || '10', 10)
   qwenImageModels.value = s.qwen_image_models || ''
   qwenImageEditModels.value = s.qwen_image_edit_models || ''
+  openrouterApiKey.value = s.openrouter_api_key || ''
+  openrouterVideoModel.value = s.openrouter_video_model || 'x-ai/grok-imagine-video'
+  postcardAnimationEnabled.value = boolFrom(s.postcard_animation_enabled, true)
+  postcardAnimationDuration.value = parseInt(s.postcard_animation_duration || '2', 10) || 2
   schedulerLastFetch.value = s.scheduler_last_fetch_at || ''
   schedulerLastRetention.value = s.scheduler_last_retention_at || ''
   tavilyKeys.value = parseTavilyResolved(s.tavily_keys_resolved)
@@ -1220,6 +1283,12 @@ async function save({ silent = false } = {}) {
         posts_per_day: String(postsPerDay.value),
         qwen_image_models: qwenImageModels.value,
         qwen_image_edit_models: qwenImageEditModels.value,
+        openrouter_api_key: openrouterApiKey.value.trim(),
+        openrouter_video_model: openrouterVideoModel.value.trim(),
+        postcard_animation_enabled: String(postcardAnimationEnabled.value),
+        postcard_animation_duration: String(
+          Math.min(15, Math.max(1, Number(postcardAnimationDuration.value) || 2)),
+        ),
       },
     })
     await loadSettings()

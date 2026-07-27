@@ -27,7 +27,21 @@
     <p class="post-text">{{ previewText }}</p>
 
     <div v-if="hasImage" class="post-image-wrap">
-      <img :src="post.generated_image_url" alt="" class="post-image" />
+      <video
+        v-if="post.generated_video_url"
+        :src="post.generated_video_url"
+        class="post-image"
+        autoplay
+        loop
+        muted
+        playsinline
+      />
+      <img
+        v-else-if="hasImage"
+        :src="post.generated_image_url"
+        alt=""
+        class="post-image"
+      />
     </div>
 
     <div class="post-actions">
@@ -83,8 +97,9 @@ const processedAtTitle = computed(() => {
 
 const hasImage = computed(
   () =>
-    props.post.generated_image_url &&
-    !props.post.generated_image_url.startsWith('telegram://')
+    (props.post.generated_video_url
+      || (props.post.generated_image_url
+        && !props.post.generated_image_url.startsWith('telegram://')))
 )
 
 const previewText = computed(() => stripHtmlForPreview(props.post.rewritten_text || ''))

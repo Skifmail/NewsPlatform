@@ -11,9 +11,11 @@ from PIL import Image
 
 from app.core.config import get_settings
 from app.domain.enums import ImageSource
+from app.domain.platform_settings import _parse_bool, clamp_postcard_animation_duration
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
 from app.infrastructure.ai.openai_key_chain import active_openai_key
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
+from app.infrastructure.ai.openrouter_video_client import OpenRouterVideoClient
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
 from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.ai.logo_compositor import build_github_logo_cover
@@ -62,6 +64,7 @@ class ImageGenPrompts:
     news_negative: str
     cover_template: str
     postcard_cover_template: str
+    postcard_animation_template: str = ""
 
 
 class ImageService:
@@ -77,12 +80,22 @@ class ImageService:
         generate_models: list[str] | None = None,
         edit_models: list[str] | None = None,
         openai_db_key: str | None = None,
+        openrouter_api_key: str | None = None,
+        openrouter_video_model: str = "x-ai/grok-imagine-video",
+        postcard_animation_enabled: bool = True,
+        postcard_animation_duration: int = 2,
         prompts: ImageGenPrompts | None = None,
     ) -> None:
         self._qwen = QwenImageClient()
         self._generate_models = generate_models
         self._edit_models = edit_models
         self._openai_db_key = openai_db_key
+        self._openrouter_api_key = (openrouter_api_key or "").strip()
+        self._openrouter_video_model = (openrouter_video_model or "x-ai/grok-imagine-video").strip()
+        self._postcard_animation_enabled = postcard_animation_enabled
+        self._postcard_animation_duration = clamp_postcard_animation_duration(
+            postcard_animation_duration
+        )
         self._prompts = prompts
 
     @classmethod
@@ -96,10 +109,31 @@ class ImageService:
         generate_raw = merged.get("qwen_image_models") if merged else None
         edit_raw = merged.get("qwen_image_edit_models") if merged else None
         openai_key = active_openai_key(merged.get("openai_api_keys")) if merged else None
+        openrouter_key = ""
+        animation_enabled = True
+        video_model = "x-ai/grok-imagine-video"
+        animation_duration = 2
+        if merged:
+            openrouter_key = (merged.get("openrouter_api_key") or "").strip()
+            animation_enabled = _parse_bool(
+                merged.get("postcard_animation_enabled", "true"), True
+            )
+            video_model = (
+                merged.get("openrouter_video_model") or "x-ai/grok-imagine-video"
+            )
+            animation_duration = clamp_postcard_animation_duration(
+                merged.get("postcard_animation_duration", "2")
+            )
+        if not openrouter_key:
+            openrouter_key = get_settings().openrouter_api_key.strip()
         return cls(
             generate_models=resolve_generate_models(generate_raw),
             edit_models=resolve_edit_models(edit_raw),
             openai_db_key=openai_key,
+            openrouter_api_key=openrouter_key or None,
+            openrouter_video_model=video_model,
+            postcard_animation_enabled=animation_enabled,
+            postcard_animation_duration=animation_duration,
             prompts=prompts,
         )
 
@@ -499,6 +533,83 @@ class ImageService:
         lowered = url.lower().split("?", 1)[0]
         blocked = (".pdf", ".doc", ".docx", ".ppt", ".pptx", ".zip")
         return not lowered.endswith(blocked)
+
+
+    async def maybe_animate_postcard(
+        self,
+        *,
+        channel: Channel,
+        image_url: str | None,
+        article_title: str,
+    ) -> str | None:
+        """Animate a postcard still via OpenRouter when enabled for the channel."""
+        if not image_url:
+            return None
+        if not is_postcard_article_channel(channel.name, channel.topic):
+            return None
+        if not getattr(channel, "animate_postcards", False):
+            return None
+        if not self._postcard_animation_enabled:
+            return None
+        if not self._openrouter_api_key:
+            logger.warning("Postcard animation skipped: OpenRouter API key missing")
+            return None
+
+        template = (self._require_prompts().postcard_animation_template or "").strip()
+        if not template:
+            template = (
+                "Деликатно анимируй сцену на открытке «{title}». "
+                "Двигаются только объекты сцены. "
+                "Текст и надписи остаются абсолютно неподвижными."
+            )
+        from app.utils.safe_format import safe_format
+
+        motion_prompt = safe_format(template, title=article_title.strip())
+        image_bytes = read_media(image_url)
+        if not image_bytes:
+            logger.warning("Postcard animation skipped: image not found", url=image_url)
+            return None
+
+        try:
+            client = OpenRouterVideoClient(
+                api_key=self._openrouter_api_key,
+                model=self._openrouter_video_model,
+            )
+            result = await client.animate_image(
+                image_bytes=image_bytes,
+                prompt=motion_prompt,
+                duration=self._postcard_animation_duration,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Postcard animation failed; publishing static image",
+                error=str(exc),
+                channel_id=channel.id,
+            )
+            return None
+
+        suffix = ".mp4" if "mp4" in result.content_type else ".mp4"
+        video_url = save_media(result.video_bytes, "animations", suffix)
+        logger.info(
+            "Postcard animated",
+            channel_id=channel.id,
+            job_id=result.job_id,
+            video_url=video_url,
+        )
+        return video_url
+
+    async def download_media_bytes(self, media_url: str) -> bytes | None:
+        """Download raw media bytes (image or video) without transcoding."""
+        if is_local_media_url(media_url):
+            return read_media(media_url)
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.get(media_url)
+                resp.raise_for_status()
+            return resp.content
+        except Exception as exc:
+            logger.warning("Media download failed", url=media_url, error=str(exc))
+            return None
 
     async def download_and_resize(
         self, image_url: str, max_size: tuple[int, int] = (1280, 1280)

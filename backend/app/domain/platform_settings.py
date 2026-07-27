@@ -97,6 +97,11 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "tavily_auto_switch": "true",
     # OpenAI: ключи для gpt-image-2 (открытки и fallback обложек).
     "openai_api_keys": "[]",
+    # OpenRouter: анимация открыток (Grok Imagine Video).
+    "openrouter_api_key": "",
+    "openrouter_video_model": "x-ai/grok-imagine-video",
+    "postcard_animation_enabled": "true",
+    "postcard_animation_duration": "2",
     CURATED_PICK_HISTORY_KEY: "[]",
 }
 
@@ -116,6 +121,15 @@ def _parse_int(value: str, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+def clamp_postcard_animation_duration(value: str | int, *, default: int = 2) -> int:
+    """Ограничивает длительность анимации открытки диапазоном Grok (1–15 сек)."""
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        seconds = default
+    return max(1, min(15, seconds))
 
 
 @dataclass(frozen=True)

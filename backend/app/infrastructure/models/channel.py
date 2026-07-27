@@ -24,6 +24,7 @@ class Channel(Base):
     cross_promote_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cross_promote_emoji_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     content_mode: Mapped[str] = mapped_column(String(32), default="news")
+    animate_postcards: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     publish_times: Mapped[str] = mapped_column(
         String(255),

@@ -115,8 +115,16 @@ class PublishService:
             await self._reject(post, "Дубликат: такой текст уже публиковался в этом канале")
             raise ValueError(msg)
 
+        video_bytes = None
         image_bytes = None
-        if post.generated_image_url:
+        if post.generated_video_url:
+            await report_job_stage(
+                celery_task_id, "Загрузка видео для публикации…", 45
+            )
+            video_bytes = await self._images.download_media_bytes(
+                post.generated_video_url
+            )
+        if post.generated_image_url and not video_bytes:
             await report_job_stage(
                 celery_task_id, "Загрузка изображения для публикации…", 45
             )
@@ -137,7 +145,9 @@ class PublishService:
                 f"Отправка в {channel.name}…",
                 72,
             )
-            platform_post_id = await publisher.publish(post, channel, image_bytes)
+            platform_post_id = await publisher.publish(
+                post, channel, image_bytes, video_bytes=video_bytes
+            )
             log.status = PublishStatus.SUCCESS.value
             log.platform_post_id = platform_post_id
             post.status = PostStatus.PUBLISHED.value

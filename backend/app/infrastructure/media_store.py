@@ -54,3 +54,12 @@ def read_media(url: str) -> bytes | None:
         return path.read_bytes()
     except OSError:
         return None
+
+
+def public_media_url(url: str | None) -> str | None:
+    """Convert ``local://`` storage URL to browser-accessible API path."""
+    if not url:
+        return None
+    if is_local_media_url(url):
+        return f"/api/media/{url.removeprefix(_LOCAL_SCHEME)}"
+    return url

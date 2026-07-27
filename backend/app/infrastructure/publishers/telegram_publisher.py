@@ -41,7 +41,11 @@ class TelegramPublisher(BasePublisher):
         self._user_publisher = TelegramUserPublisher()
 
     async def publish(
-        self, post: ProcessedPost, channel: Channel, image_bytes: bytes | None
+        self,
+        post: ProcessedPost,
+        channel: Channel,
+        image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Отправляет сообщение в канал.
 
@@ -57,7 +61,7 @@ class TelegramPublisher(BasePublisher):
             RuntimeError: при ошибке.
         """
         if post.content_mode == ContentMode.ARTICLE.value:
-            return await self._publish_article(post, channel, image_bytes)
+            return await self._publish_article(post, channel, image_bytes, video_bytes)
 
         settings = get_settings()
         if not settings.telegram_bot_token:
@@ -83,8 +87,9 @@ class TelegramPublisher(BasePublisher):
                 chat_id,
                 text,
                 image_bytes,
+                video_bytes=video_bytes,
                 channel=channel,
-                prefer_userbot=bool(image_bytes),
+                prefer_userbot=bool(image_bytes and not video_bytes),
             )
             logger.info(
                 "Telegram published",
@@ -105,6 +110,7 @@ class TelegramPublisher(BasePublisher):
         post: ProcessedPost,
         channel: Channel,
         image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Публикует статью: полный текст в TG (long-form) или анонс + Telegraph.
 
@@ -130,16 +136,17 @@ class TelegramPublisher(BasePublisher):
 
         if is_telegram_long_form_channel(channel):
             return await self._publish_long_form_article(
-                post, channel, image_bytes
+                post, channel, image_bytes, video_bytes
             )
 
-        return await self._publish_telegraph_article(post, channel, image_bytes)
+        return await self._publish_telegraph_article(post, channel, image_bytes, video_bytes)
 
     async def _publish_long_form_article(
         self,
         post: ProcessedPost,
         channel: Channel,
         image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Публикует статью целиком в Telegram без Telegraph (Github, Параграф)."""
         # Резервируем место под футер, чтобы кросс-промо ссылка не обрезалась.
@@ -171,8 +178,9 @@ class TelegramPublisher(BasePublisher):
                 chat_id,
                 text,
                 image_bytes,
+                video_bytes=video_bytes,
                 channel=channel,
-                prefer_userbot=True,
+                prefer_userbot=bool(image_bytes and not video_bytes),
             )
             logger.info(
                 "Telegram long-form article published",
@@ -194,6 +202,7 @@ class TelegramPublisher(BasePublisher):
         post: ProcessedPost,
         channel: Channel,
         image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Публикует анонс статьи со ссылкой на Telegraph (прочие article-каналы)."""
         if not post.article_body:
@@ -238,8 +247,13 @@ class TelegramPublisher(BasePublisher):
         chat_id = channel.platform_id
         try:
             message_id = await self._send_content(
-                bot, chat_id, caption, image_bytes, channel=channel,
-                prefer_userbot=bool(image_bytes),
+                bot,
+                chat_id,
+                caption,
+                image_bytes,
+                video_bytes=video_bytes,
+                channel=channel,
+                prefer_userbot=bool(image_bytes and not video_bytes),
             )
             logger.info(
                 "Telegram article teaser published",
@@ -262,6 +276,7 @@ class TelegramPublisher(BasePublisher):
         chat_id: str,
         text: str,
         image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
         *,
         channel: Channel | None = None,
         prefer_userbot: bool = False,
@@ -282,6 +297,7 @@ class TelegramPublisher(BasePublisher):
         use_userbot = (
             channel is not None
             and image_bytes
+            and not video_bytes
             and self._user_publisher.is_configured()
             and (
                 prefer_userbot
@@ -310,7 +326,7 @@ class TelegramPublisher(BasePublisher):
                     error=str(exc),
                 )
 
-        return await self._send_via_bot(bot, chat_id, text, image_bytes)
+        return await self._send_via_bot(bot, chat_id, text, image_bytes, video_bytes)
 
     @staticmethod
     def _map_telegram_error(exc: Exception) -> Exception:
@@ -327,9 +343,46 @@ class TelegramPublisher(BasePublisher):
         chat_id: str,
         text: str,
         image_bytes: bytes | None,
+        video_bytes: bytes | None = None,
     ) -> str:
         """Отправляет фото и/или текст через Bot API."""
         try:
+            if video_bytes:
+                video = BufferedInputFile(video_bytes, filename="postcard.mp4")
+                if len(text) <= TELEGRAM_BOT_CAPTION_MAX:
+                    result = await bot.send_video(
+                        chat_id=chat_id,
+                        video=video,
+                        caption=text,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return str(result.message_id)
+                video_msg = await bot.send_video(chat_id=chat_id, video=video)
+                try:
+                    text_msg = await bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode=ParseMode.HTML,
+                        reply_to_message_id=video_msg.message_id,
+                    )
+                except Exception as exc:
+                    try:
+                        await bot.delete_message(
+                            chat_id=chat_id,
+                            message_id=video_msg.message_id,
+                        )
+                    except Exception as rollback_exc:
+                        logger.warning(
+                            "Failed to delete orphan Telegram video",
+                            error=str(rollback_exc),
+                        )
+                    raise TelegramPublisher._map_telegram_error(exc) from exc
+                logger.info(
+                    "Telegram split publish: video + text reply",
+                    text_length=len(text),
+                )
+                return str(text_msg.message_id)
+
             if image_bytes:
                 photo = BufferedInputFile(image_bytes, filename="post.jpg")
                 if len(text) <= TELEGRAM_BOT_CAPTION_MAX:

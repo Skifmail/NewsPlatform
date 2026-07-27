@@ -40,6 +40,7 @@ class ChannelCreate(BaseModel):
     post_footer: str | None = None
     content_mode: str = Field("news", pattern="^(news|article)$")
     is_active: bool = True
+    animate_postcards: bool = False
     publish_times: str = Field(..., max_length=255)
 
     _norm_times = field_validator("publish_times")(
@@ -62,6 +63,7 @@ class ChannelUpdate(BaseModel):
     post_footer: str | None = None
     content_mode: str | None = Field(None, pattern="^(news|article)$")
     is_active: bool | None = None
+    animate_postcards: bool | None = None
     publish_times: str | None = Field(None, max_length=255)
 
     _norm_times = field_validator("publish_times")(
@@ -84,6 +86,7 @@ class ChannelResponse(OrmSchema):
     cross_promote_emoji_id: str | None
     post_footer: str | None
     content_mode: str
+    animate_postcards: bool
     is_active: bool
     publish_times: str
     created_at: datetime

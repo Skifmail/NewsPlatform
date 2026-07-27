@@ -808,6 +808,25 @@ _IMAGE_COVER_PROMPT = PromptDefaultEntry(
     sort_order=50,
 )
 
+
+_IMAGE_POSTCARD_ANIMATION = PromptDefaultEntry(
+    key="image.postcard_animation",
+    category="image_prompts",
+    name="Анимация открытки (Grok Imagine Video)",
+    description=(
+        "Инструкция для image-to-video: деликатное движение сцены, текст неподвижен"
+    ),
+    template_text=(
+        "Деликатно анимируй сцену на открытке «{title}»: естественное движение "
+        "объектов (волны, пар от чашки, пламя свечей, облака, птицы на фоне). "
+        "Весь текст, надписи и типографика остаются абсолютно неподвижными — "
+        "без морфинга букв, без дрейфа текста."
+    ),
+    template_variables=["title"],
+    channel_scope="postcard",
+    sort_order=65,
+)
+
 _IMAGE_COVER_PROMPT_POSTCARD = PromptDefaultEntry(
     key="image.cover_prompt_postcard",
     category="image_prompts",
@@ -942,6 +961,7 @@ PROMPT_DEFAULTS: dict[str, PromptDefaultEntry] = {
         _IMAGE_LOGO_EDIT_TEMPLATE,
         _IMAGE_COVER_PROMPT,
         _IMAGE_COVER_PROMPT_POSTCARD,
+        _IMAGE_POSTCARD_ANIMATION,
         # image_negatives
         _NEGATIVE_QWEN_NO_TEXT,
         _NEGATIVE_QWEN_NEWS,
