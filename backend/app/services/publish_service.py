@@ -6,6 +6,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import PostStatus, PublishStatus
+from app.domain.platform_settings import _parse_bool
 from app.domain.publish import PublishPermanentError
 from app.infrastructure.ai.image_service import ImageService
 from app.infrastructure.models.processed_post import ProcessedPost
@@ -121,7 +122,15 @@ class PublishService:
             await report_job_stage(
                 celery_task_id, "Загрузка медиа для публикации…", 45
             )
-        if post.generated_video_url:
+        animation_enabled = _parse_bool(
+            await self._settings.get("postcard_animation_enabled", "true"), True
+        )
+        channel_animates = getattr(channel, "animate_postcards", False)
+        if (
+            post.generated_video_url
+            and animation_enabled
+            and channel_animates
+        ):
             video_bytes = await self._images.download_media_bytes(
                 post.generated_video_url
             )

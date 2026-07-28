@@ -24,12 +24,24 @@ async def test_publish_service_loads_video_and_image() -> None:
         generated_image_url="local://covers/x.png",
         generated_video_url="local://animations/x.mp4",
     )
-    channel = Channel(id=1, name="Test", platform="max", platform_id="-1", topic="it")
+    channel = Channel(
+        id=1,
+        name="Test",
+        platform="max",
+        platform_id="-1",
+        topic="it",
+        animate_postcards=True,
+    )
     session = MagicMock()
     svc = PublishService(session)
     svc._processed.get_by_id = AsyncMock(return_value=post)
     svc._channels.get_by_id = AsyncMock(return_value=channel)
-    svc._settings.get = AsyncMock(return_value="10")
+    svc._settings.get = AsyncMock(
+        side_effect=lambda key, default="": {
+            "posts_per_day": "10",
+            "postcard_animation_enabled": "true",
+        }.get(key, default)
+    )
     svc._processed.count_published_today = AsyncMock(return_value=0)
     svc._processed.exists_by_hash = AsyncMock(return_value=False)
     svc._processed.update = AsyncMock()
@@ -141,3 +153,56 @@ async def test_vk_publish_prefers_video_attachment() -> None:
     assert post_id == "42"
     up_video.assert_awaited_once()
     up_photo.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_publish_service_skips_video_when_animation_disabled() -> None:
+    post = ProcessedPost(
+        id=1,
+        channel_id=1,
+        rewritten_text="<p>text</p>",
+        article_body="<p>body</p>",
+        status="approved",
+        generated_image_url="local://covers/x.png",
+        generated_video_url="local://animations/x.mp4",
+    )
+    channel = Channel(
+        id=1,
+        name="Test",
+        platform="vk",
+        platform_id="-1",
+        topic="postcard",
+        animate_postcards=True,
+    )
+    session = MagicMock()
+    svc = PublishService(session)
+    svc._processed.get_by_id = AsyncMock(return_value=post)
+    svc._channels.get_by_id = AsyncMock(return_value=channel)
+    svc._settings.get = AsyncMock(
+        side_effect=lambda key, default="": {
+            "posts_per_day": "10",
+            "postcard_animation_enabled": "false",
+        }.get(key, default)
+    )
+    svc._processed.count_published_today = AsyncMock(return_value=0)
+    svc._processed.exists_by_hash = AsyncMock(return_value=False)
+    svc._processed.update = AsyncMock()
+    svc._logs.create = AsyncMock(return_value=SimpleNamespace(id=1))
+    session.commit = AsyncMock()
+
+    publisher = MagicMock()
+    publisher.publish = AsyncMock(return_value="1")
+
+    with (
+        patch("app.services.publish_service.get_publisher", return_value=publisher),
+        patch.object(
+            svc._images, "download_media_bytes", AsyncMock(return_value=b"mp4")
+        ) as dl_video,
+        patch.object(
+            svc._images, "download_and_resize", AsyncMock(return_value=b"jpg")
+        ),
+    ):
+        await svc.publish_post(1)
+
+    dl_video.assert_not_called()
+    assert publisher.publish.await_args.kwargs.get("video_bytes") is None

@@ -1,7 +1,10 @@
 """Публикация во VK через API."""
 
+from io import BytesIO
+
 import aiohttp
 from loguru import logger
+from PIL import Image
 
 from app.core.config import get_settings
 from app.infrastructure.models.channel import Channel
@@ -12,6 +15,30 @@ from app.utils.vk_credentials import resolve_vk_token, resolve_vk_user_token
 
 # У VK лимит текста поста ~16000 символов; берём с запасом.
 _VK_MESSAGE_LIMIT = 15000
+_VK_WALL_PHOTO_MAX_SIZE = (1280, 1280)
+
+
+def _prepare_wall_photo_bytes(
+    image_bytes: bytes,
+    max_size: tuple[int, int] = _VK_WALL_PHOTO_MAX_SIZE,
+) -> bytes | None:
+    """Нормализует обложку в JPEG для photos.saveWallPhoto.
+
+    VK принимает только валидное изображение; PNG/WebP, переданные как JPEG,
+    приводят к ошибке upload/save и fallback в doc (файл на стене).
+    """
+    if not image_bytes:
+        return None
+    try:
+        img = Image.open(BytesIO(image_bytes))
+        img = img.convert("RGB")
+        img.thumbnail(max_size, Image.Resampling.LANCZOS)
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=85)
+        return buffer.getvalue()
+    except Exception as exc:
+        logger.error("VK wall photo prepare failed", error=str(exc))
+        return None
 
 
 def build_vk_message(post: ProcessedPost, limit: int = _VK_MESSAGE_LIMIT) -> str:
@@ -118,9 +145,21 @@ class VkPublisher(BasePublisher):
                 attachment = await self._upload_photo(
                     session, photo_token, api_version, owner_id, image_bytes
                 )
-                if not attachment:
+                # Doc-fallback только без user token — иначе картинка уходит «файлом».
+                if not attachment and not user_token:
+                    logger.warning(
+                        "VK photo upload unavailable without vk_user_token; "
+                        "falling back to doc attachment",
+                        channel_id=channel.id,
+                    )
                     attachment = await self._upload_photo_as_doc(
                         session, token, api_version, owner_id, image_bytes
+                    )
+                elif not attachment:
+                    logger.error(
+                        "VK photo upload failed; post will be text-only "
+                        "(doc fallback skipped to avoid file attachment)",
+                        channel_id=channel.id,
                     )
             if attachment:
                 params["attachments"] = attachment
@@ -274,6 +313,33 @@ class VkPublisher(BasePublisher):
             logger.error("VK GIF upload failed", error=str(exc))
             return None
 
+    async def _save_wall_photo(
+        self,
+        session: aiohttp.ClientSession,
+        save_params: dict[str, str | int],
+    ) -> dict | None:
+        """Сохраняет загруженное фото на стену (POST, затем GET при необходимости)."""
+        for method, kwargs in (
+            ("POST", {"data": save_params}),
+            ("GET", {"params": save_params}),
+        ):
+            async with session.request(
+                method,
+                "https://api.vk.com/method/photos.saveWallPhoto",
+                **kwargs,
+            ) as save_resp:
+                save_data = await save_resp.json()
+            if "error" not in save_data:
+                return save_data
+            err = save_data["error"]
+            logger.warning(
+                "VK saveWallPhoto failed",
+                method=method,
+                error_code=err.get("error_code"),
+                error_msg=err.get("error_msg", ""),
+            )
+        return None
+
     async def _upload_photo(
         self,
         session: aiohttp.ClientSession,
@@ -289,12 +355,16 @@ class VkPublisher(BasePublisher):
             token: VK-токен.
             api_version: версия API.
             owner_id: ID владельца/сообщества (для сообществ — отрицательный).
-            image_bytes: JPEG.
+            image_bytes: JPEG/PNG/WebP — будет нормализовано в JPEG.
 
         Returns:
             str | None: attachment вида photo{owner}_{id} или None при ошибке.
         """
         try:
+            prepared = _prepare_wall_photo_bytes(image_bytes)
+            if not prepared:
+                return None
+
             is_group = owner_id.startswith("-")
             group_id = abs(int(owner_id)) if is_group else None
 
@@ -328,10 +398,19 @@ class VkPublisher(BasePublisher):
 
             form = aiohttp.FormData()
             form.add_field(
-                "photo", image_bytes, filename="post.jpg", content_type="image/jpeg"
+                "photo", prepared, filename="post.jpg", content_type="image/jpeg"
             )
             async with session.post(upload_url, data=form) as upload_resp:
                 upload_data = await upload_resp.json()
+
+            if upload_data.get("error") or not all(
+                key in upload_data for key in ("photo", "server", "hash")
+            ):
+                logger.error(
+                    "VK photo upload server returned invalid payload",
+                    payload=upload_data,
+                )
+                return None
 
             save_params: dict[str, str | int] = {
                 "access_token": token,
@@ -342,20 +421,12 @@ class VkPublisher(BasePublisher):
             }
             if group_id is not None:
                 save_params["group_id"] = group_id
-            async with session.get(
-                "https://api.vk.com/method/photos.saveWallPhoto", params=save_params
-            ) as save_resp:
-                save_data = await save_resp.json()
-                if "error" in save_data:
-                    err = save_data["error"]
-                    logger.error(
-                        "VK saveWallPhoto failed",
-                        error_code=err.get("error_code"),
-                        error_msg=err.get("error_msg", ""),
-                    )
-                    return None
-                photo = save_data["response"][0]
-                return f"photo{photo['owner_id']}_{photo['id']}"
+
+            save_data = await self._save_wall_photo(session, save_params)
+            if not save_data:
+                return None
+            photo = save_data["response"][0]
+            return f"photo{photo['owner_id']}_{photo['id']}"
         except Exception as exc:
             logger.error("VK photo upload failed", error=str(exc))
             return None
@@ -402,9 +473,13 @@ class VkPublisher(BasePublisher):
                     return None
                 upload_url = data["response"]["upload_url"]
 
+            prepared = _prepare_wall_photo_bytes(image_bytes)
+            if not prepared:
+                return None
+
             form = aiohttp.FormData()
             form.add_field(
-                "file", image_bytes, filename="post.jpg", content_type="image/jpeg"
+                "file", prepared, filename="post.jpg", content_type="image/jpeg"
             )
             async with session.post(upload_url, data=form) as upload_resp:
                 upload_data = await upload_resp.json()

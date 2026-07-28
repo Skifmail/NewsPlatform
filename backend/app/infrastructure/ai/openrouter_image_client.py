@@ -21,6 +21,18 @@ _SIZE_TO_ASPECT_RATIO: dict[str, str] = {
     "1024x1792": "9:16",
 }
 
+# Seedream 4.5 rejects 2K for non-square ratios (e.g. 3:2 → 2048×1366 < min pixels).
+
+
+def _effective_resolution(aspect_ratio: str, resolution: str) -> str:
+    """Bump resolution for wide/tall ratios that fall below Seedream minimum at 2K."""
+    normalized = (resolution or _DEFAULT_RESOLUTION).strip().upper()
+    if aspect_ratio == "1:1":
+        return normalized
+    if normalized in {"1K", "2K"}:
+        return "4K"
+    return normalized
+
 
 @dataclass(frozen=True)
 class OpenRouterImageResult:
@@ -71,12 +83,12 @@ class OpenRouterImageClient:
             return None
 
         aspect_ratio = _SIZE_TO_ASPECT_RATIO.get(size, "auto")
+        resolution = _effective_resolution(aspect_ratio, self._resolution)
         payload = {
             "model": self._model,
             "prompt": text,
             "aspect_ratio": aspect_ratio,
-            "resolution": self._resolution,
-            "n": max(1, min(10, n)),
+            "resolution": resolution,
         }
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -92,12 +104,26 @@ class OpenRouterImageClient:
                 )
                 response.raise_for_status()
                 body = response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text[:500] if exc.response is not None else ""
+            logger.error(
+                "OpenRouter image generation failed: {err} | response={detail}",
+                err=str(exc),
+                detail=detail,
+                error_type=type(exc).__name__,
+                model=self._model,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+            )
+            return None
         except Exception as exc:
             logger.error(
                 "OpenRouter image generation failed: {err}",
                 err=str(exc),
                 error_type=type(exc).__name__,
                 model=self._model,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
             )
             return None
 
