@@ -59,8 +59,8 @@ async def test_postcard_primary_path_sends_simple_request_to_gpt_image() -> None
 
 
 @pytest.mark.asyncio
-async def test_direct_postcard_cover_keeps_text_and_uses_square_high() -> None:
-    svc = ImageService(prompts=_prompts())
+async def test_direct_postcard_cover_uses_configured_openai_quality() -> None:
+    svc = ImageService(prompts=_prompts(), openai_image_quality="medium")
     svc._call_cover_image = AsyncMock(return_value="https://gen/direct.png")
 
     url = await svc._generate_postcard_dalle_cover(
@@ -71,7 +71,6 @@ async def test_direct_postcard_cover_keeps_text_and_uses_square_high() -> None:
     svc._call_cover_image.assert_awaited_once_with(
         'Открытка с надписью «Доброго утра!»',
         size="1024x1024",
-        quality="high",
     )
 
 

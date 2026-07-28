@@ -177,6 +177,13 @@ async def update_settings(
             )
         filtered["openrouter_image_resolution"] = resolution
 
+    if "openai_image_quality" in filtered:
+        from app.domain.platform_settings import normalize_openai_image_quality
+
+        filtered["openai_image_quality"] = normalize_openai_image_quality(
+            filtered["openai_image_quality"]
+        )
+
     if "openai_api_keys" in filtered:
         previous_openai = await repo.get("openai_api_keys", "[]")
         try:

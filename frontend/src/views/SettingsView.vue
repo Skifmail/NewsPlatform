@@ -415,6 +415,21 @@
               </template>
 
               <template v-else>
+                <label class="field-label mt-4" for="openai-image-quality">Качество GPT Image 2</label>
+                <select
+                  id="openai-image-quality"
+                  v-model="openaiImageQuality"
+                  class="input w-full mt-1 font-mono text-xs"
+                >
+                  <option value="low">low — ~$0.01, черновик</option>
+                  <option value="medium">medium — ~$0.05, баланс цена/качество</option>
+                  <option value="high">high — ~$0.17–0.21, максимум</option>
+                  <option value="auto">auto — модель выбирает сама</option>
+                </select>
+                <p class="field-hint mt-1">
+                  Применяется к открыткам и paragraph-обложкам при провайдере OpenAI.
+                </p>
+
                 <template v-if="aiUsage.openai.error">
                   <p class="ai-usage-error-inline mt-3">{{ aiUsage.openai.error }}</p>
                 </template>
@@ -1297,6 +1312,7 @@ const openaiKeysSaving = ref(false)
 const openaiKeysError = ref('')
 
 const coverImageProvider = ref('openai')
+const openaiImageQuality = ref('high')
 const openrouterImageModel = ref('bytedance-seed/seedream-4.5')
 const openrouterImageResolution = ref('2K')
 const coverImageParamsSaving = ref(false)
@@ -1519,6 +1535,7 @@ async function loadSettings() {
   tavilyAutoSwitch.value = boolFrom(s.tavily_auto_switch, true)
   openaiKeys.value = parseOpenaiKeys(s.openai_api_keys)
   coverImageProvider.value = s.cover_image_provider === 'openrouter' ? 'openrouter' : 'openai'
+  openaiImageQuality.value = s.openai_image_quality || 'high'
   openrouterImageModel.value = s.openrouter_image_model || 'bytedance-seed/seedream-4.5'
   openrouterImageResolution.value = s.openrouter_image_resolution || '2K'
   markSaved()
@@ -1740,6 +1757,7 @@ async function saveCoverImageParams() {
     await settingsApi.update({
       settings: {
         cover_image_provider: coverImageProvider.value,
+        openai_image_quality: openaiImageQuality.value,
         openrouter_image_model: openrouterImageModel.value.trim(),
         openrouter_image_resolution: openrouterImageResolution.value,
       },

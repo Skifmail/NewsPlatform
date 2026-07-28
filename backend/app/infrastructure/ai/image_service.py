@@ -16,6 +16,7 @@ from app.domain.platform_settings import (
     clamp_postcard_animation_duration,
     clamp_postcard_gif_quality,
     clamp_postcard_gif_width,
+    normalize_openai_image_quality,
 )
 from app.infrastructure.ai.openrouter_key_chain import active_openrouter_key
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
@@ -91,6 +92,7 @@ class ImageService:
         openai_db_key: str | None = None,
         openrouter_api_key: str | None = None,
         cover_image_provider: str = "openai",
+        openai_image_quality: str = "high",
         openrouter_image_model: str = "bytedance-seed/seedream-4.5",
         openrouter_image_resolution: str = "2K",
         openrouter_video_model: str = "x-ai/grok-imagine-video",
@@ -107,6 +109,7 @@ class ImageService:
         self._openai_db_key = openai_db_key
         self._openrouter_api_key = (openrouter_api_key or "").strip()
         self._cover_image_provider = (cover_image_provider or "openai").strip().lower()
+        self._openai_image_quality = normalize_openai_image_quality(openai_image_quality)
         self._openrouter_image_model = (
             openrouter_image_model or "bytedance-seed/seedream-4.5"
         ).strip()
@@ -136,6 +139,7 @@ class ImageService:
         openai_key = active_openai_key(merged.get("openai_api_keys")) if merged else None
         openrouter_key = ""
         cover_provider = "openai"
+        openai_quality = "high"
         image_model = "bytedance-seed/seedream-4.5"
         image_resolution = "2K"
         animation_enabled = True
@@ -149,6 +153,9 @@ class ImageService:
             if not openrouter_key:
                 openrouter_key = (merged.get("openrouter_api_key") or "").strip()
             cover_provider = (merged.get("cover_image_provider") or "openai").strip().lower()
+            openai_quality = normalize_openai_image_quality(
+                merged.get("openai_image_quality", "high")
+            )
             image_model = (
                 merged.get("openrouter_image_model") or "bytedance-seed/seedream-4.5"
             ).strip()
@@ -179,6 +186,7 @@ class ImageService:
             openai_db_key=openai_key,
             openrouter_api_key=openrouter_key or None,
             cover_image_provider=cover_provider,
+            openai_image_quality=openai_quality,
             openrouter_image_model=image_model,
             openrouter_image_resolution=image_resolution,
             openrouter_video_model=video_model,
@@ -468,7 +476,6 @@ class ImageService:
         return await self._call_cover_image(
             prompt[:2000],
             size="1024x1024",
-            quality="high",
         )
 
     async def _generate_with_qwen_constraints(self, prompt: str | None) -> str | None:
@@ -554,7 +561,7 @@ class ImageService:
         НЕ запрещает текст — gpt-image-2 и Seedream умеют рендерить типографику.
         """
         return await self._call_cover_image(
-            prompt[:1500], size="1536x1024", quality="high",
+            prompt[:1500], size="1536x1024",
         )
 
     async def _call_cover_image(
@@ -562,12 +569,15 @@ class ImageService:
         prompt: str,
         *,
         size: str = "1024x1024",
-        quality: str = "medium",
+        quality: str | None = None,
     ) -> str | None:
         """Dispatch premium cover generation to the configured provider."""
         if self._cover_image_provider == "openrouter":
             return await self._call_openrouter_image(prompt, size=size)
-        return await self._call_openai_image(prompt, size=size, quality=quality)
+        effective_quality = quality or self._openai_image_quality
+        return await self._call_openai_image(
+            prompt, size=size, quality=effective_quality
+        )
 
     async def _call_openrouter_image(
         self,

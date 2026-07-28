@@ -12,6 +12,15 @@ from app.domain.curated_pick import CURATED_PICK_HISTORY_KEY
 from app.domain.enums import Topic
 
 _OPENAI_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9._:-]{2,100}$")
+_OPENAI_IMAGE_QUALITIES = frozenset({"low", "medium", "high", "auto"})
+
+
+def normalize_openai_image_quality(value: str, *, default: str = "high") -> str:
+    """Return a valid gpt-image-2 quality setting."""
+    normalized = (value or default).strip().lower()
+    if normalized in _OPENAI_IMAGE_QUALITIES:
+        return normalized
+    return default
 
 
 def is_valid_openai_model_name(value: str) -> bool:
@@ -99,6 +108,7 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "openai_api_keys": "[]",
     # Premium-обложки: OpenAI gpt-image-2 или OpenRouter (Seedream и др.).
     "cover_image_provider": "openai",
+    "openai_image_quality": "high",
     "openrouter_image_model": "bytedance-seed/seedream-4.5",
     "openrouter_image_resolution": "2K",
     # OpenRouter: анимация открыток (Grok Imagine Video).
