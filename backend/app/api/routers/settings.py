@@ -150,6 +150,33 @@ async def update_settings(
             clamp_postcard_gif_width(filtered["postcard_gif_width"])
         )
 
+    if "cover_image_provider" in filtered:
+        provider = filtered["cover_image_provider"].strip().lower()
+        if provider not in {"openai", "openrouter"}:
+            raise HTTPException(
+                status_code=400,
+                detail="cover_image_provider must be 'openai' or 'openrouter'",
+            )
+        filtered["cover_image_provider"] = provider
+
+    if "openrouter_image_model" in filtered:
+        model = filtered["openrouter_image_model"].strip()
+        if not model:
+            raise HTTPException(
+                status_code=400,
+                detail="openrouter_image_model must not be empty",
+            )
+        filtered["openrouter_image_model"] = model
+
+    if "openrouter_image_resolution" in filtered:
+        resolution = filtered["openrouter_image_resolution"].strip().upper()
+        if resolution not in {"1K", "2K", "4K"}:
+            raise HTTPException(
+                status_code=400,
+                detail="openrouter_image_resolution must be 1K, 2K, or 4K",
+            )
+        filtered["openrouter_image_resolution"] = resolution
+
     if "openai_api_keys" in filtered:
         previous_openai = await repo.get("openai_api_keys", "[]")
         try:

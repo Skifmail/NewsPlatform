@@ -61,17 +61,36 @@ async def test_postcard_primary_path_sends_simple_request_to_gpt_image() -> None
 @pytest.mark.asyncio
 async def test_direct_postcard_cover_keeps_text_and_uses_square_high() -> None:
     svc = ImageService(prompts=_prompts())
-    svc._call_openai_image = AsyncMock(return_value="https://gen/direct.png")
+    svc._call_cover_image = AsyncMock(return_value="https://gen/direct.png")
 
     url = await svc._generate_postcard_dalle_cover(
         'Открытка с надписью «Доброго утра!»'
     )
 
     assert url == "https://gen/direct.png"
-    svc._call_openai_image.assert_awaited_once_with(
+    svc._call_cover_image.assert_awaited_once_with(
         'Открытка с надписью «Доброго утра!»',
         size="1024x1024",
         quality="high",
+    )
+
+
+@pytest.mark.asyncio
+async def test_cover_image_routes_to_openrouter_when_configured() -> None:
+    svc = ImageService(
+        prompts=_prompts(),
+        cover_image_provider="openrouter",
+        openrouter_api_key="sk-or-test",
+        openrouter_image_model="bytedance-seed/seedream-4.5",
+    )
+    svc._call_openrouter_image = AsyncMock(return_value="https://gen/seedream.png")
+
+    url = await svc._call_cover_image("Test prompt", size="1024x1024", quality="high")
+
+    assert url == "https://gen/seedream.png"
+    svc._call_openrouter_image.assert_awaited_once_with(
+        "Test prompt",
+        size="1024x1024",
     )
 
 

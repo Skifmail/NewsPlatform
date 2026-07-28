@@ -331,24 +331,24 @@
           </transition>
         </article>
 
-        <!-- OpenAI -->
+        <!-- Premium covers (OpenAI / OpenRouter) -->
         <article class="provider-row" :class="{ 'is-open': expandedProvider === 'openai' }">
           <button type="button" class="provider-header" @click="toggleProvider('openai')">
             <div class="provider-header-main">
               <span class="chevron" :class="{ open: expandedProvider === 'openai' }">▸</span>
               <div class="provider-title-block">
-                <span class="provider-title">OpenAI</span>
-                <span class="provider-sub">GPT Image 2 · обложки</span>
+                <span class="provider-title">Обложки Premium</span>
+                <span class="provider-sub">{{ coverImageProviderLabel }}</span>
               </div>
             </div>
             <div class="provider-metrics">
               <div class="provider-metric">
                 <span class="provider-metric-val">{{ providerSummaries.openai.balance }}</span>
-                <span class="provider-metric-label">ключи</span>
+                <span class="provider-metric-label">{{ coverImageProvider === 'openrouter' ? 'модель' : 'ключи' }}</span>
               </div>
               <div class="provider-metric">
                 <span class="provider-metric-val">{{ providerSummaries.openai.spend }}</span>
-                <span class="provider-metric-label">расход 30д</span>
+                <span class="provider-metric-label">{{ coverImageProvider === 'openrouter' ? 'OpenRouter' : 'расход 30д' }}</span>
               </div>
               <div class="provider-metric">
                 <span class="provider-metric-val" :class="providerSummaries.openai.statusClass">{{ providerSummaries.openai.limit }}</span>
@@ -358,34 +358,91 @@
           </button>
           <transition name="expand" @enter="startExpand" @after-enter="endExpand" @before-leave="startCollapse" @leave="doCollapse">
             <div v-if="expandedProvider === 'openai'" class="expand-body provider-body">
-              <template v-if="aiUsage.openai.error">
-                <p class="ai-usage-error-inline">{{ aiUsage.openai.error }}</p>
-              </template>
-              <template v-else-if="aiUsage.openai.total_spent_30d != null">
-                <p class="ai-usage-balance">
-                  {{ aiUsage.openai.total_spent_30d.toFixed(2) }}
-                  <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
-                  <span class="ai-usage-muted" style="margin-left:.4em">за 30 дней</span>
-                </p>
-              </template>
-              <template v-else>
-                <p class="ai-usage-muted">
-                  <span :class="(aiUsage.openai.configured || openaiKeys.length) ? 'badge-accent' : 'badge-muted'">
-                    {{ (aiUsage.openai.configured || openaiKeys.length) ? 'Ключ задан' : 'Не используется' }}
-                  </span>
-                  <span v-if="aiUsage.openai.configured" class="ai-usage-muted" style="margin-left:.5em">
-                    (.env)
-                  </span>
-                </p>
-              </template>
-              <p v-if="aiUsage.openai.note" class="ai-usage-muted">{{ aiUsage.openai.note }}</p>
+              <p class="ai-usage-kpi-label">Провайдер генерации</p>
+              <div class="cover-provider-switch mt-1">
+                <label class="cover-provider-option">
+                  <input
+                    v-model="coverImageProvider"
+                    type="radio"
+                    value="openai"
+                    name="cover-image-provider"
+                  />
+                  <span>OpenAI · GPT Image 2</span>
+                </label>
+                <label class="cover-provider-option">
+                  <input
+                    v-model="coverImageProvider"
+                    type="radio"
+                    value="openrouter"
+                    name="cover-image-provider"
+                  />
+                  <span>OpenRouter · Seedream и др.</span>
+                </label>
+              </div>
+              <p class="field-hint mt-2">
+                Используется для открыток и paragraph-каналов (premium-обложки).
+                При ошибке — fallback на Qwen.
+              </p>
 
-              <div class="tavily-keys-block">
-                <p class="ai-usage-kpi-label">Ключи из панели</p>
-                <p class="ai-usage-muted ai-usage-explainer">
-                  Первый включённый ключ используется для генерации GPT Image 2.
-                  Переключайте тумблером — выключенные ключи не расходуются.
+              <template v-if="coverImageProvider === 'openrouter'">
+                <label class="field-label mt-4" for="openrouter-image-model">Модель изображений</label>
+                <input
+                  id="openrouter-image-model"
+                  v-model="openrouterImageModel"
+                  type="text"
+                  class="input w-full mt-1 font-mono text-xs"
+                  placeholder="bytedance-seed/seedream-4.5"
+                />
+                <label class="field-label mt-3" for="openrouter-image-resolution">Разрешение</label>
+                <select
+                  id="openrouter-image-resolution"
+                  v-model="openrouterImageResolution"
+                  class="input w-full mt-1 font-mono text-xs"
+                >
+                  <option value="1K">1K</option>
+                  <option value="2K">2K</option>
+                  <option value="4K">4K</option>
+                </select>
+                <p class="field-hint mt-2">
+                  Ключ OpenRouter берётся из блока «OpenRouter» ниже — один ключ
+                  для видео-анимации и генерации картинок.
                 </p>
+                <p class="ai-usage-muted mt-2">
+                  <span :class="(aiUsage.openrouter?.configured || openrouterKeys.length) ? 'badge-accent' : 'badge-muted'">
+                    {{ (aiUsage.openrouter?.configured || openrouterKeys.length) ? 'Ключ OpenRouter задан' : 'Нужен ключ OpenRouter' }}
+                  </span>
+                </p>
+              </template>
+
+              <template v-else>
+                <template v-if="aiUsage.openai.error">
+                  <p class="ai-usage-error-inline mt-3">{{ aiUsage.openai.error }}</p>
+                </template>
+                <template v-else-if="aiUsage.openai.total_spent_30d != null">
+                  <p class="ai-usage-balance mt-3">
+                    {{ aiUsage.openai.total_spent_30d.toFixed(2) }}
+                    <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
+                    <span class="ai-usage-muted" style="margin-left:.4em">за 30 дней</span>
+                  </p>
+                </template>
+                <template v-else>
+                  <p class="ai-usage-muted mt-3">
+                    <span :class="(aiUsage.openai.configured || openaiKeys.length) ? 'badge-accent' : 'badge-muted'">
+                      {{ (aiUsage.openai.configured || openaiKeys.length) ? 'Ключ задан' : 'Не используется' }}
+                    </span>
+                    <span v-if="aiUsage.openai.configured" class="ai-usage-muted" style="margin-left:.5em">
+                      (.env)
+                    </span>
+                  </p>
+                </template>
+                <p v-if="aiUsage.openai.note" class="ai-usage-muted">{{ aiUsage.openai.note }}</p>
+
+                <div class="tavily-keys-block mt-3">
+                  <p class="ai-usage-kpi-label">Ключи OpenAI из панели</p>
+                  <p class="ai-usage-muted ai-usage-explainer">
+                    Первый включённый ключ используется для GPT Image 2.
+                    Переключайте тумблером — выключенные ключи не расходуются.
+                  </p>
                 <ul v-if="openaiKeys.length" class="tavily-keys-list">
                   <li v-for="item in openaiKeys" :key="item.id" class="tavily-key-row">
                     <label class="tavily-key-select openai-key-select">
@@ -443,7 +500,18 @@
                   </button>
                 </div>
                 <p v-if="openaiKeysError" class="ai-usage-error-inline">{{ openaiKeysError }}</p>
-              </div>
+                </div>
+              </template>
+
+              <p v-if="coverImageParamsError" class="ai-usage-error-inline mt-2">{{ coverImageParamsError }}</p>
+              <button
+                type="button"
+                class="btn-secondary btn-compact mt-4"
+                :disabled="coverImageParamsSaving"
+                @click="saveCoverImageParams"
+              >
+                {{ coverImageParamsSaving ? 'Сохранение…' : 'Сохранить провайдер' }}
+              </button>
             </div>
           </transition>
         </article>
@@ -455,7 +523,7 @@
               <span class="chevron" :class="{ open: expandedProvider === 'openrouter' }">▸</span>
               <div class="provider-title-block">
                 <span class="provider-title">OpenRouter</span>
-                <span class="provider-sub">Grok Imagine Video · анимация</span>
+                <span class="provider-sub">Grok Video · Seedream · анимация</span>
               </div>
             </div>
             <div class="provider-metrics">
@@ -519,7 +587,8 @@
               <div class="tavily-keys-block mt-3">
                 <p class="ai-usage-kpi-label">Ключи из панели</p>
                 <p class="ai-usage-muted ai-usage-explainer">
-                  Первый включённый ключ используется для анимации обложек.
+                  Первый включённый ключ используется для анимации обложек
+                  и генерации картинок через OpenRouter (если выбран в блоке выше).
                 </p>
                 <ul v-if="openrouterKeys.length" class="tavily-keys-list">
                   <li v-for="item in openrouterKeys" :key="item.id" class="tavily-key-row">
@@ -1159,10 +1228,36 @@ const providerSummaries = computed(() => {
       statusClass: qw?.exhausted_count ? 'is-bad' : '',
     },
     openai: {
-      balance: String(openaiKeys.value.filter((k) => k.enabled).length || (oa?.configured ? 1 : 0)),
-      spend: oa?.total_spent_30d != null ? fmtSpend(oa.total_spent_30d) : '—',
-      limit: oa?.error ? 'ошибка' : oa?.configured || openaiKeys.value.length ? 'OK' : 'нет ключа',
-      statusClass: oa?.error ? 'is-bad' : '',
+      balance:
+        coverImageProvider.value === 'openrouter'
+          ? openrouterImageModel.value.replace(/^.*\//, '').slice(0, 18) || '—'
+          : String(openaiKeys.value.filter((k) => k.enabled).length || (oa?.configured ? 1 : 0)),
+      spend:
+        coverImageProvider.value === 'openrouter'
+          ? (or_?.remaining != null ? fmtSpend(or_.remaining) : or_?.configured ? 'OK' : '—')
+          : oa?.total_spent_30d != null
+            ? fmtSpend(oa.total_spent_30d)
+            : '—',
+      limit:
+        coverImageProvider.value === 'openrouter'
+          ? or_?.error
+            ? 'ошибка'
+            : or_?.configured || openrouterKeys.value.length
+              ? 'OK'
+              : 'нет ключа'
+          : oa?.error
+            ? 'ошибка'
+            : oa?.configured || openaiKeys.value.length
+              ? 'OK'
+              : 'нет ключа',
+      statusClass:
+        coverImageProvider.value === 'openrouter'
+          ? or_?.error
+            ? 'is-bad'
+            : ''
+          : oa?.error
+            ? 'is-bad'
+            : '',
     },
     openrouter: {
       balance: or_?.remaining != null ? fmtSpend(or_.remaining) : or_?.configured ? fmtSpend(or_.key_usage) : '—',
@@ -1171,6 +1266,14 @@ const providerSummaries = computed(() => {
       statusClass: or_?.error ? 'is-bad' : '',
     },
   }
+})
+
+const coverImageProviderLabel = computed(() => {
+  if (coverImageProvider.value === 'openrouter') {
+    const model = openrouterImageModel.value.trim() || 'bytedance-seed/seedream-4.5'
+    return `OpenRouter · ${model.replace(/^.*\//, '')}`
+  }
+  return 'OpenAI · GPT Image 2'
 })
 
 const deepseekSpark = computed(() => {
@@ -1192,6 +1295,12 @@ const openaiNewNote = ref('')
 const openaiNewKey = ref('')
 const openaiKeysSaving = ref(false)
 const openaiKeysError = ref('')
+
+const coverImageProvider = ref('openai')
+const openrouterImageModel = ref('bytedance-seed/seedream-4.5')
+const openrouterImageResolution = ref('2K')
+const coverImageParamsSaving = ref(false)
+const coverImageParamsError = ref('')
 
 const openrouterKeys = ref([])
 const openrouterNewLabel = ref('')
@@ -1409,6 +1518,9 @@ async function loadSettings() {
   tavilyActiveKeyId.value = s.tavily_active_key_id || tavilyKeys.value[0]?.id || ''
   tavilyAutoSwitch.value = boolFrom(s.tavily_auto_switch, true)
   openaiKeys.value = parseOpenaiKeys(s.openai_api_keys)
+  coverImageProvider.value = s.cover_image_provider === 'openrouter' ? 'openrouter' : 'openai'
+  openrouterImageModel.value = s.openrouter_image_model || 'bytedance-seed/seedream-4.5'
+  openrouterImageResolution.value = s.openrouter_image_resolution || '2K'
   markSaved()
 }
 
@@ -1618,6 +1730,29 @@ async function toggleOpenaiKey(keyId, enabled) {
     })
   } catch {
     /* ошибка уже в openaiKeysError */
+  }
+}
+
+async function saveCoverImageParams() {
+  coverImageParamsSaving.value = true
+  coverImageParamsError.value = ''
+  try {
+    await settingsApi.update({
+      settings: {
+        cover_image_provider: coverImageProvider.value,
+        openrouter_image_model: openrouterImageModel.value.trim(),
+        openrouter_image_resolution: openrouterImageResolution.value,
+      },
+    })
+    await dialog.alert({
+      title: 'Обложки Premium',
+      message: 'Провайдер генерации сохранён.',
+    })
+  } catch (err) {
+    coverImageParamsError.value =
+      err.response?.data?.detail || 'Не удалось сохранить провайдер обложек'
+  } finally {
+    coverImageParamsSaving.value = false
   }
 }
 
@@ -2202,5 +2337,13 @@ async function save({ silent = false } = {}) {
 
 .openai-key-note {
   @apply text-[10px] text-[var(--text-secondary)] italic;
+}
+
+.cover-provider-switch {
+  @apply flex flex-col gap-2;
+}
+
+.cover-provider-option {
+  @apply flex items-center gap-2 text-sm cursor-pointer;
 }
 </style>

@@ -20,6 +20,7 @@ from app.domain.platform_settings import (
 from app.infrastructure.ai.openrouter_key_chain import active_openrouter_key
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
 from app.infrastructure.ai.openai_key_chain import active_openai_key
+from app.infrastructure.ai.openrouter_image_client import OpenRouterImageClient
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.ai.openrouter_video_client import OpenRouterVideoClient
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
@@ -89,6 +90,9 @@ class ImageService:
         edit_models: list[str] | None = None,
         openai_db_key: str | None = None,
         openrouter_api_key: str | None = None,
+        cover_image_provider: str = "openai",
+        openrouter_image_model: str = "bytedance-seed/seedream-4.5",
+        openrouter_image_resolution: str = "2K",
         openrouter_video_model: str = "x-ai/grok-imagine-video",
         postcard_animation_enabled: bool = True,
         postcard_animation_duration: int = 2,
@@ -102,6 +106,13 @@ class ImageService:
         self._edit_models = edit_models
         self._openai_db_key = openai_db_key
         self._openrouter_api_key = (openrouter_api_key or "").strip()
+        self._cover_image_provider = (cover_image_provider or "openai").strip().lower()
+        self._openrouter_image_model = (
+            openrouter_image_model or "bytedance-seed/seedream-4.5"
+        ).strip()
+        self._openrouter_image_resolution = (
+            openrouter_image_resolution or "2K"
+        ).strip()
         self._openrouter_video_model = (openrouter_video_model or "x-ai/grok-imagine-video").strip()
         self._postcard_animation_enabled = postcard_animation_enabled
         self._postcard_animation_duration = clamp_postcard_animation_duration(
@@ -124,6 +135,9 @@ class ImageService:
         edit_raw = merged.get("qwen_image_edit_models") if merged else None
         openai_key = active_openai_key(merged.get("openai_api_keys")) if merged else None
         openrouter_key = ""
+        cover_provider = "openai"
+        image_model = "bytedance-seed/seedream-4.5"
+        image_resolution = "2K"
         animation_enabled = True
         video_model = "x-ai/grok-imagine-video"
         animation_duration = 2
@@ -134,6 +148,11 @@ class ImageService:
             openrouter_key = active_openrouter_key(merged.get("openrouter_api_keys")) or ""
             if not openrouter_key:
                 openrouter_key = (merged.get("openrouter_api_key") or "").strip()
+            cover_provider = (merged.get("cover_image_provider") or "openai").strip().lower()
+            image_model = (
+                merged.get("openrouter_image_model") or "bytedance-seed/seedream-4.5"
+            ).strip()
+            image_resolution = (merged.get("openrouter_image_resolution") or "2K").strip()
             animation_enabled = _parse_bool(
                 merged.get("postcard_animation_enabled", "true"), True
             )
@@ -159,6 +178,9 @@ class ImageService:
             edit_models=resolve_edit_models(edit_raw),
             openai_db_key=openai_key,
             openrouter_api_key=openrouter_key or None,
+            cover_image_provider=cover_provider,
+            openrouter_image_model=image_model,
+            openrouter_image_resolution=image_resolution,
             openrouter_video_model=video_model,
             postcard_animation_enabled=animation_enabled,
             postcard_animation_duration=animation_duration,
@@ -187,11 +209,13 @@ class ImageService:
         """Проверяет, настроена ли хотя бы одна модель генерации изображений.
 
         Returns:
-            bool: True если задан Qwen или OpenAI ключ.
+            bool: True если задан Qwen, OpenAI или OpenRouter ключ.
         """
         settings = get_settings()
         return bool(
-            settings.qwen_image_api_key.strip() or settings.openai_api_key.strip()
+            settings.qwen_image_api_key.strip()
+            or settings.openai_api_key.strip()
+            or settings.openrouter_api_key.strip()
         )
 
     async def resolve_image(
@@ -441,7 +465,7 @@ class ImageService:
         """Generate a postcard via direct gpt-image-2 (text on image allowed)."""
         if not prompt:
             return None
-        return await self._call_openai_image(
+        return await self._call_cover_image(
             prompt[:2000],
             size="1024x1024",
             quality="high",
@@ -507,10 +531,13 @@ class ImageService:
             except Exception as exc:
                 logger.warning("Qwen Image generation failed", error=str(exc))
 
-        if settings.openai_api_key.strip():
+        if settings.openai_api_key.strip() or settings.openrouter_api_key.strip():
             return await self._generate_dalle(prompt)
 
-        logger.warning("No image generation API configured (QWEN_IMAGE_API_KEY / OPENAI_API_KEY)")
+        logger.warning(
+            "No image generation API configured "
+            "(QWEN_IMAGE_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY)"
+        )
         return None
 
     async def _generate_dalle(self, prompt: str) -> str | None:
@@ -519,16 +546,48 @@ class ImageService:
             f"{prompt[:900]}. "
             "Absolutely no text, letters, words, captions or watermarks on the image."
         )
-        return await self._call_openai_image(full_prompt)
+        return await self._call_cover_image(full_prompt)
 
     async def _generate_dalle_cover(self, prompt: str) -> str | None:
-        """Генерирует обложку с текстом через OpenAI gpt-image-2.
+        """Генерирует обложку с текстом через premium-провайдер (OpenAI / OpenRouter).
 
-        НЕ запрещает текст — gpt-image-2 умеет рендерить типографику.
+        НЕ запрещает текст — gpt-image-2 и Seedream умеют рендерить типографику.
         """
-        return await self._call_openai_image(
+        return await self._call_cover_image(
             prompt[:1500], size="1536x1024", quality="high",
         )
+
+    async def _call_cover_image(
+        self,
+        prompt: str,
+        *,
+        size: str = "1024x1024",
+        quality: str = "medium",
+    ) -> str | None:
+        """Dispatch premium cover generation to the configured provider."""
+        if self._cover_image_provider == "openrouter":
+            return await self._call_openrouter_image(prompt, size=size)
+        return await self._call_openai_image(prompt, size=size, quality=quality)
+
+    async def _call_openrouter_image(
+        self,
+        prompt: str,
+        *,
+        size: str = "1024x1024",
+    ) -> str | None:
+        api_key = self._openrouter_api_key or get_settings().openrouter_api_key.strip()
+        if not api_key:
+            logger.warning("OpenRouter image: no API key configured")
+            return None
+        client = OpenRouterImageClient(
+            api_key=api_key,
+            model=self._openrouter_image_model,
+            resolution=self._openrouter_image_resolution,
+        )
+        result = await client.generate(prompt, size=size)
+        if not result:
+            return None
+        return save_media(result.image_bytes, "covers", ".png")
 
     async def _call_openai_image(
         self,

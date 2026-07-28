@@ -97,6 +97,10 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "tavily_auto_switch": "true",
     # OpenAI: ключи для gpt-image-2 (открытки и fallback обложек).
     "openai_api_keys": "[]",
+    # Premium-обложки: OpenAI gpt-image-2 или OpenRouter (Seedream и др.).
+    "cover_image_provider": "openai",
+    "openrouter_image_model": "bytedance-seed/seedream-4.5",
+    "openrouter_image_resolution": "2K",
     # OpenRouter: анимация открыток (Grok Imagine Video).
     "openrouter_api_key": "",
     "openrouter_api_keys": "[]",
