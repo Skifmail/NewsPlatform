@@ -17,6 +17,7 @@ from app.api.schemas.ai_usage import (
     BalancePoint,
     DeepSeekUsage,
     LocalUsageStats,
+    OpenAILineItem,
     OpenAIUsage,
     OpenRouterUsage,
     QwenImageUsage,
@@ -56,6 +57,9 @@ _CACHE_TTL_SECONDS = 600
 _TAVILY_USAGE_URL = "https://api.tavily.com/usage"
 _OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 _OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
+_OPENAI_COSTS_URL = "https://api.openai.com/v1/organization/costs"
+_OPENAI_IMAGES_USAGE_URL = "https://api.openai.com/v1/organization/usage/images"
+_OPENAI_SPEND_LIMIT_URL = "https://api.openai.com/v1/organization/spend_limit"
 
 
 def _redis_client() -> redis.Redis:
@@ -405,6 +409,114 @@ async def _fetch_qwen_image(session: AsyncSession) -> QwenImageUsage:
     )
 
 
+async def _fetch_openai_organization_pages(
+    client: httpx.AsyncClient,
+    *,
+    admin_key: str,
+    url: str,
+    start: int,
+    end: int,
+    extra_params: dict[str, str | int] | None = None,
+) -> list[dict[str, Any]]:
+    """Загружает все страницы organization usage/costs API.
+
+    Args:
+        client: HTTP-клиент.
+        admin_key: Admin API key OpenAI.
+        url: базовый URL endpoint.
+        start: Unix timestamp начала периода.
+        end: Unix timestamp конца периода.
+        extra_params: дополнительные query-параметры.
+
+    Returns:
+        list[dict]: объединённые buckets со всех страниц.
+    """
+    buckets: list[dict[str, Any]] = []
+    page: str | None = None
+    while True:
+        params: dict[str, str | int] = {
+            "start_time": start,
+            "end_time": end,
+            "bucket_width": "1d",
+            "limit": 30,
+        }
+        if extra_params:
+            params.update(extra_params)
+        if page:
+            params["page"] = page
+        resp = await client.get(
+            url,
+            headers={
+                "Authorization": f"Bearer {admin_key}",
+                "Accept": "application/json",
+            },
+            params=params,
+        )
+        if resp.status_code in (401, 403):
+            raise PermissionError(f"OpenAI admin API: HTTP {resp.status_code}")
+        if resp.status_code != 200:
+            raise httpx.HTTPStatusError(
+                f"OpenAI admin API: HTTP {resp.status_code}",
+                request=resp.request,
+                response=resp,
+            )
+        data = resp.json()
+        buckets.extend(data.get("data") or [])
+        if not data.get("has_more"):
+            break
+        page = data.get("next_page")
+        if not page:
+            break
+    return buckets
+
+
+def _aggregate_openai_cost_buckets(
+    buckets: list[dict[str, Any]],
+) -> tuple[float, str, list[dict], dict[str, tuple[float, float]]]:
+    """Суммирует расходы по дням и line items из buckets Costs API."""
+    total = 0.0
+    daily: list[dict] = []
+    currency = "USD"
+    line_items: dict[str, tuple[float, float]] = {}
+    for bucket in buckets:
+        results = bucket.get("results") or []
+        day_total = 0.0
+        for result in results:
+            amount = result.get("amount") or {}
+            val = float(amount.get("value") or 0.0)
+            day_total += val
+            if amount.get("currency"):
+                currency = str(amount["currency"]).upper()
+            line_name = str(result.get("line_item") or "").strip()
+            if line_name and val > 0:
+                prev_amount, prev_qty = line_items.get(line_name, (0.0, 0.0))
+                qty = float(result.get("quantity") or 0.0)
+                line_items[line_name] = (prev_amount + val, prev_qty + qty)
+        total += day_total
+        daily.append({
+            "date": bucket.get("start_time_iso") or bucket.get("start_time", ""),
+            "amount": round(day_total, 4),
+        })
+    return total, currency, daily, line_items
+
+
+def _sum_openai_spend_for_days(daily: list[dict], days: int) -> float:
+    """Суммирует расход за последние N дней из daily_costs."""
+    if not daily:
+        return 0.0
+    tail = daily[-days:] if len(daily) >= days else daily
+    return round(sum(float(item.get("amount") or 0.0) for item in tail), 4)
+
+
+def _count_openai_image_requests(buckets: list[dict[str, Any]]) -> int:
+    """Считает число image-запросов из organization/usage/images."""
+    total = 0
+    for bucket in buckets:
+        for result in bucket.get("results") or []:
+            total += int(result.get("num_model_requests") or 0)
+    return total
+
+
 async def _fetch_openai(session: AsyncSession) -> OpenAIUsage:
     settings = get_settings()
     env_configured = _is_configured(settings.openai_api_key)
@@ -417,59 +529,105 @@ async def _fetch_openai(session: AsyncSession) -> OpenAIUsage:
     if not configured:
         return OpenAIUsage(configured=False, note="Ключ OpenAI не задан")
 
+    admin_key = settings.openai_admin_api_key.strip()
+    if not _is_configured(admin_key):
+        return OpenAIUsage(
+            configured=True,
+            note=(
+                "Задайте OPENAI_ADMIN_API_KEY для расходов "
+                "(platform.openai.com → Admin keys). "
+                "Обычный project key не имеет доступа к billing API."
+            ),
+        )
+
     now = datetime.now(UTC)
     start = int((now - timedelta(days=30)).timestamp())
     end = int(now.timestamp())
-    url = f"https://api.openai.com/v1/organization/costs?start_time={start}&end_time={end}&bucket_width=1d"
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                url,
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            cost_buckets = await _fetch_openai_organization_pages(
+                client,
+                admin_key=admin_key,
+                url=_OPENAI_COSTS_URL,
+                start=start,
+                end=end,
+                extra_params={"group_by": "line_item"},
+            )
+            image_buckets = await _fetch_openai_organization_pages(
+                client,
+                admin_key=admin_key,
+                url=_OPENAI_IMAGES_USAGE_URL,
+                start=start,
+                end=end,
+            )
+
+            spend_limit_monthly: float | None = None
+            limit_resp = await client.get(
+                _OPENAI_SPEND_LIMIT_URL,
                 headers={
-                    "Authorization": f"Bearer {api_key}",
+                    "Authorization": f"Bearer {admin_key}",
                     "Accept": "application/json",
                 },
             )
-        if resp.status_code in (401, 403):
-            return OpenAIUsage(
-                configured=True,
-                note="Ключ не имеет доступа к billing API — проверяйте расходы на platform.openai.com",
+            if limit_resp.status_code == 200:
+                limit_data = limit_resp.json() or {}
+                cents = limit_data.get("threshold_amount")
+                if cents is not None:
+                    spend_limit_monthly = round(float(cents) / 100.0, 2)
+
+        total, currency, daily, line_items_map = _aggregate_openai_cost_buckets(
+            cost_buckets,
+        )
+        line_items = [
+            OpenAILineItem(
+                line_item=name,
+                amount=round(amount, 4),
+                quantity=round(qty, 2) if qty else None,
             )
-        if resp.status_code != 200:
-            return OpenAIUsage(
-                configured=True,
-                error=f"OpenAI API: HTTP {resp.status_code}",
+            for name, (amount, qty) in sorted(
+                line_items_map.items(),
+                key=lambda item: item[1][0],
+                reverse=True,
             )
-        data = resp.json()
-        buckets = data.get("data") or []
-        total = 0.0
-        daily: list[dict] = []
-        currency = "USD"
-        for bucket in buckets:
-            results = bucket.get("results") or []
-            day_total = 0.0
-            for r in results:
-                amount = r.get("amount") or {}
-                val = amount.get("value") or 0.0
-                day_total += float(val)
-                if amount.get("currency"):
-                    currency = amount["currency"]
-            total += day_total
-            daily.append({
-                "date": bucket.get("start_time", ""),
-                "amount": round(day_total, 4),
-            })
+            if amount > 0
+        ]
+        image_requests = _count_openai_image_requests(image_buckets)
+        note = (
+            "Остаток баланса OpenAI не отдаётся через API — "
+            "смотрите platform.openai.com/billing"
+        )
         return OpenAIUsage(
             configured=True,
+            billing_available=True,
             total_spent_30d=round(total, 2),
+            total_spent_7d=_sum_openai_spend_for_days(daily, 7),
+            total_spent_24h=_sum_openai_spend_for_days(daily, 1),
             currency=currency,
             daily_costs=daily,
+            image_requests_30d=image_requests or None,
+            spend_limit_monthly=spend_limit_monthly,
+            line_items_30d=line_items,
+            note=note,
         )
-    except httpx.HTTPError as exc:
-        logger.warning("OpenAI costs fetch failed", error=str(exc))
+    except PermissionError:
         return OpenAIUsage(
             configured=True,
-            error="Не удалось связаться с OpenAI API",
+            note=(
+                "Admin key не имеет доступа к billing API — "
+                "проверьте роль Owner и ключ на platform.openai.com"
+            ),
+        )
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        return OpenAIUsage(
+            configured=True,
+            error=f"OpenAI billing API: HTTP {status}",
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("OpenAI billing fetch failed", error=str(exc))
+        return OpenAIUsage(
+            configured=True,
+            error="Не удалось связаться с OpenAI billing API",
         )
 
 

@@ -344,7 +344,7 @@
             <div class="provider-metrics">
               <div class="provider-metric">
                 <span class="provider-metric-val">{{ providerSummaries.openai.balance }}</span>
-                <span class="provider-metric-label">{{ coverImageProvider === 'openrouter' ? 'модель' : 'ключи' }}</span>
+                <span class="provider-metric-label">{{ coverImageProvider === 'openrouter' ? 'модель' : (aiUsage?.openai?.billing_available ? 'billing' : 'ключи') }}</span>
               </div>
               <div class="provider-metric">
                 <span class="provider-metric-val">{{ providerSummaries.openai.spend }}</span>
@@ -433,12 +433,52 @@
                 <template v-if="aiUsage.openai.error">
                   <p class="ai-usage-error-inline mt-3">{{ aiUsage.openai.error }}</p>
                 </template>
-                <template v-else-if="aiUsage.openai.total_spent_30d != null">
-                  <p class="ai-usage-balance mt-3">
-                    {{ aiUsage.openai.total_spent_30d.toFixed(2) }}
-                    <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
-                    <span class="ai-usage-muted" style="margin-left:.4em">за 30 дней</span>
-                  </p>
+                <template v-else-if="aiUsage.openai.billing_available">
+                  <div class="ai-usage-kpi-grid mt-3">
+                    <div class="ai-usage-kpi">
+                      <span class="ai-usage-kpi-val">
+                        {{ aiUsage.openai.total_spent_30d?.toFixed(2) ?? '—' }}
+                        <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
+                      </span>
+                      <span class="ai-usage-kpi-label">расход 30д</span>
+                    </div>
+                    <div v-if="aiUsage.openai.total_spent_7d != null" class="ai-usage-kpi">
+                      <span class="ai-usage-kpi-val">
+                        {{ aiUsage.openai.total_spent_7d.toFixed(2) }}
+                        <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
+                      </span>
+                      <span class="ai-usage-kpi-label">расход 7д</span>
+                    </div>
+                    <div v-if="aiUsage.openai.total_spent_24h != null" class="ai-usage-kpi">
+                      <span class="ai-usage-kpi-val">
+                        {{ aiUsage.openai.total_spent_24h.toFixed(2) }}
+                        <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
+                      </span>
+                      <span class="ai-usage-kpi-label">расход 24ч</span>
+                    </div>
+                    <div v-if="aiUsage.openai.spend_limit_monthly != null" class="ai-usage-kpi">
+                      <span class="ai-usage-kpi-val">
+                        {{ aiUsage.openai.spend_limit_monthly.toFixed(2) }}
+                        <span class="ai-usage-currency">{{ aiUsage.openai.currency || 'USD' }}</span>
+                      </span>
+                      <span class="ai-usage-kpi-label">лимит / мес</span>
+                    </div>
+                  </div>
+                  <ul
+                    v-if="aiUsage.openai.line_items_30d?.length"
+                    class="openai-line-items mt-2"
+                  >
+                    <li
+                      v-for="item in aiUsage.openai.line_items_30d.slice(0, 6)"
+                      :key="item.line_item"
+                      class="openai-line-item"
+                    >
+                      <span class="openai-line-item-name">{{ item.line_item }}</span>
+                      <span class="openai-line-item-amount">
+                        {{ item.amount.toFixed(4) }} {{ aiUsage.openai.currency || 'USD' }}
+                      </span>
+                    </li>
+                  </ul>
                 </template>
                 <template v-else>
                   <p class="ai-usage-muted mt-3">
@@ -1246,7 +1286,9 @@ const providerSummaries = computed(() => {
       balance:
         coverImageProvider.value === 'openrouter'
           ? openrouterImageModel.value.replace(/^.*\//, '').slice(0, 18) || '—'
-          : String(openaiKeys.value.filter((k) => k.enabled).length || (oa?.configured ? 1 : 0)),
+          : oa?.billing_available
+            ? 'billing'
+            : String(openaiKeys.value.filter((k) => k.enabled).length || (oa?.configured ? 1 : 0)),
       spend:
         coverImageProvider.value === 'openrouter'
           ? (or_?.remaining != null ? fmtSpend(or_.remaining) : or_?.configured ? 'OK' : '—')
@@ -1262,9 +1304,11 @@ const providerSummaries = computed(() => {
               : 'нет ключа'
           : oa?.error
             ? 'ошибка'
-            : oa?.configured || openaiKeys.value.length
+            : oa?.billing_available
               ? 'OK'
-              : 'нет ключа',
+              : oa?.configured || openaiKeys.value.length
+                ? 'нет admin'
+                : 'нет ключа',
       statusClass:
         coverImageProvider.value === 'openrouter'
           ? or_?.error
@@ -2185,6 +2229,34 @@ async function save({ silent = false } = {}) {
 
 .ai-usage-kpi-label {
   @apply text-[10px] font-medium uppercase tracking-wider text-[var(--text-secondary)];
+}
+
+.ai-usage-kpi-grid {
+  @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-4;
+}
+
+.ai-usage-kpi {
+  @apply flex flex-col gap-0.5;
+}
+
+.ai-usage-kpi-val {
+  @apply text-lg font-semibold text-[var(--text-primary)] tabular-nums;
+}
+
+.openai-line-items {
+  @apply space-y-1 text-xs;
+}
+
+.openai-line-item {
+  @apply flex items-center justify-between gap-3 rounded-md border border-panel-border px-2 py-1;
+}
+
+.openai-line-item-name {
+  @apply text-[var(--text-secondary)] truncate;
+}
+
+.openai-line-item-amount {
+  @apply font-mono text-[var(--text-primary)] shrink-0;
 }
 
 .ai-usage-currency {

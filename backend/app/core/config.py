@@ -82,6 +82,8 @@ class Settings(BaseSettings):
 
     # OpenAI (optional, gpt-image-2)
     openai_api_key: str = ""
+    # Admin key только для billing/usage (platform.openai.com → Admin keys)
+    openai_admin_api_key: str = ""
     openrouter_api_key: str = ""
 
     # Qwen-Image (DashScope) — основная генерация обложек

@@ -7,11 +7,14 @@ import pytest
 from app.api.schemas.ai_usage import AiUsageResponse
 from app.services.ai_usage_service import (
     AiUsageService,
+    _aggregate_openai_cost_buckets,
     _build_chain_status,
     _fetch_deepseek,
+    _fetch_openai,
     _fetch_openrouter,
     _fetch_tavily,
     _is_configured,
+    _sum_openai_spend_for_days,
 )
 
 
@@ -169,6 +172,123 @@ async def test_fetch_openrouter_parses_credits_and_key() -> None:
     assert usage.total_credits == 50.0
     assert usage.key_usage == 1.25
     assert usage.key_label == "prod"
+
+
+def test_aggregate_openai_cost_buckets_sums_daily_and_line_items() -> None:
+    buckets = [
+        {
+            "start_time_iso": "2026-07-27T00:00:00+00:00",
+            "results": [
+                {
+                    "line_item": "gpt-image-2 image, output",
+                    "amount": {"value": "1.5", "currency": "usd"},
+                    "quantity": 10.0,
+                },
+                {
+                    "line_item": "gpt-image-2 text, input",
+                    "amount": {"value": "0.25", "currency": "usd"},
+                    "quantity": 100.0,
+                },
+            ],
+        },
+        {
+            "start_time_iso": "2026-07-28T00:00:00+00:00",
+            "results": [
+                {
+                    "line_item": "gpt-image-2 image, output",
+                    "amount": {"value": "2.0", "currency": "usd"},
+                    "quantity": 5.0,
+                },
+            ],
+        },
+    ]
+
+    total, currency, daily, line_items = _aggregate_openai_cost_buckets(buckets)
+
+    assert total == 3.75
+    assert currency == "USD"
+    assert len(daily) == 2
+    assert line_items["gpt-image-2 image, output"] == (3.5, 15.0)
+    assert _sum_openai_spend_for_days(daily, 1) == 2.0
+    assert _sum_openai_spend_for_days(daily, 7) == 3.75
+
+
+@pytest.mark.asyncio
+async def test_fetch_openai_uses_admin_key_for_billing() -> None:
+    costs_resp = MagicMock()
+    costs_resp.status_code = 200
+    costs_resp.json.return_value = {
+        "data": [
+            {
+                "start_time_iso": "2026-07-28T00:00:00+00:00",
+                "results": [
+                    {
+                        "line_item": "gpt-image-2 image, output",
+                        "amount": {"value": "6.97", "currency": "usd"},
+                        "quantity": 100.0,
+                    },
+                ],
+            },
+        ],
+        "has_more": False,
+    }
+    images_resp = MagicMock()
+    images_resp.status_code = 200
+    images_resp.json.return_value = {"data": [], "has_more": False}
+    limit_resp = MagicMock()
+    limit_resp.status_code = 404
+    session = AsyncMock()
+
+    with patch("app.services.ai_usage_service.get_settings") as settings_mock:
+        settings_mock.return_value = MagicMock(
+            openai_api_key="sk-proj-test",
+            openai_admin_api_key="sk-admin-test",
+        )
+        with patch(
+            "app.services.ai_usage_service.PlatformSettingsService"
+        ) as ps_cls:
+            ps_cls.return_value.get_merged = AsyncMock(
+                return_value={"openai_api_keys": "[]"},
+            )
+            with patch(
+                "app.services.ai_usage_service.httpx.AsyncClient"
+            ) as client_cls:
+                client = AsyncMock()
+                client.__aenter__.return_value = client
+                client.get = AsyncMock(
+                    side_effect=[costs_resp, images_resp, limit_resp],
+                )
+                client_cls.return_value = client
+
+                usage = await _fetch_openai(session)
+
+    assert usage.configured is True
+    assert usage.billing_available is True
+    assert usage.total_spent_30d == 6.97
+    assert usage.line_items_30d[0].line_item == "gpt-image-2 image, output"
+
+
+@pytest.mark.asyncio
+async def test_fetch_openai_prompts_for_admin_key() -> None:
+    session = AsyncMock()
+
+    with patch("app.services.ai_usage_service.get_settings") as settings_mock:
+        settings_mock.return_value = MagicMock(
+            openai_api_key="sk-proj-test",
+            openai_admin_api_key="",
+        )
+        with patch(
+            "app.services.ai_usage_service.PlatformSettingsService"
+        ) as ps_cls:
+            ps_cls.return_value.get_merged = AsyncMock(
+                return_value={"openai_api_keys": "[]"},
+            )
+
+            usage = await _fetch_openai(session)
+
+    assert usage.configured is True
+    assert usage.billing_available is False
+    assert "OPENAI_ADMIN_API_KEY" in (usage.note or "")
 
 
 @pytest.mark.asyncio

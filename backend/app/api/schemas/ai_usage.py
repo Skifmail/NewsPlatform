@@ -86,13 +86,27 @@ class QwenImageUsage(BaseModel):
     note: str = ""
 
 
+class OpenAILineItem(BaseModel):
+    """Агрегированный расход по line item OpenAI Costs API."""
+
+    line_item: str
+    amount: float
+    quantity: float | None = None
+
+
 class OpenAIUsage(BaseModel):
     """Статус OpenAI (gpt-image-2)."""
 
     configured: bool
+    billing_available: bool = False
     total_spent_30d: float | None = None
+    total_spent_7d: float | None = None
+    total_spent_24h: float | None = None
     currency: str | None = None
     daily_costs: list[dict] | None = None
+    image_requests_30d: int | None = None
+    spend_limit_monthly: float | None = None
+    line_items_30d: list[OpenAILineItem] = Field(default_factory=list)
     error: str | None = None
     note: str = ""
 
