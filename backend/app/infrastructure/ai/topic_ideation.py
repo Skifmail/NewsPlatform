@@ -9,7 +9,7 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.domain.article import ArticleTopicPlan
-from app.domain.postcard_calendar import today_holiday
+from app.domain.postcard_themes.loader import get_postcard_theme_catalog
 from app.domain.topic_dedup import is_topic_too_similar
 from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
@@ -228,7 +228,7 @@ class TopicIdeationService:
                 channel_niche=niche,
                 recent_topics=recent,
                 current_date=today.strftime("%d.%m.%Y"),
-                today_holiday=today_holiday(today),
+                today_holiday=_postcard_holiday_label(today),
             )
         elif is_devtools_article_channel(channel.topic, channel.name):
             prompt = f"{prompt}\n\n{self._devtools_extra(candidate_repos)}"
@@ -319,6 +319,15 @@ class TopicIdeationService:
         if not queries:
             queries = [topic, f"{topic} facts", f"{topic} research"]
         return ArticleTopicPlan(topic=topic, angle=angle, search_queries=queries)
+
+
+
+
+def _postcard_holiday_label(today: date) -> str:
+    """Возвращает название главного праздника на дату из JSON-каталога."""
+    catalog = get_postcard_theme_catalog(str(get_settings().postcard_themes_dir))
+    holidays = catalog.holidays_for_date(today)
+    return holidays[0].name if holidays else ""
 
 
 def _format_recent_topics(topics: list[str]) -> str:

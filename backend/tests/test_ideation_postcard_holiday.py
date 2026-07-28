@@ -80,7 +80,7 @@ async def test_prompt_leaves_holiday_slot_empty_on_ordinary_day(
 ) -> None:
     monkeypatch.setattr(
         "app.infrastructure.ai.topic_ideation.date",
-        type("FixedDate", (), {"today": staticmethod(lambda: date(2026, 7, 26))}),
+        type("FixedDate", (), {"today": staticmethod(lambda: date(2026, 7, 28))}),
     )
     client = _CapturingClient(
         '{"topic": "Доброе утро", "angle": "sunrise breakfast, warm", "search_queries": []}'

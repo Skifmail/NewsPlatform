@@ -37,6 +37,7 @@ from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import report_job_stage
 from app.services.pipeline_emitter import emit_internal, skip_step
 from app.services.platform_settings_service import PlatformSettingsService
+from app.services.postcard_theme_service import PostcardThemeService
 from app.services.prompt_service import PromptService
 from app.services.web_research_service import WebResearchService
 from app.utils.telegram_channels import is_telegram_long_form_channel
@@ -203,6 +204,14 @@ class ArticleGenerationService:
         sources = []
         research_context = ""
         manual_topic = (topic or "").strip() or None
+        is_postcard = is_postcard_article_channel(channel.name, channel.topic or "")
+        selected_postcard_theme = None
+        postcard_theme_service: PostcardThemeService | None = None
+        if is_postcard:
+            postcard_theme_service = PostcardThemeService(self._session)
+            if not manual_topic:
+                selected_postcard_theme = await postcard_theme_service.pick_next(channel)
+                manual_topic = selected_postcard_theme.name
 
         for draft_attempt in range(1, _MAX_DRAFT_DEDUP_ATTEMPTS + 1):
             await report_job_stage(
@@ -221,7 +230,7 @@ class ArticleGenerationService:
                 metadata={"queries": plan.search_queries},
             )
 
-            if is_postcard_article_channel(channel.name, channel.topic):
+            if is_postcard:
                 research_context = ""
                 sources = []
                 skip_step(
@@ -371,7 +380,12 @@ class ArticleGenerationService:
             limit=50,
         )
         await self._persist_topic_history(channel, updated_history)
-        await self._session.commit()
+        if selected_postcard_theme and postcard_theme_service is not None:
+            await postcard_theme_service.record_publication(
+                channel.id, selected_postcard_theme
+            )
+        else:
+            await self._session.commit()
 
         auto_approve = (
             await self._settings.get("auto_approve", "false")

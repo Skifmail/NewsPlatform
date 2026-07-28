@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     alert_bot_token: str = ""
     alert_chat_id: str = ""
 
+
+    # Каталог JSON-тем открыток (manifest.json, themes/, holidays/)
+    postcard_themes_dir: Path = _BACKEND_DIR / "data" / "postcard_themes"
+
     # App / панель управления
     secret_key: str = "change_me"
     admin_username: str = "admin"
