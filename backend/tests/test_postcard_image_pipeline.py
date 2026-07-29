@@ -50,11 +50,9 @@ async def test_postcard_primary_path_sends_simple_request_to_gpt_image() -> None
     assert (url, source) == ("https://gen/postcard.png", ImageSource.GENERATED.value)
     svc._generate_postcard_dalle_cover.assert_awaited_once()
     sent_prompt = svc._generate_postcard_dalle_cover.await_args.args[0]
-    assert "Сделай открытку поздравление с День работника МФЦ" in sent_prompt
-    assert "unused scene from writer" in sent_prompt
-    assert "unused greeting" in sent_prompt
-    assert "Избегай визуальных клише" in sent_prompt
-    assert "Если добавляешь текст на открытку" in sent_prompt
+    assert sent_prompt == "Сделай открытку поздравление с День работника МФЦ"
+    assert "unused scene" not in sent_prompt
+    assert "unused greeting" not in sent_prompt
     assert "Absolutely no text" not in sent_prompt
     assert "логотип" not in sent_prompt.lower()
     svc._generate_with_qwen_constraints.assert_not_awaited()
@@ -111,9 +109,11 @@ async def test_postcard_falls_back_to_qwen_after_openai_failure() -> None:
     )
 
     assert (url, source) == ("local://covers/fallback.png", ImageSource.GENERATED.value)
+    svc._generate_with_qwen_constraints.assert_awaited_once_with(
+        "Сделай открытку поздравление с День крещения Руси"
+    )
+    # Writer scene must NOT replace the gpt-image cover prompt on fallback.
     sent = svc._generate_with_qwen_constraints.await_args.args[0]
-    assert "Сделай открытку поздравление с День крещения Руси" in sent
-    assert "sunrise breakfast window, warm light" in sent
-    assert "Доброго утра!" in sent
+    assert "sunrise" not in sent
     assert "День крещения Руси" in sent
     svc._persist_remote_cover.assert_awaited_once()

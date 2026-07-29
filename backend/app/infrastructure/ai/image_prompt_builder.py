@@ -126,53 +126,26 @@ class ImagePromptBuilder:
     ) -> str:
         """Собирает запрос к генератору открытки из шаблона панели промптов.
 
-        Даже если шаблон в БД минимальный, добавляет немного арт-дирекшна:
-        больше визуального разнообразия, меньше клише и отказ от неестественной
-        надписи, если для неё нет качественного greeting_text.
+        По умолчанию шаблон минимален (как запрос в ChatGPT) и использует только
+        ``{title}``. ``scene`` и ``greeting_text`` остаются для кастомных шаблонов
+        в БД — ``safe_format`` подставит их, если плейсхолдеры есть.
+
+        Args:
+            template: шаблон (image.cover_prompt_postcard).
+            title: краткое название повода.
+            scene: опциональный контекст для кастомных шаблонов.
+            greeting_text: опциональная надпись для кастомных шаблонов.
+
+        Returns:
+            str: запрос для Responses ``image_generation`` / gpt-image-2.
         """
-        title_text = title.strip()
-        scene_text = scene.strip()
-        greeting = greeting_text.strip()
-        base_prompt = safe_format(
+        return safe_format(
             template,
-            title=title_text,
-            scene=scene_text,
-            greeting_text=greeting,
-        ).strip()
-        base_prompt = re.sub(r'^.*«».*(?:\n|$)', '', base_prompt, flags=re.MULTILINE)
-        base_prompt = re.sub(r'^.*"".*(?:\n|$)', '', base_prompt, flags=re.MULTILINE)
-        base_prompt = re.sub(r'^\s*Смысловой акцент:\s*(?:\n|$)', '', base_prompt, flags=re.MULTILINE)
-        base_prompt = re.sub(r'\n{2,}', '\n', base_prompt).strip()
+            title=title.strip(),
+            scene=scene.strip(),
+            greeting_text=greeting_text.strip(),
+        )
 
-        extra_lines: list[str] = []
-        if "1:1" not in base_prompt and "квадрат" not in base_prompt.lower():
-            extra_lines.append(
-                "Сделай квадратную открытку 1:1 с разнообразной композицией, а не шаблонный повтор прошлых сцен."
-            )
-        if "клише" not in base_prompt.lower():
-            extra_lines.append(
-                "Избегай визуальных клише вроде одинаковых голубей, чашек, цветов у окна и однотипных золотых надписей, если это не требуется по смыслу темы."
-            )
-        if "палитру" not in base_prompt.lower() and "ракурс" not in base_prompt.lower():
-            extra_lines.append(
-                "Подбери предметы, сезон, палитру, ракурс и свет под сам повод, чтобы открытки отличались друг от друга."
-            )
-        if scene_text and scene_text not in base_prompt:
-            extra_lines.append(f"Смысловой визуальный акцент: {scene_text}.")
-        if greeting:
-            if greeting not in base_prompt:
-                extra_lines.append(
-                    f'Если добавляешь текст на открытку, используй только одну короткую естественную надпись: «{greeting}».'
-                )
-        elif "не добавляй текст" not in base_prompt.lower() and "без текста" not in base_prompt.lower():
-            extra_lines.append(
-                "Если короткая естественная надпись не получается, лучше оставь открытку без текста."
-            )
-        if not extra_lines:
-            return base_prompt
-        return "\n".join([base_prompt, *extra_lines]) if base_prompt else "\n".join(extra_lines)
-
-    @staticmethod
     def build_for_news(
         channel: Channel,
         title: str,
