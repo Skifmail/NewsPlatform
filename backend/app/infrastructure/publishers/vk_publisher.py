@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.processed_post import ProcessedPost
 from app.infrastructure.publishers.base import BasePublisher
-from app.utils.text_format import strip_html_tags
+from app.utils.text_format import to_vk_text
 from app.utils.vk_credentials import resolve_vk_token, resolve_vk_user_token
 
 # У VK лимит текста поста ~16000 символов; берём с запасом.
@@ -55,10 +55,10 @@ def build_vk_message(post: ProcessedPost, limit: int = _VK_MESSAGE_LIMIT) -> str
         str: текст без HTML, обрезанный до лимита по границе предложения.
     """
     raw = post.article_body if post.article_body else post.rewritten_text
-    text = strip_html_tags(raw or "")
+    text = to_vk_text(raw or "")
     if len(text) <= limit:
         return text
-    truncated = text[:limit]
+    truncated = text[: limit - 1].rstrip()
     boundary = max(
         truncated.rfind(". "),
         truncated.rfind(".\n"),
@@ -67,8 +67,8 @@ def build_vk_message(post: ProcessedPost, limit: int = _VK_MESSAGE_LIMIT) -> str
         truncated.rfind("?\n"),
     )
     if boundary > limit // 2:
-        return truncated[:boundary + 1] + "…"
-    return truncated.rstrip() + "…"
+        return truncated[:boundary + 1].rstrip() + "…"
+    return truncated + "…"
 
 
 class VkPublisher(BasePublisher):
@@ -107,9 +107,12 @@ class VkPublisher(BasePublisher):
 
         api_version = get_settings().vk_api_version
         owner_id = channel.platform_id.strip()
-        message = build_vk_message(post)
-        if channel.post_footer:
-            message = f"{message}\n\n{channel.post_footer}"
+        footer = to_vk_text(channel.post_footer or "")
+        separator = "\n\n" if footer else ""
+        message_limit = _VK_MESSAGE_LIMIT - len(separator) - len(footer)
+        message = build_vk_message(post, limit=max(1, message_limit))
+        if footer:
+            message = f"{message}{separator}{footer}"
         params: dict[str, str | int] = {
             "access_token": token,
             "v": api_version,

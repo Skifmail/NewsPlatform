@@ -143,8 +143,8 @@ def test_build_postcard_cover_prompt_does_not_sanitize_text_triggers() -> None:
     assert "С Днём Рождения!" in prompt
 
 
-def test_default_postcard_cover_prompt_is_chatgpt_style_one_liner() -> None:
-    """Default cover request mirrors a simple ChatGPT user message."""
+def test_default_postcard_cover_prompt_adds_light_art_direction() -> None:
+    """Default cover request keeps occasion but adds light anti-cliche guidance."""
     from app.domain.prompt_defaults import PROMPT_DEFAULTS
 
     prompt = ImagePromptBuilder.build_postcard_cover_prompt(
@@ -152,10 +152,11 @@ def test_default_postcard_cover_prompt_is_chatgpt_style_one_liner() -> None:
         title="День работника МФЦ",
     )
 
-    assert prompt == "Сделай открытку поздравление с День работника МФЦ"
-    assert "логотип" not in prompt.lower()
-    assert "ровно одна надпись" not in prompt
-    assert "Не добавляй" not in prompt
+    assert "День работника МФЦ" in prompt
+    assert "квадратную открытку 1:1" in prompt
+    assert "Избегай клише" in prompt
+    assert "без текста" in prompt.lower()
+    assert "«»" not in prompt
     assert "{scene}" not in prompt
     assert "{greeting_text}" not in prompt
 

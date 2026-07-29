@@ -18,6 +18,17 @@ MAX_MESSAGE_MAX = 4000
 LONGFORM_FOOTER_RESERVE = 160
 _SOURCE_LINK_LABEL = "Читать в источнике →"
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_HTML_TAIL_TAG_RE = re.compile(r"<[^>\n]*$")
+_HTML_LINK_RE = re.compile(
+    r"<a\s+[^>]*href\s*=\s*(['\"])(?P<url>https?://.+?)\1[^>]*>"
+    r"(?P<label>.*?)</a>",
+    re.IGNORECASE | re.DOTALL,
+)
+_ANCHOR_HREF_RE = re.compile(
+    r"<a\s+[^>]*href\s*=\s*(['\"]?)(?P<url>https?://[^\s\"'<>]+)",
+    re.IGNORECASE,
+)
+_VK_BRACKET_LINK_RE = re.compile(r"\[(?P<target>[^\]|]+)\|(?P<label>[^\]]+)\]")
 _INSTALL_HINT_RE = re.compile(
     r"\b(install|setup|docker|brew|apt|npm|cargo|pip|установ|разверт|деплой)\b",
     re.IGNORECASE,
@@ -544,3 +555,83 @@ def strip_html_tags(text: str) -> str:
     """
     without_tags = _HTML_TAG_RE.sub("", text)
     return unescape(without_tags).strip()
+
+
+def to_vk_text(text: str) -> str:
+    """Нормализует HTML/wiki-разметку в plain text для постов VK.
+
+    VK wall.post не поддерживает HTML в message, а внешний URL нельзя скрыть
+    под произвольным текстом. Поэтому:
+    1. `<a href="url">Текст</a>` -> `Текст: url`
+    2. `[url|Текст]` для внешних URL -> `Текст: url`
+    3. оборванные `<a href="...` фрагменты -> `url`
+
+    Внутренние VK-ссылки в квадратных скобках сохраняются как есть.
+
+    Args:
+        text: исходный текст с HTML или wiki-разметкой.
+
+    Returns:
+        str: очищенный текст для поля `message`.
+    """
+    if not text or not text.strip():
+        return ""
+
+    cleaned = text.strip()
+
+    def replace_html_link(match: re.Match[str]) -> str:
+        url = match.group("url").strip()
+        label = strip_html_tags(match.group("label")).strip()
+        return _format_vk_external_link(url, label)
+
+    cleaned = _HTML_LINK_RE.sub(replace_html_link, cleaned)
+
+    def replace_bracket_link(match: re.Match[str]) -> str:
+        target = match.group("target").strip()
+        label = match.group("label").strip()
+        if _is_vk_internal_link_target(target):
+            return match.group(0)
+        if re.match(r"^https?://", target, re.IGNORECASE):
+            return _format_vk_external_link(target, label)
+        return match.group(0)
+
+    cleaned = _VK_BRACKET_LINK_RE.sub(replace_bracket_link, cleaned)
+
+    hrefs = [unescape(match.group("url").strip()) for match in _ANCHOR_HREF_RE.finditer(cleaned)]
+    cleaned = _HTML_TAG_RE.sub("", cleaned)
+    cleaned = _HTML_TAIL_TAG_RE.sub("", cleaned).strip()
+    cleaned = unescape(cleaned)
+
+    for url in hrefs:
+        if url not in cleaned:
+            separator = "\n" if cleaned else ""
+            cleaned = f"{cleaned}{separator}{url}"
+
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _format_vk_external_link(url: str, label: str | None = None) -> str:
+    """Форматирует внешнюю ссылку для plain-text поста VK."""
+    normalized_url = url.strip()
+    normalized_label = (label or "").strip()
+    if not normalized_label or normalized_label == normalized_url:
+        return normalized_url
+    return f"{normalized_label}: {normalized_url}"
+
+
+def _is_vk_internal_link_target(target: str) -> bool:
+    """Проверяет, является ли wiki-ссылка ссылкой на объект внутри VK."""
+    normalized_target = target.strip().lower()
+    if re.match(r"^(?:id|club|public|event|app)\d", normalized_target):
+        return True
+    return normalized_target.startswith(
+        (
+            "https://vk.com/",
+            "http://vk.com/",
+            "vk.com/",
+            "https://vk.me/",
+            "http://vk.me/",
+            "vk.me/",
+        )
+    )

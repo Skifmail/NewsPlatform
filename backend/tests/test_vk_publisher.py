@@ -14,6 +14,7 @@ from app.infrastructure.publishers.vk_publisher import (
     _prepare_wall_photo_bytes,
     build_vk_message,
 )
+from app.utils.text_format import to_vk_text
 
 
 def _png_bytes() -> bytes:
@@ -61,6 +62,39 @@ def test_empty_post() -> None:
     assert build_vk_message(_post()) == ""
 
 
+def test_to_vk_text_converts_html_link_to_plain_url() -> None:
+    text = 'Читать: <a href="https://max.ru/se13343929_biz">Больше интересного в МАКС</a>'
+    assert (
+        to_vk_text(text)
+        == "Читать: Больше интересного в МАКС: https://max.ru/se13343929_biz"
+    )
+
+
+def test_to_vk_text_unwraps_external_bracket_link() -> None:
+    text = "[https://max.ru/se13343929_biz|📮 Больше интересного в МАКС]"
+    assert to_vk_text(text) == "📮 Больше интересного в МАКС: https://max.ru/se13343929_biz"
+
+
+def test_to_vk_text_keeps_vk_internal_bracket_link() -> None:
+    text = "[https://vk.com/wall-1_2|Читать в VK]"
+    assert to_vk_text(text) == text
+
+
+def test_to_vk_text_recovers_broken_anchor_href() -> None:
+    text = "Источник\n<a href='https://carlsonschool.umn.edu/sites/test'"
+    assert to_vk_text(text) == "Источник\nhttps://carlsonschool.umn.edu/sites/test"
+
+
+def test_to_vk_text_unescapes_recovered_broken_anchor_href() -> None:
+    text = "Источник\n<a href='https://example.com?a=1&amp;b=2'"
+    assert to_vk_text(text) == "Источник\nhttps://example.com?a=1&b=2"
+
+
+def test_to_vk_text_does_not_treat_arbitrary_words_as_vk_internal_links() -> None:
+    text = "[apple|Apple]"
+    assert to_vk_text(text) == text
+
+
 @pytest.mark.asyncio
 async def test_vk_skips_doc_fallback_when_user_token_present() -> None:
     publisher = VkPublisher()
@@ -106,3 +140,56 @@ async def test_vk_skips_doc_fallback_when_user_token_present() -> None:
     assert post_id == "42"
     up_photo.assert_awaited_once()
     up_doc.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_vk_footer_is_normalized_and_reserved_within_limit() -> None:
+    publisher = VkPublisher()
+    channel = Channel(
+        id=1,
+        name="VK",
+        platform="vk",
+        platform_id="-123",
+        topic="it",
+        post_footer="[https://max.ru/se13343929_biz|📮 Больше интересного в МАКС]",
+    )
+    post = ProcessedPost(
+        id=1,
+        channel_id=1,
+        rewritten_text="a" * 14990,
+        article_body=None,
+        status="approved",
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.json = AsyncMock(return_value={"response": {"post_id": 42}})
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.post = MagicMock(return_value=mock_resp)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch(
+            "app.infrastructure.publishers.vk_publisher.resolve_vk_token",
+            AsyncMock(return_value="group-token"),
+        ),
+        patch(
+            "app.infrastructure.publishers.vk_publisher.resolve_vk_user_token",
+            AsyncMock(return_value=None),
+        ),
+        patch("app.infrastructure.publishers.vk_publisher.get_settings") as gs,
+        patch(
+            "app.infrastructure.publishers.vk_publisher.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
+    ):
+        gs.return_value.vk_api_version = "5.199"
+        post_id = await publisher.publish(post, channel, None)
+
+    assert post_id == "42"
+    message = mock_session.post.call_args.kwargs["data"]["message"]
+    assert len(message) <= 15000
+    assert "📮 Больше интересного в МАКС: https://max.ru/se13343929_biz" in message

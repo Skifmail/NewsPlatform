@@ -22,7 +22,7 @@ def test_extracts_greeting_text_from_model_response() -> None:
     assert draft.greeting_text == "С Днём Рождения!"
 
 
-def test_falls_back_to_title_when_greeting_text_missing() -> None:
+def test_leaves_postcard_greeting_text_empty_when_missing() -> None:
     raw = (
         '{"title": "Доброе утро", "teaser": "Доброе утро! Пусть день будет светлым \\u2600", '
         '"body_html": "Хорошего дня", "image_prompt": "sunrise breakfast window"}'
@@ -31,4 +31,4 @@ def test_falls_back_to_title_when_greeting_text_missing() -> None:
         raw, body_max_length=150, teaser_max_length=200, channel=_postcard_channel()
     )
     assert draft is not None
-    assert draft.greeting_text == "Доброе утро"
+    assert draft.greeting_text == ""

@@ -311,7 +311,11 @@ class ArticleWriter:
         greeting_text = str(data.get("greeting_text", "")).strip()
         if not title or not body:
             return None
-        if not greeting_text:
+        if channel and is_postcard_article_channel(channel.name, channel.topic):
+            greeting_text = ArticleWriter._normalize_postcard_greeting_text(
+                greeting_text
+            )
+        elif not greeting_text:
             greeting_text = title
         if truncated:
             body = _trim_to_last_sentence(body)
@@ -360,6 +364,16 @@ class ArticleWriter:
             repo_url=repo_url or None,
             greeting_text=greeting_text,
         )
+
+    @staticmethod
+    def _normalize_postcard_greeting_text(value: str) -> str:
+        """Очищает надпись для открытки и отбрасывает неудачный fallback."""
+        text = re.sub(r"\s{2,}", " ", value or "").strip()
+        if not text:
+            return ""
+        if len(text) > 80:
+            return ""
+        return text
 
     @staticmethod
     def _load_json_object(result: str) -> dict[str, object] | None:
