@@ -13,6 +13,7 @@ import MaterialsView from '../views/MaterialsView.vue'
 import ApprovedView from '../views/ApprovedView.vue'
 import AnalyticsView from '../views/AnalyticsView.vue'
 import AnalyticsChannelView from '../views/AnalyticsChannelView.vue'
+import MediaLibraryView from '../views/MediaLibraryView.vue'
 import LoginView from '../views/LoginView.vue'
 
 const routes = [
@@ -21,6 +22,7 @@ const routes = [
   { path: '/queue', name: 'queue', component: QueueView },
   { path: '/approved', name: 'approved', component: ApprovedView },
   { path: '/materials', name: 'materials', component: MaterialsView },
+  { path: '/media', name: 'media', component: MediaLibraryView },
   { path: '/jobs', name: 'jobs', component: JobsView },
   { path: '/logs', name: 'logs', component: LogsView },
   { path: '/sources', name: 'sources', component: SourcesView },

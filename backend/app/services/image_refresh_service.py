@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.ai.image_service import ImageGenPrompts, ImageService
 from app.infrastructure.models.processed_post import ProcessedPost
 from app.repositories.processed_post_repository import ProcessedPostRepository
+from app.services.media_asset_service import MediaAssetService
 from app.services.platform_settings_service import PlatformSettingsService
 from app.services.prompt_service import PromptService
 
@@ -58,5 +59,6 @@ class ImageRefreshService:
         post.generated_image_url = image_url
         post.image_source = image_source
         updated = await self._processed.update(post)
+        await MediaAssetService(self._session).register_from_post(updated)
         await self._session.commit()
         return updated

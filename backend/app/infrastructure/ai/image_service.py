@@ -385,8 +385,6 @@ class ImageService:
                     preview=cover_prompt[:200],
                 )
                 generated = await self._generate_with_qwen_constraints(cover_prompt)
-                if generated and not is_local_media_url(generated):
-                    generated = await self._persist_remote_cover(generated)
         elif is_paragraph_article_channel(channel.name):
             cover_prompt = ImagePromptBuilder.build_cover_prompt(
                 template=self._require_prompts().cover_template,
@@ -461,6 +459,8 @@ class ImageService:
                     models=self._generate_models,
                 )
                 if url:
+                    if not is_local_media_url(url):
+                        return await self._persist_remote_cover(url)
                     return url
             except Exception as exc:
                 logger.warning("Qwen Image generation failed", error=str(exc))
@@ -499,6 +499,8 @@ class ImageService:
                     models=self._generate_models,
                 )
                 if url:
+                    if not is_local_media_url(url):
+                        return await self._persist_remote_cover(url)
                     return url
             except Exception as exc:
                 logger.warning("Qwen Image generation failed", error=str(exc))
@@ -534,6 +536,8 @@ class ImageService:
                     models=self._generate_models,
                 )
                 if url:
+                    if not is_local_media_url(url):
+                        return await self._persist_remote_cover(url)
                     return url
             except Exception as exc:
                 logger.warning("Qwen Image generation failed", error=str(exc))

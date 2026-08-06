@@ -70,3 +70,8 @@ class Channel(Base):
         back_populates="channel",
         passive_deletes=True,
     )
+    media_assets: Mapped[list["MediaAsset"]] = relationship(
+        "MediaAsset",
+        back_populates="channel",
+        passive_deletes=True,
+    )

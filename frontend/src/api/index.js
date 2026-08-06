@@ -96,6 +96,14 @@ export const historyApi = {
   list: (params) => api.get('/history', { params }),
 }
 
+export const mediaAssetsApi = {
+  list: (params) => api.get('/media-assets', { params }),
+  backfill: (params) => api.post('/media-assets/backfill', null, { params }),
+  download: (id) =>
+    api.get(`/media-assets/${id}/download`, { responseType: 'blob' }),
+  remove: (id, params) => api.delete(`/media-assets/${id}`, { params }),
+}
+
 export const overviewApi = {
   get: (params) => api.get('/overview', { params }),
 }

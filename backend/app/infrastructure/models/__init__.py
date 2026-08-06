@@ -7,6 +7,7 @@ from app.infrastructure.models.background_job import BackgroundJob
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.channel_stats_snapshot import ChannelStatsSnapshot
 from app.infrastructure.models.max_member import MaxMember
+from app.infrastructure.models.media_asset import MediaAsset
 from app.infrastructure.models.post_metric import PostMetric
 from app.infrastructure.models.processed_post import ProcessedPost
 from app.infrastructure.models.prompt_template import PromptTemplate
@@ -26,6 +27,7 @@ __all__ = [
     "Channel",
     "ChannelStatsSnapshot",
     "MaxMember",
+    "MediaAsset",
     "PostMetric",
     "ProcessedPost",
     "PromptTemplate",

@@ -35,6 +35,7 @@ from app.repositories.channel_repository import ChannelRepository
 from app.repositories.processed_post_repository import ProcessedPostRepository
 from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import report_job_stage
+from app.services.media_asset_service import MediaAssetService
 from app.services.pipeline_emitter import emit_internal, skip_step
 from app.services.platform_settings_service import PlatformSettingsService
 from app.services.postcard_theme_service import PostcardThemeService
@@ -366,6 +367,9 @@ class ArticleGenerationService:
             status=PostStatus.PENDING.value,
         )
         saved = await self._processed.create(processed)
+        await MediaAssetService(self._session).register_from_post(
+            saved, title=draft.title
+        )
         emit_internal(
             label="Сохранено в очередь модерации",
             detail=f"processed_post #{saved.id}",

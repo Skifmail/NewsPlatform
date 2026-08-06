@@ -48,3 +48,7 @@ class ProcessedPost(Base):
     publish_logs: Mapped[list["PublishLog"]] = relationship(
         "PublishLog", back_populates="processed_post"
     )
+    media_assets: Mapped[list["MediaAsset"]] = relationship(
+        "MediaAsset",
+        back_populates="processed_post",
+    )

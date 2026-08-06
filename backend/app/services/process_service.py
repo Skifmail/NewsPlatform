@@ -17,6 +17,7 @@ from app.repositories.processed_post_repository import ProcessedPostRepository
 from app.repositories.raw_post_repository import RawPostRepository
 from app.repositories.setting_repository import SettingRepository
 from app.services.job_tracker import report_job_stage
+from app.services.media_asset_service import MediaAssetService
 from app.services.platform_settings_service import PlatformSettingsService
 from app.services.prompt_service import PromptService
 
@@ -151,6 +152,7 @@ class ProcessService:
                 )
                 saved = await self._processed.create(processed)
                 created_ids.append(saved.id)
+                await MediaAssetService(self._session).register_from_post(saved)
 
                 topic_label = _TOPIC_LABELS.get(channel.topic, channel.topic)
                 await notify_simple(

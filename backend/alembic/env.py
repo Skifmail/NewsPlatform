@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.infrastructure.database import Base
 from app.infrastructure.models import (  # noqa: F401
     Channel,
+    MediaAsset,
     ProcessedPost,
     PublishLog,
     RawPost,
