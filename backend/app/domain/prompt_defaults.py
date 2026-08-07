@@ -54,8 +54,7 @@ _CLASSIFICATION_SYSTEM = PromptDefaultEntry(
     name="Системный промпт классификатора",
     description="Системная роль для DeepSeek при классификации новостей",
     template_text=(
-        "Ты классификатор новостей. "
-        "Ответь одним словом: it, auto, russia или sport."
+        "Ты классификатор новостей. " "Ответь одним словом: it, auto, russia или sport."
     ),
     is_system_prompt=True,
     sort_order=20,
@@ -71,7 +70,7 @@ _TOPIC_SELECTION_CURATED_PICK = PromptDefaultEntry(
     name="Отбор лучшей новости",
     description="Промпт выбора одной лучшей новости из списка кандидатов для публикации",
     template_text=(
-        'Ты главный редактор Telegram-канала с тематикой «{topic_label}».\n'
+        "Ты главный редактор Telegram-канала с тематикой «{topic_label}».\n"
         "Из списка сырых новостей выбери ОДНУ самую интересную для публикации прямо сейчас.\n"
         "\n"
         "Критерии (по убыванию важности):\n"
@@ -114,7 +113,7 @@ _IDEATION_DEFAULT = PromptDefaultEntry(
     name="Идеация темы (по умолчанию)",
     description="Основной промпт генерации темы для познавательной статьи",
     template_text=(
-        'Ты — редактор познавательного Telegram-канала «{channel_name}».\n'
+        "Ты — редактор познавательного Telegram-канала «{channel_name}».\n"
         "Ниша канала: {channel_niche}\n"
         "\n"
         "Недавние темы и заголовки (СТРОГО ЗАПРЕЩЕНО повторять и близкие по смыслу):\n"
@@ -144,7 +143,7 @@ _IDEATION_POSTCARD = PromptDefaultEntry(
     name="Идеация повода для открытки",
     description="Промпт генерации повода для канала открыток",
     template_text=(
-        'Канал открыток «{channel_name}». Сегодня {current_date}.\n'
+        "Канал открыток «{channel_name}». Сегодня {current_date}.\n"
         "Праздник сегодня: {today_holiday}\n"
         "\n"
         "Характер канала:\n"
@@ -166,8 +165,11 @@ _IDEATION_POSTCARD = PromptDefaultEntry(
         '"angle": "настроение или ассоциация одной фразой", "search_queries": []}}'
     ),
     template_variables=[
-        "channel_name", "channel_niche", "current_date",
-        "today_holiday", "recent_topics",
+        "channel_name",
+        "channel_niche",
+        "current_date",
+        "today_holiday",
+        "recent_topics",
     ],
     channel_scope="postcard",
     sort_order=20,
@@ -182,7 +184,7 @@ _IDEATION_MANUAL_TOPIC = PromptDefaultEntry(
         "в карточке канала"
     ),
     template_text=(
-        'Ты — редактор познавательного Telegram-канала «{channel_name}».\n'
+        "Ты — редактор познавательного Telegram-канала «{channel_name}».\n"
         "Ниша канала: {channel_niche}\n"
         "\n"
         "Тема статьи ЗАДАНА вручную редактором и НЕ должна меняться:\n"
@@ -215,7 +217,7 @@ _IDEATION_MANUAL_POSTCARD = PromptDefaultEntry(
         "в карточке канала"
     ),
     template_text=(
-        'Канал открыток «{channel_name}». Сегодня {current_date}.\n'
+        "Канал открыток «{channel_name}». Сегодня {current_date}.\n"
         "\n"
         "Характер канала:\n"
         "{channel_niche}\n"
@@ -232,7 +234,10 @@ _IDEATION_MANUAL_POSTCARD = PromptDefaultEntry(
         '"search_queries": []}}'
     ),
     template_variables=[
-        "channel_name", "channel_niche", "current_date", "user_topic",
+        "channel_name",
+        "channel_niche",
+        "current_date",
+        "user_topic",
     ],
     channel_scope="postcard",
     sort_order=22,
@@ -330,7 +335,7 @@ _IDEATION_DEVTOOLS_WITH_REPOS = PromptDefaultEntry(
         "будет интереснее всего аудитории и ещё не выходил в канале.\n"
         "{repos_block}\n"
         "\n"
-        'Поле topic — «owner/repo: суть», в angle укажи, чем цепляет. '
+        "Поле topic — «owner/repo: суть», в angle укажи, чем цепляет. "
         "В search_queries укажи запросы именно про выбранный репозиторий: "
         '"<repo> github", "<repo> features", "<repo> alternative".'
     ),
@@ -363,7 +368,7 @@ _IDEATION_PARAGRAPH_EXTRA = PromptDefaultEntry(
     name="Доп. инструкции идеации (Параграф)",
     description="Дополнительные правила разнообразия тем для канала Параграф",
     template_text=(
-        'Канал «Параграф» — познавательные статьи для широкой аудитории.\n'
+        "Канал «Параграф» — познавательные статьи для широкой аудитории.\n"
         "\n"
         "Обязательно:\n"
         "- Тема из ДРУГОЙ области, чем последние 3–5 статей в списке выше.\n"
@@ -382,8 +387,8 @@ _IDEATION_PARAGRAPH_EXTRA = PromptDefaultEntry(
         "  уже был недавно, даже под другим названием (шмель ≠ пчела-нарушитель;\n"
         "  пирамиды Гизы ≠ пирамиды Амазонии).\n"
         "- ЗАГОЛОВОК: разнообразь зачин. Если последние 2–3 заголовка начинались с\n"
-        '  «Почему» — начни иначе (факт-парадокс, «Как…», число, утверждение, вопрос без\n'
-        '  «почему»). Не более чем каждый третий заголовок может начинаться с «Почему».'
+        "  «Почему» — начни иначе (факт-парадокс, «Как…», число, утверждение, вопрос без\n"
+        "  «почему»). Не более чем каждый третий заголовок может начинаться с «Почему»."
     ),
     channel_scope="paragraph",
     sort_order=70,
@@ -438,8 +443,13 @@ _REWRITE_DEFAULT = PromptDefaultEntry(
         "{original_text}"
     ),
     template_variables=[
-        "channel_name", "topic_label", "style_prompt", "max_length",
-        "source_url", "source_url_display", "original_text",
+        "channel_name",
+        "topic_label",
+        "style_prompt",
+        "max_length",
+        "source_url",
+        "source_url_display",
+        "original_text",
     ],
     sort_order=10,
 )
@@ -482,13 +492,13 @@ _WRITING_DEFAULT = PromptDefaultEntry(
     name="Написание статьи (по умолчанию)",
     description="Основной шаблон для генерации познавательной статьи",
     template_text=(
-        'Ты — автор познавательных статей для Telegram-канала «{channel_name}».\n'
+        "Ты — автор познавательных статей для Telegram-канала «{channel_name}».\n"
         "Стиль канала: {channel_niche}\n"
         "\n"
-        'Напиши статью на русском по теме «{topic}» ({angle}).\n'
+        "Напиши статью на русском по теме «{topic}» ({angle}).\n"
         "Используй ТОЛЬКО факты из блока «Исследование» ниже. Не выдумывай цитаты и цифры.\n"
         "\n"
-        'Структура body_html (без служебных меток «Крючок», «Вывод», «Лид», «Источники» '
+        "Структура body_html (без служебных меток «Крючок», «Вывод», «Лид», «Источники» "
         "— только содержательные подзаголовки):\n"
         "1) Лид — 2-3 предложения (без заголовка «Лид»)\n"
         "2) 3-5 разделов с подзаголовками <b>...</b> по теме\n"
@@ -514,9 +524,15 @@ _WRITING_DEFAULT = PromptDefaultEntry(
         "{research_context}"
     ),
     template_variables=[
-        "channel_name", "channel_niche", "topic", "angle",
-        "min_length", "max_length", "teaser_max_length",
-        "image_guidelines", "research_context",
+        "channel_name",
+        "channel_niche",
+        "topic",
+        "angle",
+        "min_length",
+        "max_length",
+        "teaser_max_length",
+        "image_guidelines",
+        "research_context",
     ],
     sort_order=10,
 )
@@ -527,7 +543,7 @@ _WRITING_POSTCARD = PromptDefaultEntry(
     name="Написание открытки",
     description="Отдельный промпт для канала открыток (не аппенд к статейному)",
     template_text=(
-        'Ты — автор коротких открыток для Telegram-канала «{channel_name}».\n'
+        "Ты — автор коротких открыток для Telegram-канала «{channel_name}».\n"
         "Характер канала: {channel_niche}\n"
         "\n"
         "Повод/тема: {topic}\n"
@@ -546,8 +562,12 @@ _WRITING_POSTCARD = PromptDefaultEntry(
         '- "image_prompt": {image_guidelines}'
     ),
     template_variables=[
-        "channel_name", "channel_niche", "topic", "angle",
-        "teaser_max_length", "image_guidelines",
+        "channel_name",
+        "channel_niche",
+        "topic",
+        "angle",
+        "teaser_max_length",
+        "image_guidelines",
     ],
     channel_scope="postcard",
     sort_order=20,
@@ -636,7 +656,7 @@ _WRITING_DEVTOOLS_INSTRUCTIONS = PromptDefaultEntry(
         "- project_name — короткое имя репозитория/утилиты (openscreen, mise, duckdb).\n"
         "- repo_url — прямая ссылка на GitHub/GitLab (обязательно для превью в Telegram).\n"
         "- language — основной язык (#TypeScript, Rust, Go…) — только из исследования.\n"
-        '- stars, forks — как на GitHub (3.1k, 174) — только если есть в исследовании, иначе «—».\n'
+        "- stars, forks — как на GitHub (3.1k, 174) — только если есть в исследовании, иначе «—».\n"
         "- hook — 1–2 предложения: цепляющий вход в карточку, живо, без кликбейта.\n"
         "  ГЛАВНОЕ ПРАВИЛО: hook ОБЯЗАН описывать реальную задачу, сценарий или\n"
         "  возможность именно этого инструмента (project_name). Он должен быть проверяем\n"
@@ -832,10 +852,8 @@ _IMAGE_COVER_PROMPT_POSTCARD = PromptDefaultEntry(
     key="image.cover_prompt_postcard",
     category="image_prompts",
     name="Обложка открытки (gpt-image-2)",
-    description=(
-        "Короткий запрос для прямой генерации открытки через gpt-image-2"
-    ),
-    template_text="Сделай открытку поздравление с {title}, квадратный формат 1:1",
+    description=("Короткий запрос для прямой генерации открытки через gpt-image-2"),
+    template_text="Сделай открытку поздравление на тему {title}, квадратный формат 1:1",
     template_variables=["title"],
     channel_scope="postcard",
     sort_order=60,
