@@ -96,7 +96,7 @@ def test_csv_formula_injection_prefix() -> None:
 
 
 def test_export_row_prefers_rewritten_text_and_strips_html() -> None:
-    """Текст берётся из rewritten_text без HTML."""
+    """Для новости берётся rewritten_text без HTML."""
     metric = SimpleNamespace(
         published_at=datetime(2026, 8, 10, 8, 0, tzinfo=UTC),
         collected_at=datetime(2026, 8, 11, 8, 0, tzinfo=UTC),
@@ -108,6 +108,26 @@ def test_export_row_prefers_rewritten_text_and_strips_html() -> None:
     assert row.text == "Наш пост"
     assert row.published_at == metric.published_at
     assert row.views == 10
+
+
+def test_export_row_includes_full_article_body() -> None:
+    """Для статьи в CSV анонс и полный текст, не только карточка."""
+    metric = SimpleNamespace(
+        published_at=datetime(2026, 8, 10, 8, 0, tzinfo=UTC),
+        collected_at=datetime(2026, 8, 10, 8, 0, tzinfo=UTC),
+        views=42,
+        post_text="короткий анонс с платформы",
+        processed_post=SimpleNamespace(
+            rewritten_text="<b>Крючок</b> анонса",
+            article_title="Заголовок",
+            article_body="<p>Первый абзац статьи.</p><p>Второй абзац.</p>",
+        ),
+    )
+    row = export_row_from_metric(metric)
+    assert "Крючок анонса" in row.text
+    assert "Первый абзац статьи." in row.text
+    assert "Второй абзац." in row.text
+    assert row.text != "короткий анонс с платформы"
 
 
 def test_export_row_falls_back_to_platform_text() -> None:

@@ -51,6 +51,28 @@ def _csv_safe(value: str) -> str:
     return value
 
 
+def _plain(value: str | None) -> str:
+    """HTML → plain text без тегов."""
+    if not value:
+        return ""
+    return strip_html_tags(value)
+
+
+def _processed_post_export_text(post: object) -> str:
+    """Полный текст поста: для статьи — анонс + тело, иначе rewritten_text."""
+    teaser = _plain(getattr(post, "rewritten_text", None))
+    body = _plain(getattr(post, "article_body", None))
+    title = (getattr(post, "article_title", None) or "").strip()
+    parts: list[str] = []
+    if teaser:
+        parts.append(teaser)
+    elif title:
+        parts.append(title)
+    if body:
+        parts.append(body)
+    return "\n\n".join(parts)
+
+
 def export_row_from_metric(metric: PostMetric) -> PostStatsExportRow:
     """Собирает строку выгрузки из метрики поста.
 
@@ -61,11 +83,8 @@ def export_row_from_metric(metric: PostMetric) -> PostStatsExportRow:
         PostStatsExportRow: дата, текст, просмотры.
     """
     published_at = metric.published_at or metric.collected_at
-    text = ""
     post = getattr(metric, "processed_post", None)
-    rewritten = getattr(post, "rewritten_text", None) if post is not None else None
-    if rewritten:
-        text = strip_html_tags(rewritten)
+    text = _processed_post_export_text(post) if post is not None else ""
     if not text:
         text = (getattr(metric, "post_text", None) or "").strip()
     if len(text) > _EXCEL_CELL_MAX:
