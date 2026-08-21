@@ -1,6 +1,10 @@
 """Роутер аналитики каналов."""
 
+from typing import Literal
+from urllib.parse import quote
+
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import Response
 
 from app.api.deps import AuthDep, DbSession
 from app.api.schemas.analytics import (
@@ -219,9 +223,44 @@ async def list_channel_post_metrics(
                 published_at=metric.published_at,
                 collected_at=metric.collected_at,
                 rewritten_text=post.rewritten_text if post else None,
+                post_text=metric.post_text,
             )
         )
     return items
+
+
+@router.get("/channels/{channel_id}/posts/export")
+async def export_channel_post_stats(
+    channel_id: int,
+    session: DbSession,
+    _: AuthDep,
+    days: Literal[14, 30] = Query(14, description="Период выгрузки: 14 или 30 дней"),
+) -> Response:
+    """Скачать CSV со статистикой постов за 14 или 30 дней."""
+    try:
+        filename, payload = await ChannelAnalyticsService(
+            session
+        ).export_channel_post_stats(channel_id, days)
+    except ValueError as exc:
+        detail = str(exc)
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in detail.lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=code, detail=detail) from exc
+
+    ascii_name = f"channel_stats_{days}d.csv"
+    return Response(
+        content=payload,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_name}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
 
 
 @router.post("/channels/{channel_id}/refresh", response_model=RefreshJobResponse)

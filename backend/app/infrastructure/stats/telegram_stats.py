@@ -325,6 +325,7 @@ class TelegramStatsCollector(BaseStatsCollector):
                         reactions=_count_reactions(message) or None,
                         comments=getattr(replies, "replies", None) if replies else None,
                         published_at=_message_published_at(message),
+                        text=(getattr(message, "message", None) or "").strip() or None,
                     )
                 )
 

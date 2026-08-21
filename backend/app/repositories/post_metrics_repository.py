@@ -1,5 +1,7 @@
 """Репозиторий метрик постов."""
 
+from datetime import datetime
+
 from sqlalchemy import asc, desc, func, nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -39,6 +41,8 @@ class PostMetricsRepository:
             )
             existing.publish_log_id = metric.publish_log_id or existing.publish_log_id
             existing.post_url = metric.post_url or existing.post_url
+            if metric.post_text:
+                existing.post_text = metric.post_text
             existing.views = metric.views if metric.views is not None else existing.views
             existing.forwards = (
                 metric.forwards if metric.forwards is not None else existing.forwards
@@ -114,6 +118,42 @@ class PostMetricsRepository:
             .offset(offset)
         )
         return list(result.scalars().unique().all())
+
+    async def list_for_channel_since(
+        self,
+        channel_id: int,
+        *,
+        since: datetime,
+        limit: int = 10_000,
+    ) -> list[PostMetric]:
+        """Метрики постов канала за период.
+
+        Дата фильтра — ``published_at``, иначе ``collected_at``.
+        При превышении лимита остаются самые новые посты, CSV идёт
+        по возрастанию даты.
+
+        Args:
+            channel_id: ID канала.
+            since: начало периода (включительно).
+            limit: защитный лимит строк.
+
+        Returns:
+            list[PostMetric]: метрики постов периода.
+        """
+        effective_at = func.coalesce(PostMetric.published_at, PostMetric.collected_at)
+        result = await self._session.execute(
+            select(PostMetric)
+            .options(joinedload(PostMetric.processed_post))
+            .where(
+                PostMetric.channel_id == channel_id,
+                effective_at >= since,
+            )
+            .order_by(effective_at.desc(), PostMetric.id.desc())
+            .limit(limit)
+        )
+        rows = list(result.scalars().unique().all())
+        rows.reverse()
+        return rows
 
     async def aggregate_for_channel(self, channel_id: int) -> dict[str, float | int | None]:
         """Средние и суммарные метрики по каналу.

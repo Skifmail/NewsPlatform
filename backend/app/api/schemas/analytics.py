@@ -152,6 +152,7 @@ class PostMetricResponse(OrmSchema):
     published_at: datetime | None
     collected_at: datetime
     rewritten_text: str | None = None
+    post_text: str | None = None
 
 
 class AdIntegrationCreate(BaseModel):

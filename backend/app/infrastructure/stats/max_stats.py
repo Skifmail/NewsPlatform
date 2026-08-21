@@ -138,6 +138,19 @@ def _parse_published_at(message: dict[str, Any]) -> datetime | None:
         return None
 
 
+def _extract_message_text(message: dict[str, Any]) -> str | None:
+    """Текст поста MAX из body.text или text."""
+    body = message.get("body")
+    candidates: list[object] = []
+    if isinstance(body, dict):
+        candidates.append(body.get("text"))
+    candidates.append(message.get("text"))
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def parse_max_message_metrics(payload: dict[str, Any]) -> list[PostMetricDTO]:
     """Извлекает метрики постов канала из ответа GET /messages.
 
@@ -171,6 +184,7 @@ def parse_max_message_metrics(payload: dict[str, Any]) -> list[PostMetricDTO]:
                 post_url=url if isinstance(url, str) and url else None,
                 views=int(views) if views is not None else None,
                 published_at=_parse_published_at(message),
+                text=_extract_message_text(message),
             )
         )
     return metrics

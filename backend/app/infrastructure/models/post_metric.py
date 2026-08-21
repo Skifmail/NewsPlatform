@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.database import Base
@@ -28,6 +28,7 @@ class PostMetric(Base):
     )
     platform_post_id: Mapped[str] = mapped_column(String(255), nullable=False)
     post_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    post_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     views: Mapped[int | None] = mapped_column(Integer, nullable=True)
     forwards: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reactions: Mapped[int | None] = mapped_column(Integer, nullable=True)

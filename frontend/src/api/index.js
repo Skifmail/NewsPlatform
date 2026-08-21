@@ -114,6 +114,11 @@ export const analyticsApi = {
   channel: (id) => api.get(`/analytics/channels/${id}`),
   channelGrowth: (id, params) => api.get(`/analytics/channels/${id}/growth`, { params }),
   channelPosts: (id, params) => api.get(`/analytics/channels/${id}/posts`, { params }),
+  channelPostsExport: (id, days) =>
+    api.get(`/analytics/channels/${id}/posts/export`, {
+      params: { days },
+      responseType: 'blob',
+    }),
   channelMembers: (id) => api.get(`/analytics/channels/${id}/members`),
   channelTelegramStats: (id) => api.get(`/analytics/channels/${id}/telegram-stats`),
   refreshChannel: (id) => api.post(`/analytics/channels/${id}/refresh`),

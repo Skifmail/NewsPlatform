@@ -1,5 +1,6 @@
 """Сбор статистики VK-сообществ через API."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -8,12 +9,12 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.infrastructure.models.channel import Channel
-from app.utils.vk_credentials import resolve_vk_token, resolve_vk_user_token
 from app.infrastructure.stats.base import (
     BaseStatsCollector,
     ChannelStatsDTO,
     PostMetricDTO,
 )
+from app.utils.vk_credentials import resolve_vk_token, resolve_vk_user_token
 
 _VK_API = "https://api.vk.com/method"
 
@@ -33,23 +34,21 @@ def _vk_post_published_at(item: dict[str, Any]) -> datetime | None:
     return datetime.fromtimestamp(int(ts), tz=UTC)
 
 
+def _vk_post_text(item: dict[str, Any]) -> str | None:
+    """Текст поста VK, если есть."""
+    text = item.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return None
+
+
 def _with_reach(
     metric: PostMetricDTO,
     reach: int | None,
     reach_subscribers: int | None,
 ) -> PostMetricDTO:
     """Возвращает копию метрик с обновлённым охватом."""
-    return PostMetricDTO(
-        platform_post_id=metric.platform_post_id,
-        post_url=metric.post_url,
-        views=metric.views,
-        forwards=metric.forwards,
-        reactions=metric.reactions,
-        comments=metric.comments,
-        reach=reach,
-        reach_subscribers=reach_subscribers,
-        published_at=metric.published_at,
-    )
+    return replace(metric, reach=reach, reach_subscribers=reach_subscribers)
 
 
 def parse_vk_group_members(payload: dict[str, Any]) -> int | None:
@@ -114,6 +113,7 @@ def parse_vk_wall_post(payload: dict[str, Any]) -> PostMetricDTO | None:
         if isinstance(item.get("likes"), dict)
         else item.get("likes"),
         published_at=_vk_post_published_at(item),
+        text=_vk_post_text(item),
     )
 
 
@@ -340,6 +340,7 @@ class VkStatsCollector(BaseStatsCollector):
                 if isinstance(item.get("likes"), dict)
                 else item.get("likes"),
                 published_at=_vk_post_published_at(item),
+                text=_vk_post_text(item),
             )
             reach, reach_subs = await self._fetch_reach(
                 session, token, api_version, owner_id, post_id

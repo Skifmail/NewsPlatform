@@ -29,6 +29,12 @@ from app.services.chart_history import (
     period_bounds,
     period_view_windows,
 )
+from app.services.channel_stats_export import (
+    POST_STATS_EXPORT_DAYS,
+    build_posts_stats_csv,
+    export_row_from_metric,
+    posts_stats_export_filename,
+)
 
 GROWTH_PERIODS = frozenset({"today", "week", "month", "all"})
 GROWTH_OVERVIEW_LIMIT = 90
@@ -594,6 +600,39 @@ class ChannelAnalyticsService:
             raise ValueError(msg)
         return await self._broadcast_stats.latest_for_channel(channel_id)
 
+    async def export_channel_post_stats(
+        self, channel_id: int, days: int
+    ) -> tuple[str, bytes]:
+        """CSV со статистикой постов канала за 14 или 30 дней.
+
+        Args:
+            channel_id: ID канала.
+            days: период выгрузки (14 или 30).
+
+        Returns:
+            tuple[str, bytes]: имя файла и содержимое CSV.
+
+        Raises:
+            ValueError: канал не найден или неверный период.
+        """
+        if days not in POST_STATS_EXPORT_DAYS:
+            msg = "Период выгрузки: 14 или 30 дней"
+            raise ValueError(msg)
+
+        channel = await self._channels.get_by_id(channel_id)
+        if not channel:
+            msg = f"Channel {channel_id} not found"
+            raise ValueError(msg)
+
+        since = datetime.now(UTC) - timedelta(days=days)
+        metrics = await self._post_metrics.list_for_channel_since(
+            channel_id, since=since
+        )
+        rows = [export_row_from_metric(metric) for metric in metrics]
+        return posts_stats_export_filename(channel.name, days), build_posts_stats_csv(
+            rows
+        )
+
     async def list_channel_overviews(self) -> list[ChannelAnalyticsOverview]:
         """Сводки по активным каналам, от большего числа подписчиков.
 
@@ -690,6 +729,7 @@ class ChannelAnalyticsService:
             publish_log_id=publish_log_id,
             platform_post_id=dto.platform_post_id,
             post_url=dto.post_url,
+            post_text=dto.text,
             views=dto.views,
             forwards=dto.forwards,
             reactions=dto.reactions,

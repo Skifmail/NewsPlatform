@@ -9,6 +9,26 @@
         <button
           type="button"
           class="btn-secondary btn-sm"
+          :disabled="exportingDays !== null"
+          :aria-busy="exportingDays === 14"
+          aria-label="Выгрузить статистику постов за 14 дней в CSV"
+          @click="exportStats(14)"
+        >
+          {{ exportingDays === 14 ? 'Выгрузка…' : 'Выгрузить 14 дней' }}
+        </button>
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          :disabled="exportingDays !== null"
+          :aria-busy="exportingDays === 30"
+          aria-label="Выгрузить статистику постов за 30 дней в CSV"
+          @click="exportStats(30)"
+        >
+          {{ exportingDays === 30 ? 'Выгрузка…' : 'Выгрузить 30 дней' }}
+        </button>
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
           :disabled="refreshing"
           @click="refresh"
         >
@@ -18,9 +38,10 @@
     </PageHeader>
 
     <p v-if="loading && !overview" class="empty-state">Загрузка…</p>
-    <p v-else-if="error" class="empty-state text-danger">{{ error }}</p>
+    <p v-else-if="error && !overview" class="empty-state text-danger">{{ error }}</p>
 
     <template v-else-if="overview">
+      <p v-if="exportError" class="empty-state text-danger">{{ exportError }}</p>
       <div class="kpi-grid">
         <div class="kpi-card panel-card">
           <span class="kpi-label">Подписчики</span>
@@ -553,6 +574,8 @@ const posts = ref([])
 const postsSortBy = ref('published_at')
 const postsSortOrder = ref('desc')
 const postsLoading = ref(false)
+const exportingDays = ref(null)
+const exportError = ref(null)
 const memberAnalytics = ref(null)
 const membersLoading = ref(false)
 const membersExpanded = ref(false)
@@ -714,7 +737,7 @@ function formatDelta(delta) {
 }
 
 function postPreview(post) {
-  const text = stripHtmlForPreview(post.rewritten_text || '')
+  const text = stripHtmlForPreview(post.rewritten_text || post.post_text || '')
   return text || post.platform_post_id
 }
 function deltaClass(delta) {
@@ -730,6 +753,82 @@ function defaultPlacedAt() {
 
 function goBack() {
   router.push({ name: 'analytics' })
+}
+
+function filenameFromDisposition(header, fallback) {
+  if (!header) return fallback
+  const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1])
+    } catch {
+      return fallback
+    }
+  }
+  const ascii = header.match(/filename="([^"]+)"/i)
+  return ascii?.[1] || fallback
+}
+
+async function blobErrorDetail(error) {
+  const data = error.response?.data
+  if (data instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await data.text())
+      return normalizeDetail(parsed.detail) || error.message
+    } catch {
+      return error.message
+    }
+  }
+  return normalizeDetail(error.response?.data?.detail) || error.message
+}
+
+function normalizeDetail(detail) {
+  if (detail == null) return ''
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => (typeof item === 'string' ? item : item?.msg || ''))
+      .filter(Boolean)
+      .join('; ')
+  }
+  return String(detail)
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+async function exportStats(days) {
+  const id = channelId.value
+  exportingDays.value = days
+  exportError.value = null
+  try {
+    const res = await analyticsApi.channelPostsExport(id, days)
+    if (channelId.value !== id) return
+    const contentType = String(res.headers['content-type'] || res.data?.type || '')
+    if (contentType.includes('application/json')) {
+      const parsed = JSON.parse(await res.data.text())
+      exportError.value = normalizeDetail(parsed.detail) || 'Не удалось выгрузить статистику'
+      return
+    }
+    const filename = filenameFromDisposition(
+      res.headers['content-disposition'],
+      `channel_stats_${days}d.csv`,
+    )
+    downloadBlob(res.data, filename)
+  } catch (e) {
+    if (channelId.value !== id) return
+    exportError.value = await blobErrorDetail(e)
+  } finally {
+    if (channelId.value === id) exportingDays.value = null
+  }
 }
 
 async function loadGrowth() {

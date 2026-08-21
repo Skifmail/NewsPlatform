@@ -31,6 +31,7 @@ def test_parse_vk_wall_post() -> None:
                 "id": 42,
                 "owner_id": -123,
                 "date": 1710000000,
+                "text": "Новость VK",
                 "views": {"count": 900},
                 "likes": {"count": 55},
                 "reposts": {"count": 12},
@@ -47,6 +48,7 @@ def test_parse_vk_wall_post() -> None:
     assert metric.comments == 7
     assert metric.published_at is not None
     assert "wall-123_42" in metric.post_url
+    assert metric.text == "Новость VK"
 
 
 def test_parse_vk_post_reach() -> None:
@@ -87,6 +89,7 @@ def test_parse_max_message_metrics() -> None:
     assert metrics[0].views == 1500
     assert metrics[0].post_url == "https://max.ru/example/1"
     assert metrics[0].published_at is not None
+    assert metrics[0].text == "hi"
     assert metrics[1].platform_post_id == "mid-2"
     assert metrics[1].views == 42
     assert metrics[1].post_url is None

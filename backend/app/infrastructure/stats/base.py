@@ -13,6 +13,7 @@ class PostMetricDTO:
 
     platform_post_id: str
     post_url: str | None = None
+    text: str | None = None
     views: int | None = None
     forwards: int | None = None
     reactions: int | None = None
