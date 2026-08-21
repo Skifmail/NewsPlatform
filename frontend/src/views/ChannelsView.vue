@@ -422,6 +422,10 @@ const editForms = reactive({})
 const originalForms = reactive({})
 const generatingChannel = ref(null)
 const manualTopics = reactive({})
+const topicQueueDrafts = reactive({})
+const topicQueueItems = reactive({})
+const topicQueueSummaries = reactive({})
+const topicQueueBusy = ref(null)
 const expandedId = ref(null)
 const showNewForm = ref(false)
 const DEFAULT_PUBLISH_TIMES = '09:00, 13:00, 17:00, 21:00'
@@ -512,10 +516,13 @@ async function load() {
     const built = buildEditForm(ch)
     editForms[ch.id] = built
     originalForms[ch.id] = JSON.parse(JSON.stringify(built))
-    if (isParagraphChannelForm(built)) {
-      refreshTopicQueue(ch.id)
-    }
   })
+  // Очередь тем подгружаем отдельно, чтобы сбой не прятал список каналов.
+  await Promise.all(
+    data
+      .filter((ch) => isParagraphChannelForm(editForms[ch.id]))
+      .map((ch) => refreshTopicQueue(ch.id)),
+  )
 }
 
 /**
@@ -604,6 +611,76 @@ async function saveChannel(id) {
   }
   await load()
   return true
+}
+
+
+function isParagraphChannelForm(form) {
+  if (!form) return false
+  return String(form.name || '').toLowerCase().includes('параграф')
+}
+
+function topicStatusLabel(status) {
+  return ({
+    pending: '⏳',
+    in_progress: '✍️',
+    published: '✅',
+    skipped: '⏭️',
+  })[status] || status
+}
+
+function formatQueueDate(iso) {
+  try {
+    return new Date(iso).toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return iso
+  }
+}
+
+async function refreshTopicQueue(id) {
+  try {
+    const { data } = await channelsApi.getTopicQueue(id)
+    topicQueueItems[id] = data.items || []
+    topicQueueSummaries[id] = data.summary || {}
+  } catch (e) {
+    // Не роняем всю вкладку Каналы, если очередь недоступна.
+    console.warn('topic queue load failed', id, e)
+    topicQueueItems[id] = []
+    topicQueueSummaries[id] = {}
+  }
+}
+
+async function appendTopicQueue(id) {
+  const raw = String(topicQueueDrafts[id] || '').trim()
+  if (!raw) return
+  topicQueueBusy.value = id
+  try {
+    await channelsApi.appendTopicQueue(id, raw)
+    topicQueueDrafts[id] = ''
+    await refreshTopicQueue(id)
+    await load()
+  } catch (e) {
+    await dialog.alertApiError(e, 'Не удалось добавить темы')
+  } finally {
+    topicQueueBusy.value = null
+  }
+}
+
+async function topicQueueAction(id, itemId, action) {
+  topicQueueBusy.value = id
+  try {
+    await channelsApi.topicQueueAction(id, itemId, action)
+    await refreshTopicQueue(id)
+    await load()
+  } catch (e) {
+    await dialog.alertApiError(e, 'Не удалось обновить тему')
+  } finally {
+    topicQueueBusy.value = null
+  }
 }
 
 function isPostcardChannelForm(form) {
