@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.domain.article import ArticleDraft
+from app.domain.article_meta import article_meta_from_dict, serialize_article_meta
 from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.ai.devtools_teaser_formatter import (
     build_devtools_teaser,
@@ -199,7 +200,13 @@ class ArticleWriter:
             postcard_hint=self._prompts.image_hint_postcard,
             paragraph_hint=self._prompts.image_hint_paragraph,
         )
-        min_length = max(2500, body_max_length // 2)
+        paragraph_early = is_paragraph_article_channel(channel.name)
+        if paragraph_early:
+            # Эксперт: основной формат 850–1400, не «мини-статья» 2500+.
+            min_length = min(850, body_max_length)
+            body_max_length = min(body_max_length, 1400)
+        else:
+            min_length = max(2500, body_max_length // 2)
         prompt = safe_format(
             self._prompts.default_template,
             channel_name=channel.name,
@@ -306,7 +313,10 @@ class ArticleWriter:
 
         title = str(data.get("title", "")).strip()
         teaser = str(data.get("teaser", "")).strip()
-        body = normalize_telegram_html(str(data.get("body_html", "")).strip())
+        raw_body = str(
+            data.get("body_html") or data.get("post_text") or ""
+        ).strip()
+        body = normalize_telegram_html(raw_body)
         image_prompt = str(data.get("image_prompt", "")).strip()
         greeting_text = str(data.get("greeting_text", "")).strip()
         if not title or not body:
@@ -327,10 +337,16 @@ class ArticleWriter:
                 research_context=research_context,
             )
         elif channel and is_paragraph_article_channel(channel.name):
+            # Короткий формат: вся история в teaser, body пустой (без дубля).
+            post_text = str(data.get("post_text") or "").strip()
+            hook = str(data.get("hook") or "").strip()
+            if post_text and len(post_text) > len(hook):
+                data = {**data, "hook": post_text}
             teaser = build_paragraph_teaser(
                 data,
-                teaser_max_length=teaser_max_length,
+                teaser_max_length=max(teaser_max_length, 1400),
             )
+            body = ""
         elif len(teaser) > teaser_max_length:
             teaser = f"{teaser[: teaser_max_length - 1].rstrip()}…"
         teaser = normalize_telegram_html(teaser)
@@ -352,6 +368,10 @@ class ArticleWriter:
                 f'{body}\n\n<b>🔗 Репозиторий:</b> '
                 f'<a href="{repo_url}">{repo_url}</a>'
             )
+        meta_json = None
+        if channel and is_paragraph_article_channel(channel.name):
+            meta = article_meta_from_dict(data)
+            meta_json = serialize_article_meta(meta)
         return ArticleDraft(
             title=title,
             teaser=teaser,
@@ -359,6 +379,7 @@ class ArticleWriter:
             image_prompt=image_prompt,
             repo_url=repo_url or None,
             greeting_text=greeting_text,
+            article_meta_json=meta_json,
         )
 
 

@@ -59,6 +59,7 @@ class ArticleDraft:
     image_prompt: str
     repo_url: str | None = None
     greeting_text: str = ""
+    article_meta_json: str | None = None
 
 
 def parse_topic_history(raw: str) -> list[str]:
@@ -81,7 +82,7 @@ def parse_topic_history(raw: str) -> list[str]:
     return [str(item) for item in data if item]
 
 
-def serialize_topic_history(topics: list[str], limit: int = 40) -> str:
+def serialize_topic_history(topics: list[str], limit: int = 80) -> str:
     """Сериализует историю тем в JSON.
 
     Args:

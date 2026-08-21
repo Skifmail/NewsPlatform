@@ -162,6 +162,25 @@ class MaxMemberRepository:
         rows = (await self._session.execute(stmt)).all()
         return [(d.date().isoformat(), int(count)) for d, count in rows]
 
+    async def leaves_by_day(
+        self, channel_id: int, since: datetime
+    ) -> list[tuple[str, int]]:
+        """Гистограмма отписок по дням с момента ``since``."""
+        day = func.date_trunc("day", MaxMember.left_at)
+        stmt = (
+            select(day.label("d"), func.count(MaxMember.id))
+            .where(
+                MaxMember.channel_id == channel_id,
+                MaxMember.is_bot.is_(False),
+                MaxMember.left_at.isnot(None),
+                MaxMember.left_at >= since,
+            )
+            .group_by(day)
+            .order_by(day)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [(d.date().isoformat(), int(count)) for d, count in rows]
+
     async def list_members(
         self,
         channel_id: int,

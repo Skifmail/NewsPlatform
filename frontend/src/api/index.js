@@ -75,6 +75,9 @@ export const channelsApi = {
   update: (id, data) => api.patch(`/channels/${id}`, data),
   remove: (id) => api.delete(`/channels/${id}`),
   generateArticle: (id, data = {}) => api.post(`/channels/${id}/generate-article`, data),
+  getTopicQueue: (id) => api.get(`/channels/${id}/topic-queue`),
+  appendTopicQueue: (id, topics_text) => api.post(`/channels/${id}/topic-queue`, { topics_text }),
+  topicQueueAction: (id, item_id, action) => api.post(`/channels/${id}/topic-queue/action`, { item_id, action }),
 }
 
 export const settingsApi = {

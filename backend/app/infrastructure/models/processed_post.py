@@ -26,6 +26,11 @@ class ProcessedPost(Base):
     article_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     telegraph_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     research_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
+    article_meta: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="JSON: cover_title, buttons, entities, category (Параграф)",
+    )
     generated_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_video_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_source: Mapped[str | None] = mapped_column(String(50), nullable=True)

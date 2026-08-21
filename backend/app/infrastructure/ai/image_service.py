@@ -22,12 +22,13 @@ from app.infrastructure.ai.openrouter_key_chain import active_openrouter_key
 from app.infrastructure.ai.devtools_teaser_formatter import is_devtools_article_channel
 from app.infrastructure.ai.openai_key_chain import active_openai_key
 from app.infrastructure.ai.openrouter_image_client import OpenRouterImageClient
+from app.infrastructure.ai.cover_text_overlay import overlay_and_store
 from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
+from app.infrastructure.media_store import is_local_media_url, read_media, save_media
 from app.infrastructure.ai.openrouter_video_client import OpenRouterVideoClient
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
 from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.ai.logo_compositor import build_github_logo_cover
-from app.infrastructure.media_store import is_local_media_url, read_media, save_media
 from app.infrastructure.ai.qwen_image_chain import (
     resolve_edit_models,
     resolve_generate_models,
@@ -325,6 +326,7 @@ class ImageService:
         repo_url: str | None = None,
         teaser: str = "",
         greeting_text: str = "",
+        cover_title: str | None = None,
     ) -> tuple[str | None, str]:
         """Подбирает обложку для статьи.
 
@@ -419,10 +421,36 @@ class ImageService:
                     channel_id=channel.id,
                 )
         if generated:
+            if (
+                is_paragraph_article_channel(channel.name)
+                and (cover_title or article_title)
+            ):
+                overlaid = await self._overlay_paragraph_cover(
+                    generated, cover_title or article_title
+                )
+                if overlaid:
+                    generated = overlaid
             return generated, ImageSource.GENERATED.value
         if fallback_url and self._is_usable_fallback_url(fallback_url):
             return fallback_url, ImageSource.ORIGINAL.value
         return None, ImageSource.NONE.value
+
+    async def _overlay_paragraph_cover(
+        self, image_url: str, cover_title: str
+    ) -> str | None:
+        """Накладывает короткий заголовок Pillow поверх AI-обложки без текста."""
+        raw: bytes | None = None
+        if is_local_media_url(image_url):
+            raw = read_media(image_url)
+        else:
+            raw = await self.download_media_bytes(image_url)
+        if not raw:
+            return None
+        try:
+            return overlay_and_store(raw, cover_title)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Paragraph cover overlay failed", error=str(exc))
+            return None
 
     async def _generate_for_post(
         self,

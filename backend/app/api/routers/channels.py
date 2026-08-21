@@ -3,10 +3,25 @@
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AuthDep, DbSession
-from app.api.schemas.channel import ChannelCreate, ChannelResponse, ChannelUpdate, GenerateArticleRequest
+from app.api.schemas.channel import (
+    ChannelCreate,
+    ChannelResponse,
+    ChannelUpdate,
+    GenerateArticleRequest,
+    TopicQueueAppendRequest,
+    TopicQueueItemAction,
+)
 from app.api.schemas.common import MessageResponse
 from app.domain.enums import ContentMode
 from app.infrastructure.models.channel import Channel
+from app.domain.topic_queue import (
+    append_topics,
+    mark_skipped,
+    parse_topic_queue,
+    parse_topics_from_text,
+    queue_summary,
+    serialize_topic_queue,
+)
 from app.repositories.channel_repository import ChannelRepository
 from app.tasks.article_tasks import generate_article_task
 
@@ -93,3 +108,79 @@ async def generate_article(
     return MessageResponse(
         message=f"Генерация статьи запущена (task {result.id})",
     )
+
+
+@router.get("/{channel_id}/topic-queue")
+async def get_topic_queue(
+    channel_id: int, session: DbSession, _: AuthDep
+) -> dict:
+    """Возвращает редакционную очередь тем и сводку статусов."""
+    channel = await ChannelRepository(session).get_by_id(channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    items = parse_topic_queue(channel.topic_queue)
+    return {
+        "items": [item.to_dict() for item in items],
+        "summary": queue_summary(items),
+    }
+
+
+@router.post("/{channel_id}/topic-queue", response_model=ChannelResponse)
+async def append_topic_queue(
+    channel_id: int,
+    body: TopicQueueAppendRequest,
+    session: DbSession,
+    _: AuthDep,
+):
+    """Добавляет темы (по одной на строку) в конец очереди."""
+    repo = ChannelRepository(session)
+    channel = await repo.get_by_id(channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    titles = parse_topics_from_text(body.topics_text)
+    if not titles:
+        raise HTTPException(status_code=400, detail="Список тем пуст")
+    items = append_topics(parse_topic_queue(channel.topic_queue), titles)
+    channel.topic_queue = serialize_topic_queue(items)
+    updated = await repo.update(channel)
+    await session.commit()
+    return updated
+
+
+@router.post("/{channel_id}/topic-queue/action", response_model=ChannelResponse)
+async def topic_queue_action(
+    channel_id: int,
+    body: TopicQueueItemAction,
+    session: DbSession,
+    _: AuthDep,
+):
+    """Пропускает тему или возвращает в pending."""
+    repo = ChannelRepository(session)
+    channel = await repo.get_by_id(channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    items = parse_topic_queue(channel.topic_queue)
+    if body.action == "skip":
+        items = mark_skipped(items, body.item_id)
+    elif body.action == "restore_pending":
+        restored = []
+        for item in items:
+            if item.id == body.item_id and item.status == "skipped":
+                from app.domain.topic_queue import TopicQueueItem
+                restored.append(
+                    TopicQueueItem(
+                        id=item.id,
+                        title=item.title,
+                        status="pending",
+                        entities=list(item.entities),
+                        notes=item.notes,
+                    )
+                )
+            else:
+                restored.append(item)
+        items = restored
+    channel.topic_queue = serialize_topic_queue(items)
+    updated = await repo.update(channel)
+    await session.commit()
+    return updated
+

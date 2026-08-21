@@ -10,7 +10,9 @@ from app.infrastructure.models.channel import Channel
 from app.services.channel_stats_export import (
     POST_STATS_EXPORT_DAYS,
     PostStatsExportRow,
+    build_channel_stats_csv,
     build_posts_stats_csv,
+    compute_export_dynamics,
     export_row_from_metric,
     format_export_datetime,
     posts_stats_export_filename,
@@ -180,6 +182,8 @@ async def test_service_export_builds_csv(channel) -> None:
     service = ChannelAnalyticsService(MagicMock())
     service._channels.get_by_id = AsyncMock(return_value=channel)
     service._post_metrics.list_for_channel_since = AsyncMock(return_value=[metric])
+    service._snapshots.latest_before = AsyncMock(return_value=None)
+    service._snapshots.list_for_channel = AsyncMock(return_value=[])
 
     filename, payload = await service.export_channel_post_stats(1, days=14)
 
@@ -187,6 +191,10 @@ async def test_service_export_builds_csv(channel) -> None:
     text = payload.decode("utf-8-sig")
     assert "Текст поста" in text
     assert "500" in text
+    assert "Прирост подписчиков" in text
+    assert "Динамика по дням" in text
+    assert "Подписки" in text
+    assert "Отписки" in text
     _, kwargs = service._post_metrics.list_for_channel_since.await_args
     since = kwargs["since"]
     expected = datetime.now(UTC) - timedelta(days=14)
@@ -201,6 +209,8 @@ async def test_service_export_30_days_window(channel) -> None:
     service = ChannelAnalyticsService(MagicMock())
     service._channels.get_by_id = AsyncMock(return_value=channel)
     service._post_metrics.list_for_channel_since = AsyncMock(return_value=[])
+    service._snapshots.latest_before = AsyncMock(return_value=None)
+    service._snapshots.list_for_channel = AsyncMock(return_value=[])
 
     await service.export_channel_post_stats(1, days=30)
 
@@ -221,4 +231,84 @@ def test_export_row_views_zero() -> None:
     )
     row = export_row_from_metric(metric)
     payload = build_posts_stats_csv([row]).decode("utf-8-sig")
-    assert payload.rstrip().endswith(";0")
+    assert payload.rstrip().endswith(";0;")
+
+
+def test_compute_export_dynamics_growth_unsubs_and_views() -> None:
+    """Прирост, отписки и новые просмотры считаются по снимкам."""
+    snapshots = [
+        SimpleNamespace(
+            captured_at=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
+            subscribers=100,
+            total_views=1000,
+        ),
+        SimpleNamespace(
+            captured_at=datetime(2026, 8, 8, 12, 0, tzinfo=UTC),
+            subscribers=110,
+            total_views=1300,
+        ),
+        SimpleNamespace(
+            captured_at=datetime(2026, 8, 9, 12, 0, tzinfo=UTC),
+            subscribers=107,
+            total_views=1400,
+        ),
+    ]
+    posts = [
+        PostStatsExportRow(
+            published_at=datetime(2026, 8, 8, 10, 0, tzinfo=UTC),
+            text="пост",
+            views=200,
+            reach=180,
+        )
+    ]
+    summary, daily = compute_export_dynamics(
+        snapshots,
+        channel_name="Test",
+        days=14,
+        since=datetime(2026, 8, 7, 12, 0, tzinfo=UTC),
+        until=datetime(2026, 8, 10, 12, 0, tzinfo=UTC),
+        posts=posts,
+    )
+    assert summary.subscribers_start == 100
+    assert summary.subscribers_end == 107
+    assert summary.subscribers_growth == 7
+    assert summary.unsubscribes == 3
+    assert summary.subscriptions == 10
+    assert summary.subscriptions_estimated is True
+    assert summary.new_views == 400
+    assert summary.avg_reach == 180.0
+    by_day = {row.day.isoformat(): row for row in daily}
+    assert by_day["2026-08-08"].growth == 10
+    assert by_day["2026-08-09"].unsubscribes == 3
+    assert by_day["2026-08-09"].growth == -3
+
+
+def test_build_channel_stats_csv_has_sections() -> None:
+    """Полный отчёт содержит сводку, дни и посты."""
+    posts = [
+        PostStatsExportRow(
+            published_at=datetime(2026, 8, 10, 8, 0, tzinfo=UTC),
+            text="Текст",
+            views=10,
+            reach=8,
+        )
+    ]
+    summary, daily = compute_export_dynamics(
+        [
+            SimpleNamespace(
+                captured_at=datetime(2026, 8, 10, 8, 0, tzinfo=UTC),
+                subscribers=50,
+                total_views=200,
+            )
+        ],
+        channel_name="Канал",
+        days=14,
+        since=datetime(2026, 8, 10, 0, 0, tzinfo=UTC),
+        until=datetime(2026, 8, 10, 23, 0, tzinfo=UTC),
+        posts=posts,
+    )
+    text = build_channel_stats_csv(summary, daily, posts).decode("utf-8-sig")
+    assert "Сводка за 14 дней" in text
+    assert "Динамика по дням" in text
+    assert "Посты" in text
+    assert "Охват" in text

@@ -29,7 +29,17 @@ _CONCEPT_MARKERS: Final[list[tuple[tuple[str, ...], str]]] = [
     (("муравь", "ant colony", "муравейник"), "ants"),
     (("бамбук", "bamboo"), "bamboo"),
     (("aurora", "полярн", "северное сияние"), "aurora"),
+    (("бомбардир", "bombardier", "brachininae", "жук стреляющ"), "bombardier_beetle"),
+    (("бессмертн", "медуз", "turritopsis", "immortal jelly"), "immortal_jellyfish"),
+    (("креветк", "pistol shrimp", "щелкун", "alpheidae"), "pistol_shrimp"),
+    (("mars climate", "orbiter", "единиц измерения", "metric vs"), "mars_units_error"),
+    (("чёрн ящик", "черный ящик", "black box", "оранжев"), "black_box_orange"),
+    (("иллюминатор", "круглые окна", "aircraft window"), "round_porthole"),
+    (("микроволнов", "сетка на дверц", "faraday cage microwave"), "microwave_mesh"),
+    (("компенсацион", "зазор", "рельс", "rail gap"), "rail_expansion_gap"),
+    (("1с", "язык запросов 1с", "1c query"), "offtopic_1c"),
 ]
+
 
 # Значимые «якорные» слова: одно совпадение = та же тема (перефраз заголовка).
 _RARE_SUBJECT_WORDS: Final[frozenset[str]] = frozenset(
@@ -49,6 +59,10 @@ _RARE_SUBJECT_WORDS: Final[frozenset[str]] = frozenset(
         "синестезия",
         "penguin",
         "пингвин",
+        "бомбардир",
+        "bombardier",
+        "turritopsis",
+        "медуза",
     }
 )
 

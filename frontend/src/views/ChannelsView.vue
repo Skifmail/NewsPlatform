@@ -281,6 +281,72 @@
               placeholder="❤️ Ставьте реакцию, если понравилось!"
             />
 
+            <div
+              v-if="editForms[ch.id].content_mode === 'article' && isParagraphChannelForm(editForms[ch.id])"
+              class="topic-queue mt-5 pt-4 border-t border-panel-border"
+            >
+              <h4 class="schedule-title">Очередь тем (2 недели)</h4>
+              <p class="field-hint mb-2">
+                Вставьте список тем — по одной на строку. Генерация и расписание
+                берут следующую pending-тему автоматически. Опубликованные темы
+                отмечаются галочкой и не повторяются 90 дней.
+              </p>
+              <textarea
+                v-model="topicQueueDrafts[ch.id]"
+                rows="6"
+                class="input w-full text-xs mt-1"
+                placeholder="Одна тема на строку. Пример: Почему иллюминаторы самолётов круглые."
+                :disabled="topicQueueBusy === ch.id"
+              />
+              <div class="channel-actions mt-2">
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :disabled="topicQueueBusy === ch.id || !(topicQueueDrafts[ch.id] || '').trim()"
+                  @click="appendTopicQueue(ch.id)"
+                >
+                  {{ topicQueueBusy === ch.id ? 'Добавление…' : 'Добавить в очередь' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :disabled="topicQueueBusy === ch.id"
+                  @click="refreshTopicQueue(ch.id)"
+                >
+                  Обновить список
+                </button>
+              </div>
+              <div v-if="topicQueueSummaries[ch.id]" class="topic-queue-summary field-hint mt-2">
+                В очереди: {{ topicQueueSummaries[ch.id].pending || 0 }} ·
+                опубликовано: {{ topicQueueSummaries[ch.id].published || 0 }} ·
+                пропущено: {{ topicQueueSummaries[ch.id].skipped || 0 }}
+              </div>
+              <ul v-if="(topicQueueItems[ch.id] || []).length" class="topic-queue-list mt-3">
+                <li
+                  v-for="item in topicQueueItems[ch.id]"
+                  :key="item.id"
+                  class="topic-queue-item"
+                  :data-status="item.status"
+                >
+                  <span class="topic-queue-status">{{ topicStatusLabel(item.status) }}</span>
+                  <span class="topic-queue-title">{{ item.title }}</span>
+                  <span v-if="item.published_at" class="topic-queue-date">{{ formatQueueDate(item.published_at) }}</span>
+                  <button
+                    v-if="item.status === 'pending'"
+                    type="button"
+                    class="btn-danger btn-sm"
+                    @click="topicQueueAction(ch.id, item.id, 'skip')"
+                  >Пропустить</button>
+                  <button
+                    v-else-if="item.status === 'skipped'"
+                    type="button"
+                    class="btn-secondary btn-sm"
+                    @click="topicQueueAction(ch.id, item.id, 'restore_pending')"
+                  >Вернуть</button>
+                </li>
+              </ul>
+            </div>
+
             <div class="article-schedule mt-5 pt-4 border-t border-panel-border">
               <h4 class="schedule-title">Расписание публикаций</h4>
               <label class="field-mini w-full">
@@ -446,6 +512,9 @@ async function load() {
     const built = buildEditForm(ch)
     editForms[ch.id] = built
     originalForms[ch.id] = JSON.parse(JSON.stringify(built))
+    if (isParagraphChannelForm(built)) {
+      refreshTopicQueue(ch.id)
+    }
   })
 }
 
@@ -695,6 +764,39 @@ onMounted(load)
   @apply flex flex-wrap gap-2 mt-4 pt-4 border-t border-panel-border items-center;
 }
 
+.topic-queue-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.topic-queue-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--panel-border, #333);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+.topic-queue-item[data-status="published"] {
+  opacity: 0.75;
+}
+.topic-queue-item[data-status="skipped"] {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.topic-queue-title {
+  flex: 1;
+  min-width: 12rem;
+}
+.topic-queue-date {
+  opacity: 0.7;
+  font-size: 0.75rem;
+}
 .manual-topic-field {
   @apply flex-1 min-w-[12rem] max-w-md;
 }

@@ -12,7 +12,17 @@ from app.domain.article import (
     serialize_research_sources,
     serialize_topic_history,
 )
+from app.domain.article_meta import parse_article_meta
+from app.domain.paragraph_validator import validate_paragraph_draft
 from app.domain.topic_dedup import is_topic_too_similar, merge_topic_lists
+from app.domain.topic_queue import (
+    mark_in_progress,
+    mark_published,
+    next_pending,
+    parse_topic_queue,
+    published_titles,
+    serialize_topic_queue,
+)
 from app.domain.tool_category import is_ai_tool
 from app.domain.enums import ContentMode, PostStatus
 from app.infrastructure.ai.article_writer import ArticleWriter, WriterPrompts
@@ -45,6 +55,9 @@ from app.utils.telegram_channels import is_telegram_long_form_channel
 from app.utils.text_format import long_form_body_limit
 
 _MAX_DRAFT_DEDUP_ATTEMPTS = 3
+_TOPIC_HISTORY_DAYS = 90
+_TOPIC_HISTORY_LIMIT = 80
+_PARAGRAPH_VALIDATE_ATTEMPTS = 2
 _GITHUB_URL_RE = re.compile(r"https?://github\.com/[^\s\"'<>)]+", re.IGNORECASE)
 
 
@@ -180,6 +193,12 @@ class ArticleGenerationService:
         history_key = article_topic_history_key(channel_id)
         recent = await self._load_recent_topics(channel)
         settings_history = parse_topic_history(await self._settings.get(history_key, ""))
+        queue_items = parse_topic_queue(channel.topic_queue)
+        recent = merge_topic_lists(
+            published_titles(queue_items),
+            recent,
+            limit=_TOPIC_HISTORY_LIMIT,
+        )
 
         recent_hooks: list[str] | None = None
         candidate_repos: list[str] | None = None
@@ -205,7 +224,9 @@ class ArticleGenerationService:
         sources = []
         research_context = ""
         manual_topic = (topic or "").strip() or None
+        queue_item = None
         is_postcard = is_postcard_article_channel(channel.name, channel.topic or "")
+        is_paragraph = is_paragraph_article_channel(channel.name)
         selected_postcard_theme = None
         postcard_theme_service: PostcardThemeService | None = None
         if is_postcard:
@@ -213,6 +234,25 @@ class ArticleGenerationService:
             if not manual_topic:
                 selected_postcard_theme = await postcard_theme_service.pick_next(channel)
                 manual_topic = selected_postcard_theme.name
+        elif is_paragraph and not manual_topic:
+            queue_item = next_pending(queue_items)
+            if queue_item is not None:
+                manual_topic = queue_item.title
+                queue_items = mark_in_progress(queue_items, queue_item.id)
+                channel.topic_queue = serialize_topic_queue(queue_items)
+                await self._channels.update(channel)
+                await self._session.flush()
+                logger.info(
+                    "Using topic from editorial queue",
+                    channel_id=channel_id,
+                    topic=manual_topic,
+                    queue_item_id=queue_item.id,
+                )
+
+        # Для Параграфа — короткие посты 850–1400.
+        if is_paragraph:
+            teaser_max = max(teaser_max, 1400)
+            body_max = min(body_max, 1400)
 
         for draft_attempt in range(1, _MAX_DRAFT_DEDUP_ATTEMPTS + 1):
             await report_job_stage(
@@ -265,15 +305,57 @@ class ArticleGenerationService:
             )
             emit_internal(
                 label="Черновик статьи готов",
-                detail=f"«{draft.title}» — {len(draft.body_html)} симв. HTML",
+                detail=f"«{draft.title}» — {len(draft.body_html or draft.teaser)} симв.",
                 progress=75,
             )
+
+            similar = is_topic_too_similar(draft.title, recent) or (
+                is_topic_too_similar(plan.topic, recent) if plan else False
+            )
+            if is_paragraph and draft is not None:
+                meta = parse_article_meta(draft.article_meta_json)
+                validation = validate_paragraph_draft(
+                    title=draft.title,
+                    teaser=draft.teaser,
+                    body_html=draft.body_html or draft.teaser,
+                    cover_title=meta.cover_title,
+                    interaction_question=meta.interaction_question,
+                    button_options=meta.button_options,
+                    recent_topics=recent,
+                    topic_too_similar=similar and not manual_topic,
+                )
+                if not validation.ok:
+                    logger.warning(
+                        "Paragraph draft failed validation",
+                        channel_id=channel_id,
+                        issues=validation.blocking_messages,
+                        attempt=draft_attempt,
+                    )
+                    if draft_attempt < _PARAGRAPH_VALIDATE_ATTEMPTS and not manual_topic:
+                        recent = merge_topic_lists(
+                            [plan.topic, draft.title],
+                            recent,
+                            limit=_TOPIC_HISTORY_LIMIT,
+                        )
+                        continue
+                    if validation.blocking_messages and not manual_topic:
+                        # При ручной/очередной теме — пропускаем только duplicate/off_topic жёстко
+                        hard = [
+                            m for m in validation.issues
+                            if m.blocking and m.code in {
+                                "broken_html", "unclosed_tags",
+                                "incomplete_sentence", "incomplete_clause",
+                                "platform_limit", "off_topic",
+                            }
+                        ]
+                        if hard and draft_attempt < _MAX_DRAFT_DEDUP_ATTEMPTS:
+                            continue
 
             # Ручная тема и devtools/trending: дедуп заголовка не ретраим.
             if (
                 manual_topic
                 or candidate_repos
-                or not is_topic_too_similar(draft.title, recent)
+                or not similar
             ):
                 break
 
@@ -303,6 +385,9 @@ class ArticleGenerationService:
             platform_settings, prompts=await self._load_image_prompts()
         )
         fallback_image = sources[0].url if sources else None
+        cover_title = ""
+        if draft.article_meta_json:
+            cover_title = parse_article_meta(draft.article_meta_json).cover_title
         image_url, image_source = await images.resolve_article_image(
             channel=channel,
             article_title=draft.title,
@@ -312,6 +397,7 @@ class ArticleGenerationService:
             repo_url=draft.repo_url,
             teaser=draft.teaser,
             greeting_text=draft.greeting_text,
+            cover_title=cover_title or None,
         )
 
         video_url = None
@@ -360,6 +446,7 @@ class ArticleGenerationService:
             article_title=draft.title,
             article_body=draft.body_html,
             research_sources=serialize_research_sources(sources),
+            article_meta=draft.article_meta_json,
             generated_image_url=image_url,
             generated_video_url=video_url,
             image_source=image_source,
@@ -377,13 +464,31 @@ class ArticleGenerationService:
             metadata={"processed_post_id": saved.id},
         )
 
+        entities = []
+        if draft.article_meta_json:
+            entities = parse_article_meta(draft.article_meta_json).entities
         updated_history = merge_topic_lists(
-            [plan.topic, draft.title],
+            [plan.topic, draft.title, *entities],
             settings_history,
             recent,
-            limit=50,
+            limit=_TOPIC_HISTORY_LIMIT,
         )
         await self._persist_topic_history(channel, updated_history)
+        if queue_item is not None:
+            queue_items = parse_topic_queue(channel.topic_queue)
+            queue_items = mark_published(
+                queue_items,
+                queue_item.id,
+                published_post_id=saved.id,
+                entities=entities,
+            )
+            # Синхронизируем очередь по всем каналам «Параграф».
+            for cid in await self._article_history_channel_ids(channel):
+                ch = await self._channels.get_by_id(cid)
+                if ch is None:
+                    continue
+                ch.topic_queue = serialize_topic_queue(queue_items)
+                await self._channels.update(ch)
         if selected_postcard_theme and postcard_theme_service is not None:
             await postcard_theme_service.record_publication(
                 channel.id, selected_postcard_theme
@@ -491,14 +596,17 @@ class ArticleGenerationService:
         channel_ids = await self._article_history_channel_ids(channel)
         db_titles = await self._processed.list_recent_article_titles_for_channels(
             channel_ids,
-            limit=50,
-            days=60,
+            limit=_TOPIC_HISTORY_LIMIT,
+            days=_TOPIC_HISTORY_DAYS,
         )
         settings_parts: list[str] = []
         for cid in channel_ids:
             raw = await self._settings.get(article_topic_history_key(cid), "")
             settings_parts.extend(parse_topic_history(raw))
-        return merge_topic_lists(db_titles, settings_parts, limit=50)
+            ch = await self._channels.get_by_id(cid)
+            if ch is not None:
+                settings_parts.extend(published_titles(parse_topic_queue(ch.topic_queue)))
+        return merge_topic_lists(db_titles, settings_parts, limit=_TOPIC_HISTORY_LIMIT)
 
     async def _article_history_channel_ids(self, channel: Channel) -> list[int]:
         """ID каналов, чья история статей учитывается при антиповторе.
@@ -527,7 +635,7 @@ class ArticleGenerationService:
             channel: канал публикации.
             topics: темы от новых к старым.
         """
-        serialized = serialize_topic_history(topics, limit=50)
+        serialized = serialize_topic_history(topics, limit=_TOPIC_HISTORY_LIMIT)
         keys = [
             article_topic_history_key(cid)
             for cid in await self._article_history_channel_ids(channel)

@@ -472,8 +472,18 @@ def to_max_api_html(text: str) -> str:
     )
     if len(cleaned) <= MAX_MESSAGE_MAX:
         return cleaned
-    truncated = cleaned[: MAX_MESSAGE_MAX - 1].rstrip()
-    truncated = re.sub(r"<[^>]*$", "", truncated).rstrip()
+    # Никогда не режем mid-tag / mid-sentence: граница предложения, затем ремонт HTML.
+    limit = MAX_MESSAGE_MAX - 1
+    window = cleaned[:limit]
+    cut = None
+    for sep in (". ", "! ", "? ", "… ", "\n\n", "\n"):
+        pos = window.rfind(sep)
+        if pos >= limit // 2:
+            cut = window[: pos + len(sep.rstrip()) + (1 if sep.endswith(" ") else 0)].rstrip()
+            break
+    if cut is None:
+        cut = window.rsplit(" ", 1)[0].rstrip() if " " in window else window
+    truncated = re.sub(r"<[^>]*$", "", cut).rstrip()
     if truncated and not truncated.endswith("…"):
         truncated = f"{truncated}…"
     return repair_telegram_html(truncated)

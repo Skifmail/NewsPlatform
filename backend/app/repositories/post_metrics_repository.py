@@ -44,6 +44,24 @@ class PostMetricsRepository:
             if metric.post_text:
                 existing.post_text = metric.post_text
             existing.views = metric.views if metric.views is not None else existing.views
+            for age_field in (
+                "views_1h",
+                "views_3h",
+                "views_24h",
+                "views_48h",
+                "views_72h",
+                "views_7d",
+                "subscribers_at_publication",
+                "button_clicks",
+            ):
+                new_val = getattr(metric, age_field, None)
+                if new_val is not None:
+                    # age-buckets: заполняем только пустые (первый снимок в окне)
+                    if age_field.startswith("views_") or age_field == "subscribers_at_publication":
+                        if getattr(existing, age_field) is None:
+                            setattr(existing, age_field, new_val)
+                    else:
+                        setattr(existing, age_field, new_val)
             existing.forwards = (
                 metric.forwards if metric.forwards is not None else existing.forwards
             )
@@ -70,6 +88,26 @@ class PostMetricsRepository:
         await self._session.flush()
         await self._session.refresh(metric)
         return metric
+
+
+    async def get_by_processed_post_id(
+        self, processed_post_id: int
+    ) -> PostMetric | None:
+        """Возвращает метрики по ID processed_post.
+
+        Args:
+            processed_post_id: ID поста в очереди/архиве.
+
+        Returns:
+            PostMetric | None: запись или None.
+        """
+        result = await self._session.execute(
+            select(PostMetric)
+            .where(PostMetric.processed_post_id == processed_post_id)
+            .order_by(PostMetric.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def list_for_channel(
         self,

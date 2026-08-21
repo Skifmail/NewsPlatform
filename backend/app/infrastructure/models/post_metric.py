@@ -30,6 +30,16 @@ class PostMetric(Base):
     post_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     post_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     views: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views_1h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views_3h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views_24h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views_48h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views_72h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views_7d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    subscribers_at_publication: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    button_clicks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     forwards: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reactions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     comments: Mapped[int | None] = mapped_column(Integer, nullable=True)

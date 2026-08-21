@@ -31,7 +31,8 @@ from app.services.chart_history import (
 )
 from app.services.channel_stats_export import (
     POST_STATS_EXPORT_DAYS,
-    build_posts_stats_csv,
+    build_channel_stats_csv,
+    compute_export_dynamics,
     export_row_from_metric,
     posts_stats_export_filename,
 )
@@ -130,6 +131,46 @@ def _subscribers_delta_since(
     if start_value is None or end_value is None:
         return None
     return end_value - start_value
+
+
+
+
+def _views_age_bucket_values(
+    *,
+    published_at: datetime | None,
+    collected_at: datetime,
+    views: int | None,
+) -> dict[str, int | None]:
+    """Возвращает age-bucket поле для окна, в которое попал текущий сбор.
+
+    Ранние бакеты не заполняются запоздалым полным числом просмотров.
+
+    Args:
+        published_at: время публикации.
+        collected_at: момент сбора.
+        views: текущие накопленные просмотры.
+
+    Returns:
+        dict: одно из views_1h/3h/24h/48h/72h/7d или пусто.
+    """
+    if published_at is None or views is None:
+        return {}
+    pub = published_at if published_at.tzinfo else published_at.replace(tzinfo=UTC)
+    age = collected_at - pub
+    hours = age.total_seconds() / 3600.0
+    mapping = (
+        (1.0, "views_1h", 2.5),
+        (3.0, "views_3h", 5.0),
+        (24.0, "views_24h", 10.0),
+        (48.0, "views_48h", 12.0),
+        (72.0, "views_72h", 18.0),
+        (168.0, "views_7d", 36.0),
+    )
+    result: dict[str, int | None] = {}
+    for threshold, field, grace in mapping:
+        if threshold <= hours < threshold + grace:
+            result[field] = views
+    return result
 
 
 def _engagement_rate_from_views(
@@ -326,7 +367,13 @@ class ChannelAnalyticsService:
 
         now = datetime.now(UTC)
         for dto in stats.post_metrics:
-            await self._upsert_post_metric(channel, dto, log_by_post_id, now)
+            await self._upsert_post_metric(
+                channel,
+                dto,
+                log_by_post_id,
+                now,
+                subscribers_now=stats.subscribers,
+            )
 
         if stats.members:
             sync = await self._max_members.sync_channel_members(
@@ -625,12 +672,65 @@ class ChannelAnalyticsService:
             raise ValueError(msg)
 
         since = datetime.now(UTC) - timedelta(days=days)
+        until = datetime.now(UTC)
         metrics = await self._post_metrics.list_for_channel_since(
             channel_id, since=since
         )
-        rows = [export_row_from_metric(metric) for metric in metrics]
-        return posts_stats_export_filename(channel.name, days), build_posts_stats_csv(
-            rows
+        posts = [export_row_from_metric(metric) for metric in metrics]
+
+        baseline = await self._snapshots.latest_before(channel_id, since)
+        window = await self._snapshots.list_for_channel(
+            channel_id, since=since, limit=None
+        )
+        snapshots: list = []
+        seen_ids: set[int] = set()
+        if baseline is not None:
+            snapshots.append(baseline)
+            if baseline.id is not None:
+                seen_ids.add(baseline.id)
+        for snapshot in window:
+            if snapshot.id in seen_ids:
+                continue
+            snapshots.append(snapshot)
+
+        joins_map: dict | None = None
+        leaves_map: dict | None = None
+        subscriptions_total = None
+        unsubscribes_total = None
+        if channel.platform == "max":
+            subscriptions_total = await self._max_members.count_joined_since(
+                channel_id, since
+            )
+            unsubscribes_total = await self._max_members.count_left_since(
+                channel_id, since
+            )
+            joins_map = {
+                date.fromisoformat(day): count
+                for day, count in await self._max_members.joins_by_day(
+                    channel_id, since
+                )
+            }
+            leaves_map = {
+                date.fromisoformat(day): count
+                for day, count in await self._max_members.leaves_by_day(
+                    channel_id, since
+                )
+            }
+
+        summary, daily = compute_export_dynamics(
+            snapshots,
+            channel_name=channel.name,
+            days=days,
+            since=since,
+            until=until,
+            posts=posts,
+            joins_by_day=joins_map,
+            leaves_by_day=leaves_map,
+            subscriptions_total=subscriptions_total,
+            unsubscribes_total=unsubscribes_total,
+        )
+        return posts_stats_export_filename(channel.name, days), build_channel_stats_csv(
+            summary, daily, posts
         )
 
     async def list_channel_overviews(self) -> list[ChannelAnalyticsOverview]:
@@ -714,8 +814,10 @@ class ChannelAnalyticsService:
         dto: PostMetricDTO,
         log_by_post_id: dict[str, object],
         collected_at: datetime,
+        *,
+        subscribers_now: int | None = None,
     ) -> PostMetric:
-        """Сохраняет метрики поста с привязкой к publish_log."""
+        """Сохраняет метрики поста с привязкой к publish_log и age-buckets."""
         log = log_by_post_id.get(dto.platform_post_id)
         processed_post_id = getattr(log, "processed_post_id", None) if log else None
         publish_log_id = getattr(log, "id", None) if log else None
@@ -723,6 +825,11 @@ class ChannelAnalyticsService:
         if published_at is None and log is not None:
             published_at = getattr(log, "published_at", None)
 
+        age_fields = _views_age_bucket_values(
+            published_at=published_at,
+            collected_at=collected_at,
+            views=dto.views,
+        )
         metric = PostMetric(
             channel_id=channel.id,
             processed_post_id=processed_post_id,
@@ -738,5 +845,7 @@ class ChannelAnalyticsService:
             reach_subscribers=dto.reach_subscribers,
             published_at=published_at,
             collected_at=collected_at,
+            subscribers_at_publication=subscribers_now,
+            **age_fields,
         )
         return await self._post_metrics.upsert(metric)

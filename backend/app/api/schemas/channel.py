@@ -38,6 +38,10 @@ class ChannelCreate(BaseModel):
     cross_promote_label: str | None = Field(None, max_length=255)
     cross_promote_emoji_id: str | None = Field(None, max_length=32)
     post_footer: str | None = None
+    topic_queue: str | None = Field(
+        None,
+        description="JSON-очередь редакционных тем",
+    )
     content_mode: str = Field("news", pattern="^(news|article)$")
     is_active: bool = True
     animate_postcards: bool = False
@@ -61,6 +65,7 @@ class ChannelUpdate(BaseModel):
     cross_promote_label: str | None = Field(None, max_length=255)
     cross_promote_emoji_id: str | None = Field(None, max_length=32)
     post_footer: str | None = None
+    topic_queue: str | None = None
     content_mode: str | None = Field(None, pattern="^(news|article)$")
     is_active: bool | None = None
     animate_postcards: bool | None = None
@@ -85,6 +90,7 @@ class ChannelResponse(OrmSchema):
     cross_promote_label: str | None
     cross_promote_emoji_id: str | None
     post_footer: str | None
+    topic_queue: str | None
     content_mode: str
     animate_postcards: bool
     is_active: bool
@@ -98,5 +104,23 @@ class GenerateArticleRequest(BaseModel):
     topic: str | None = Field(
         None,
         max_length=200,
-        description="Тема статьи или повод открытки; пусто — ИИ выбирает сам",
+        description="Тема статьи или повод открытки; пусто — очередь или ИИ",
     )
+
+
+class TopicQueueAppendRequest(BaseModel):
+    """Добавление тем в редакционную очередь (по одной на строку)."""
+
+    topics_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=20000,
+        description="Список тем: одна тема на строку",
+    )
+
+
+class TopicQueueItemAction(BaseModel):
+    """Действие над элементом очереди тем."""
+
+    item_id: str = Field(..., min_length=1, max_length=64)
+    action: str = Field(..., pattern="^(skip|restore_pending)$")

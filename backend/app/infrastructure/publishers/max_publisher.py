@@ -15,7 +15,10 @@ from app.domain.enums import ContentMode
 from app.domain.publish import PublishPermanentError
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.processed_post import ProcessedPost
+from app.domain.article_meta import parse_article_meta
 from app.infrastructure.publishers.base import BasePublisher
+from app.infrastructure.publishers.max_keyboard import build_callback_keyboard
+from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.publishers.telegraph_publisher import TelegraphPublisher
 from app.utils.max_api import get_max_api_base, max_client_session
 from app.utils.telegram_channels import is_long_form_article_channel
@@ -153,7 +156,15 @@ class MaxPublisher(BasePublisher):
             body_html=post.article_body,
             max_length=MAX_MESSAGE_MAX,
         )
-        text = append_post_footer(text, channel.post_footer)
+        text = append_post_footer(to_max_api_html(text), channel.post_footer)
+
+        keyboard = None
+        if is_paragraph_article_channel(channel.name):
+            meta = parse_article_meta(post.article_meta)
+            keyboard = build_callback_keyboard(
+                meta.button_options,
+                payload_prefix=f"pq:{post.id}",
+            )
 
         async with max_client_session() as session:
             chat_id = await self._resolve_chat_id(
@@ -166,6 +177,7 @@ class MaxPublisher(BasePublisher):
                 text,
                 image_bytes,
                 video_bytes=video_bytes,
+                extra_attachments=[keyboard] if keyboard else None,
             )
             logger.info(
                 "MAX long-form article published",
@@ -478,6 +490,7 @@ class MaxPublisher(BasePublisher):
         text: str,
         image_bytes: bytes | None,
         video_bytes: bytes | None = None,
+        extra_attachments: list[dict[str, Any]] | None = None,
     ) -> str:
         """Отправляет текст и опционально видео или изображение в канал.
 
@@ -526,6 +539,8 @@ class MaxPublisher(BasePublisher):
             "format": "html",
             "notify": True,
         }
+        if extra_attachments:
+            attachments = (attachments or []) + list(extra_attachments)
         if attachments:
             body["attachments"] = attachments
 

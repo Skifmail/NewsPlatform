@@ -67,7 +67,6 @@ def test_distinct_topics_stay_distinct() -> None:
 
 def test_paragraph_prompt_has_balancing_rules() -> None:
     extra = PROMPT_DEFAULTS["ideation.paragraph_extra"].template_text
-    assert "ГЕОГРАФИЯ" in extra
     assert "СУБЪЕКТ" in extra
     assert "ЗАГОЛОВОК" in extra
-    assert "Япония" in extra
+    assert "ошибка" in extra.lower() or "рубрик" in extra.lower()

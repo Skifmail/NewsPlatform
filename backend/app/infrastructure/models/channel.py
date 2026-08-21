@@ -36,6 +36,11 @@ class Channel(Base):
         ),
     )
     post_footer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    topic_queue: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="JSON-очередь редакционных тем (pending/published) на 1–2 недели",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

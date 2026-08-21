@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routers import analytics, ai_usage, auth, channels, history, jobs, logs, media, media_assets, overview, posts, raw_posts, settings as settings_router
-from app.api.routers import prompts, sources, vk_oauth
+from app.api.routers import max_webhook, prompts, sources, vk_oauth
 from app.api.websocket import router as ws_router, start_redis_listener
 from app.core.config import get_settings
 from app.core.logging import setup_logging
@@ -73,6 +73,7 @@ def create_app() -> FastAPI:
     application.include_router(overview.router, prefix="/api")
     application.include_router(prompts.router, prefix="/api")
     application.include_router(vk_oauth.router, prefix="/api")
+    application.include_router(max_webhook.router, prefix="/api")
     application.include_router(ws_router, prefix="/ws")
 
     @application.get("/health")
