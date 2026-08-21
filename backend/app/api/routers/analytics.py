@@ -1,6 +1,5 @@
 """Роутер аналитики каналов."""
 
-from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -234,7 +233,7 @@ async def export_channel_post_stats(
     channel_id: int,
     session: DbSession,
     _: AuthDep,
-    days: Literal[14, 30] = Query(14, description="Период выгрузки: 14 или 30 дней"),
+    days: int = Query(14, description="Период выгрузки: 14 или 30 дней"),
 ) -> Response:
     """Скачать CSV со статистикой постов за 14 или 30 дней."""
     try:
