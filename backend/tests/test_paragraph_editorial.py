@@ -72,7 +72,7 @@ def test_validator_catches_offtopic_and_broken_html() -> None:
 
 def test_validator_rejects_predstav_opener() -> None:
     result = validate_paragraph_draft(
-        title="Факт",
+        title="Факт 💡",
         teaser="Представь, что жук стреляет кипятком. " * 20,
         body_html="История закончена нормально.",
     )
@@ -116,7 +116,7 @@ def test_validator_rejects_machine_metric_conversion() -> None:
         "Это сделано для комфорта пассажиров и экипажа. "
     ) * 3
     result = validate_paragraph_draft(
-        title="Дверь самолёта",
+        title="Дверь самолёта ✈️",
         teaser=body,
         body_html="История закончена нормально.",
     )
@@ -130,7 +130,7 @@ def test_validator_rejects_imperial_units() -> None:
         "Это сделано для комфорта пассажиров и экипажа в длительном полёте. "
     ) * 3
     result = validate_paragraph_draft(
-        title="Дверь самолёта",
+        title="Дверь самолёта ✈️",
         teaser=body,
         body_html="История закончена нормально.",
     )
@@ -139,16 +139,61 @@ def test_validator_rejects_imperial_units() -> None:
 
 def test_validator_allows_natural_metric() -> None:
     body = (
-        "Давление в салоне соответствует высоте около 2400 метров. "
+        "✈️ Давление в салоне соответствует высоте около 2400 метров. "
         "Так устроены почти все пассажирские лайнеры для комфорта. "
     ) * 4
     result = validate_paragraph_draft(
-        title="Дверь самолёта",
+        title="Дверь самолёта ✈️",
         teaser=body,
-        body_html="История закончена нормально. Почему дверь не открыть в полёте?",
+        body_html="История закончена нормально 💡 Почему дверь не открыть в полёте?",
         interaction_question="Знал об этом?",
         button_options=["Знал", "Теперь знаю"],
     )
     codes = {i.code for i in result.issues}
     assert "unnatural_metric" not in codes
     assert "imperial_units" not in codes
+
+
+def test_validator_requires_emoji() -> None:
+    body = (
+        "Давление в салоне соответствует высоте около 2400 метров. "
+        "Так устроены почти все пассажирские лайнеры для комфорта. "
+    ) * 4
+    result = validate_paragraph_draft(
+        title="Дверь самолёта без эмодзи",
+        teaser=body,
+        body_html="История закончена нормально.",
+        interaction_question="Знал?",
+        button_options=["Да", "Нет"],
+    )
+    assert any(i.code == "missing_emoji" for i in result.issues)
+
+
+def test_validator_accepts_title_emoji() -> None:
+    body = (
+        "✈️ Давление в салоне соответствует высоте около 2400 метров. "
+        "Так устроены почти все пассажирские лайнеры для комфорта. "
+    ) * 4
+    result = validate_paragraph_draft(
+        title="Дверь самолёта ✈️",
+        teaser=body,
+        body_html="История закончена нормально 💡",
+        interaction_question="Знал?",
+        button_options=["Да", "Нет"],
+    )
+    assert not any(i.code == "missing_emoji" for i in result.issues)
+
+
+def test_validator_rejects_emoji_only_in_title() -> None:
+    body = (
+        "Давление в салоне соответствует высоте около 2400 метров. "
+        "Так устроены почти все пассажирские лайнеры для комфорта. "
+    ) * 4
+    result = validate_paragraph_draft(
+        title="Дверь самолёта ✈️",
+        teaser=body,
+        body_html="История закончена нормально.",
+        interaction_question="Знал?",
+        button_options=["Да", "Нет"],
+    )
+    assert any(i.code == "missing_emoji" for i in result.issues)

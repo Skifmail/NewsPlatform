@@ -55,6 +55,17 @@ _ENGLISH_QUOTE = re.compile(
 )
 _CYRILLIC = re.compile(r"[а-яёА-ЯЁ]")
 
+# Эмодзи по всему посту: минимум 2 в видимом тексте (title+анонс+тело).
+_HAS_EMOJI = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"  # Misc Symbols and Pictographs … Symbols Extended-A
+    "\U00002700-\U000027BF"  # Dingbats
+    "\U00002600-\U000026FF"  # Misc symbols
+    "\U0001F1E0-\U0001F1FF"  # flags
+    "]"
+)
+
+
 # Имперские единицы и «машинный» метрический перевод (8000 ft → 2438 м).
 _IMPERIAL_UNITS = re.compile(
     r"(?i)"
@@ -272,6 +283,19 @@ def validate_paragraph_draft(
                 )
             )
             break
+
+    emoji_plain = _visible_text(f"{title}\n{teaser}\n{body_html}")
+    emoji_count = len(_HAS_EMOJI.findall(emoji_plain))
+    body_plain = _visible_text(f"{teaser}\n{body_html}")
+    body_emoji = len(_HAS_EMOJI.findall(body_plain))
+    if emoji_count < 2 or body_emoji < 1:
+        issues.append(
+            ValidationIssue(
+                "missing_emoji",
+                "Мало эмодзи: нужно 2–4 уместных по всему тексту "
+                "(хотя бы один в title и ещё в hook/теле), без спама.",
+            )
+        )
 
     imperial_hit = _IMPERIAL_UNITS.search(plain)
     if imperial_hit:
