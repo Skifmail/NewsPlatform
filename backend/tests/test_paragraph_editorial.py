@@ -14,7 +14,10 @@ from app.domain.topic_queue import (
     parse_topics_from_text,
     serialize_topic_queue,
 )
-from app.infrastructure.ai.paragraph_teaser_formatter import build_paragraph_teaser
+from app.infrastructure.ai.paragraph_teaser_formatter import (
+    build_paragraph_teaser,
+    uses_editorial_topic_queue,
+)
 from app.infrastructure.publishers.max_keyboard import (
     build_callback_keyboard,
     parse_callback_payload,
@@ -98,3 +101,54 @@ def test_max_keyboard_payload() -> None:
     assert buttons[0]["payload"] == "pq:15:0"
     post_id, idx = parse_callback_payload("pq:15:1")
     assert post_id == 15 and idx == 1
+
+
+def test_editorial_queue_only_for_paragraph_max() -> None:
+    assert uses_editorial_topic_queue("Параграф (МАКС)", "max") is True
+    assert uses_editorial_topic_queue("ПАРАГРАФ (ВК)", "vk") is False
+    assert uses_editorial_topic_queue("Другой канал", "max") is False
+
+
+def test_validator_rejects_machine_metric_conversion() -> None:
+    """8000 ft → 2438 м выглядит как слепой перевод."""
+    body = (
+        "Давление в салоне соответствует высоте около 2438 метров над уровнем моря. "
+        "Это сделано для комфорта пассажиров и экипажа. "
+    ) * 3
+    result = validate_paragraph_draft(
+        title="Дверь самолёта",
+        teaser=body,
+        body_html="История закончена нормально.",
+    )
+    codes = {i.code for i in result.issues}
+    assert "unnatural_metric" in codes
+
+
+def test_validator_rejects_imperial_units() -> None:
+    body = (
+        "Кабина держит давление как на высоте 8000 футов — так устроены почти все лайнеры. "
+        "Это сделано для комфорта пассажиров и экипажа в длительном полёте. "
+    ) * 3
+    result = validate_paragraph_draft(
+        title="Дверь самолёта",
+        teaser=body,
+        body_html="История закончена нормально.",
+    )
+    assert any(i.code == "imperial_units" for i in result.issues)
+
+
+def test_validator_allows_natural_metric() -> None:
+    body = (
+        "Давление в салоне соответствует высоте около 2400 метров. "
+        "Так устроены почти все пассажирские лайнеры для комфорта. "
+    ) * 4
+    result = validate_paragraph_draft(
+        title="Дверь самолёта",
+        teaser=body,
+        body_html="История закончена нормально. Почему дверь не открыть в полёте?",
+        interaction_question="Знал об этом?",
+        button_options=["Знал", "Теперь знаю"],
+    )
+    codes = {i.code for i in result.issues}
+    assert "unnatural_metric" not in codes
+    assert "imperial_units" not in codes

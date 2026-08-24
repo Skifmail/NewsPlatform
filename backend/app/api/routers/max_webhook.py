@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import json
+
 import aiohttp
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from loguru import logger
@@ -61,10 +63,10 @@ async def max_webhook(
         post = await ProcessedPostRepository(session).get_by_id(post_id)
         if post is not None:
             meta = parse_article_meta(post.article_meta)
-            options = meta.button_options
+            options = meta.button_options or []
             if option_idx is not None and 0 <= option_idx < len(options):
                 notification = f"Ваш выбор: {options[option_idx]}"
-            await _increment_button_clicks(session, post.id)
+            await _increment_button_clicks(session, post.id, option_idx)
             await session.commit()
 
     if callback_id and settings.max_bot_token:
@@ -73,7 +75,11 @@ async def max_webhook(
     return {"status": "ok"}
 
 
-async def _increment_button_clicks(session: DbSession, processed_post_id: int) -> None:
+async def _increment_button_clicks(
+    session: DbSession,
+    processed_post_id: int,
+    option_idx: int | None,
+) -> None:
     """Увеличивает счётчик нажатий кнопок у метрик поста."""
     repo = PostMetricsRepository(session)
     metric = await repo.get_by_processed_post_id(processed_post_id)
@@ -84,6 +90,17 @@ async def _increment_button_clicks(session: DbSession, processed_post_id: int) -
         )
         return
     metric.button_clicks = int(metric.button_clicks or 0) + 1
+    if option_idx is not None:
+        try:
+            raw = metric.button_answers
+            data: dict[str, int] = json.loads(raw) if raw else {}
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:  # noqa: BLE001
+            data = {}
+        key = str(option_idx)
+        data[key] = int(data.get(key, 0) or 0) + 1
+        metric.button_answers = json.dumps(data, ensure_ascii=False)
     await session.flush()
 
 

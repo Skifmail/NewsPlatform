@@ -17,6 +17,21 @@ def is_paragraph_article_channel(channel_name: str) -> bool:
     return "параграф" in channel_name.lower()
 
 
+def uses_editorial_topic_queue(channel_name: str, platform: str | None) -> bool:
+    """Очередь редакционных тем — только для «Параграф» на MAX.
+
+    VK/Telegram «Параграф» продолжают выбирать тему через веб-поиск.
+
+    Args:
+        channel_name: название канала.
+        platform: платформа публикации (max/vk/telegram).
+
+    Returns:
+        bool: True, если канал должен брать темы из topic_queue.
+    """
+    return is_paragraph_article_channel(channel_name) and (platform or "").lower() == "max"
+
+
 def paragraph_writing_instructions(template: str, teaser_max_length: int) -> str:
     """Собирает инструкции для ArticleWriter (Параграф) из шаблона панели промптов.
 

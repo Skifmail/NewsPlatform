@@ -40,6 +40,7 @@ class PostMetric(Base):
         Integer, nullable=True
     )
     button_clicks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    button_answers: Mapped[str | None] = mapped_column(Text, nullable=True)
     forwards: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reactions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     comments: Mapped[int | None] = mapped_column(Integer, nullable=True)

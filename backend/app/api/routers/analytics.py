@@ -2,6 +2,8 @@
 
 from urllib.parse import quote
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import Response
 
@@ -29,9 +31,32 @@ from app.repositories.ad_integration_repository import AdIntegrationRepository
 from app.repositories.post_metrics_repository import PostMetricsRepository
 from app.services.analytics_progress import read_progress
 from app.services.channel_analytics_service import ChannelAnalyticsService
+from app.domain.article_meta import parse_article_meta
 from app.tasks.analytics_tasks import collect_all_channels_stats, collect_channel_stats_task
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+def _button_answer_clicks(
+    raw: str | None,
+    options_len: int,
+) -> list[int] | None:
+    """Преобразует JSON из `post_metrics.button_answers` в счётчики по option_idx."""
+    if not options_len:
+        return None
+
+    if not raw:
+        return [0 for _ in range(options_len)]
+
+    try:
+        data = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return [0 for _ in range(options_len)]
+
+    if not isinstance(data, dict):
+        return [0 for _ in range(options_len)]
+
+    return [int(data.get(str(i), 0) or 0) for i in range(options_len)]
 
 
 def _overview_to_response(overview) -> ChannelAnalyticsResponse:
@@ -223,6 +248,19 @@ async def list_channel_post_metrics(
                 collected_at=metric.collected_at,
                 rewritten_text=post.rewritten_text if post else None,
                 post_text=metric.post_text,
+                button_clicks=metric.button_clicks,
+                button_options=(
+                    parse_article_meta(post.article_meta).button_options
+                    if post and post.article_meta
+                    else None
+                ),
+                button_answer_clicks=(
+                    _button_answer_clicks(metric.button_answers,
+                        len(parse_article_meta(post.article_meta).button_options or [])
+                    )
+                    if post and post.article_meta
+                    else None
+                ),
             )
         )
     return items

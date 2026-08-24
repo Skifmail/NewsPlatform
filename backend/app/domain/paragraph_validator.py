@@ -55,6 +55,37 @@ _ENGLISH_QUOTE = re.compile(
 )
 _CYRILLIC = re.compile(r"[а-яёА-ЯЁ]")
 
+# Имперские единицы и «машинный» метрический перевод (8000 ft → 2438 м).
+_IMPERIAL_UNITS = re.compile(
+    r"(?i)"
+    r"(?<![а-яёa-z])"
+    r"(?:"
+    r"фут(?:а|ов|у|е|ами|ах)?"
+    r"|дюйм(?:а|ов|у|е|ами|ах)?"
+    r"|мил(?:я|и|ь|ями|ях)"
+    r"|фунт(?:а|ов|у|е|ами|ах)?"
+    r"|yard(?:s)?"
+    r"|feet|foot|inches|inch|miles?|pounds?|lbs?"
+    r"|fahrenheit"
+    r"|°\s*f"
+    r"|\bpsi\b"
+    r"|\bmph\b"
+    r")"
+    r"(?![а-яёa-z])"
+)
+
+# «2438 метров» / «1 524 м» — точный пересчёт, а не живая метрика.
+_SUSPICIOUS_METERS = re.compile(
+    r"(?<![\d.,])"
+    r"(\d{1,3}(?:[ \u00a0]\d{3})+|\d{4,})"
+    r"(?:[.,]\d+)?"
+    r"\s*"
+    r"(?:м(?![а-яё])|метр(?:а|ов|у|е)?|metres?|meters?)"
+    r"\b",
+    re.IGNORECASE,
+)
+
+
 
 @dataclass
 class ValidationIssue:
@@ -238,6 +269,35 @@ def validate_paragraph_draft(
                 ValidationIssue(
                     "untranslated_quote",
                     "Английская цитата без перевода — убрать или перевести.",
+                )
+            )
+            break
+
+    imperial_hit = _IMPERIAL_UNITS.search(plain)
+    if imperial_hit:
+        issues.append(
+            ValidationIssue(
+                "imperial_units",
+                "Имперские единицы («"
+                f"{imperial_hit.group(0)}») — только метрика "
+                "(м/км/кг/°C), с естественным округлением.",
+            )
+        )
+
+    for match in _SUSPICIOUS_METERS.finditer(plain):
+        token = re.sub(r"\s+", "", match.group(1)).replace(",", ".")
+        try:
+            meters = int(float(token))
+        except ValueError:
+            continue
+        # Живая метрика: «около 2400 м», «2,5 км». Точные 2438 м — признак
+        # машинного перевода из футов (8000 ft).
+        if meters >= 1000 and meters % 50 != 0:
+            issues.append(
+                ValidationIssue(
+                    "unnatural_metric",
+                    f"Число «{match.group(0)}» выглядит как слепой пересчёт "
+                    "из имперских единиц. Округли: «около 2400 м» / «примерно 2,5 км».",
                 )
             )
             break

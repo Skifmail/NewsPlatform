@@ -364,6 +364,22 @@
                   <span class="post-metric-label">Комменты</span>
                   <span class="post-metric-value">{{ formatNum(post.comments) }}</span>
                 </div>
+                <div v-if="post.button_clicks != null" class="button-breakdown">
+                  <span class="post-metric-label">Кнопки</span>
+                  <span class="post-metric-value">{{ formatNum(post.button_clicks) }}</span>
+                  <div
+                    v-if="post.button_options && post.button_options.length && post.button_answer_clicks"
+                    class="text-xs text-[var(--text-secondary)] mt-1"
+                  >
+                    <template v-for="(opt, idx) in post.button_options" :key="`${opt}-${idx}`">
+                      <span v-if="post.button_answer_clicks[idx]">
+                        {{ opt }}: {{ post.button_answer_clicks[idx] }}
+                        <span v-if="idx !== post.button_options.length - 1">&nbsp;·&nbsp;</span>
+                      </span>
+                    </template>
+                    <span v-if="post.button_answer_clicks.every((v) => !v)">—</span>
+                  </div>
+                </div>
                 <div v-if="post.reach != null">
                   <span class="post-metric-label">Охват</span>
                   <span class="post-metric-value">{{ formatNum(post.reach) }}</span>

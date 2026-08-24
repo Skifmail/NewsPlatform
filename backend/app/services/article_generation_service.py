@@ -30,7 +30,10 @@ from app.infrastructure.ai.devtools_teaser_formatter import (
     extract_devtools_hook,
     is_devtools_article_channel,
 )
-from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
+from app.infrastructure.ai.paragraph_teaser_formatter import (
+    is_paragraph_article_channel,
+    uses_editorial_topic_queue,
+)
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
 from app.infrastructure.ai.image_service import ImageGenPrompts, ImageService
 from app.infrastructure.ai.topic_ideation import IdeationPrompts, TopicIdeationService
@@ -234,7 +237,8 @@ class ArticleGenerationService:
             if not manual_topic:
                 selected_postcard_theme = await postcard_theme_service.pick_next(channel)
                 manual_topic = selected_postcard_theme.name
-        elif is_paragraph and not manual_topic:
+        elif uses_editorial_topic_queue(channel.name, channel.platform) and not manual_topic:
+            # Только Параграф (MAX). Пустая очередь → fallback на ideation/интернет.
             queue_item = next_pending(queue_items)
             if queue_item is not None:
                 manual_topic = queue_item.title
@@ -247,6 +251,12 @@ class ArticleGenerationService:
                     channel_id=channel_id,
                     topic=manual_topic,
                     queue_item_id=queue_item.id,
+                )
+            else:
+                logger.info(
+                    "Editorial topic queue empty — falling back to web ideation",
+                    channel_id=channel_id,
+                    platform=channel.platform,
                 )
 
         # Для Параграфа — короткие посты 850–1400.
@@ -385,9 +395,6 @@ class ArticleGenerationService:
             platform_settings, prompts=await self._load_image_prompts()
         )
         fallback_image = sources[0].url if sources else None
-        cover_title = ""
-        if draft.article_meta_json:
-            cover_title = parse_article_meta(draft.article_meta_json).cover_title
         image_url, image_source = await images.resolve_article_image(
             channel=channel,
             article_title=draft.title,
@@ -397,7 +404,6 @@ class ArticleGenerationService:
             repo_url=draft.repo_url,
             teaser=draft.teaser,
             greeting_text=draft.greeting_text,
-            cover_title=cover_title or None,
         )
 
         video_url = None
@@ -482,13 +488,9 @@ class ArticleGenerationService:
                 published_post_id=saved.id,
                 entities=entities,
             )
-            # Синхронизируем очередь по всем каналам «Параграф».
-            for cid in await self._article_history_channel_ids(channel):
-                ch = await self._channels.get_by_id(cid)
-                if ch is None:
-                    continue
-                ch.topic_queue = serialize_topic_queue(queue_items)
-                await self._channels.update(ch)
+            # Очередь тем только у Параграф (MAX) — не копируем в VK/другие каналы.
+            channel.topic_queue = serialize_topic_queue(queue_items)
+            await self._channels.update(channel)
         if selected_postcard_theme and postcard_theme_service is not None:
             await postcard_theme_service.record_publication(
                 channel.id, selected_postcard_theme

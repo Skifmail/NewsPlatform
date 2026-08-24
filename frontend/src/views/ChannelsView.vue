@@ -282,14 +282,15 @@
             />
 
             <div
-              v-if="editForms[ch.id].content_mode === 'article' && isParagraphChannelForm(editForms[ch.id])"
+              v-if="editForms[ch.id].content_mode === 'article' && usesEditorialTopicQueue(editForms[ch.id])"
               class="topic-queue mt-5 pt-4 border-t border-panel-border"
             >
               <h4 class="schedule-title">Очередь тем (2 недели)</h4>
               <p class="field-hint mb-2">
-                Вставьте список тем — по одной на строку. Генерация и расписание
-                берут следующую pending-тему автоматически. Опубликованные темы
-                отмечаются галочкой и не повторяются 90 дней.
+                Только для Параграф (MAX). Вставьте список тем — по одной на строку.
+                Генерация берёт следующую pending-тему автоматически. Когда очередь
+                закончится, тема снова ищется в интернете (как раньше). VK Параграф
+                очередь не использует. Опубликованные темы не повторяются 90 дней.
               </p>
               <textarea
                 v-model="topicQueueDrafts[ch.id]"
@@ -520,7 +521,7 @@ async function load() {
   // Очередь тем подгружаем отдельно, чтобы сбой не прятал список каналов.
   await Promise.all(
     data
-      .filter((ch) => isParagraphChannelForm(editForms[ch.id]))
+      .filter((ch) => usesEditorialTopicQueue(editForms[ch.id]))
       .map((ch) => refreshTopicQueue(ch.id)),
   )
 }
@@ -617,6 +618,12 @@ async function saveChannel(id) {
 function isParagraphChannelForm(form) {
   if (!form) return false
   return String(form.name || '').toLowerCase().includes('параграф')
+}
+
+/** Очередь тем — только Параграф на MAX (не VK). */
+function usesEditorialTopicQueue(form) {
+  if (!isParagraphChannelForm(form)) return false
+  return String(form.platform || '').toLowerCase() === 'max'
 }
 
 function topicStatusLabel(status) {
