@@ -364,20 +364,11 @@
                   <span class="post-metric-label">Комменты</span>
                   <span class="post-metric-value">{{ formatNum(post.comments) }}</span>
                 </div>
-                <div v-if="post.button_clicks != null" class="button-breakdown">
+                <div v-if="hasButtonStats(post)" class="button-breakdown">
                   <span class="post-metric-label">Кнопки</span>
-                  <span class="post-metric-value">{{ formatNum(post.button_clicks) }}</span>
-                  <div
-                    v-if="post.button_options && post.button_options.length && post.button_answer_clicks"
-                    class="text-xs text-[var(--text-secondary)] mt-1"
-                  >
-                    <template v-for="(opt, idx) in post.button_options" :key="`${opt}-${idx}`">
-                      <span v-if="post.button_answer_clicks[idx]">
-                        {{ opt }}: {{ post.button_answer_clicks[idx] }}
-                        <span v-if="idx !== post.button_options.length - 1">&nbsp;·&nbsp;</span>
-                      </span>
-                    </template>
-                    <span v-if="post.button_answer_clicks.every((v) => !v)">—</span>
+                  <span class="post-metric-value">{{ formatNum(post.button_clicks ?? 0) }}</span>
+                  <div class="text-xs text-[var(--text-secondary)] mt-1">
+                    {{ buttonBreakdownText(post) }}
                   </div>
                 </div>
                 <div v-if="post.reach != null">
@@ -435,6 +426,7 @@
                       <span class="sort-indicator">{{ sortIndicator('comments') }}</span>
                     </button>
                   </th>
+                  <th>Кнопки</th>
                   <th>
                     <button type="button" class="sort-header" @click="togglePostsSort('reach')">
                       Охват
@@ -457,6 +449,13 @@
                   <td class="font-mono text-sm">{{ formatNum(post.reactions) }}</td>
                   <td class="font-mono text-sm">{{ formatNum(post.forwards) }}</td>
                   <td class="font-mono text-sm">{{ formatNum(post.comments) }}</td>
+                  <td class="text-xs leading-snug max-w-[14rem]">
+                    <template v-if="hasButtonStats(post)">
+                      <div class="font-mono text-sm">{{ formatNum(post.button_clicks ?? 0) }}</div>
+                      <div class="text-[var(--text-secondary)] mt-0.5">{{ buttonBreakdownText(post) }}</div>
+                    </template>
+                    <span v-else class="font-mono text-sm">—</span>
+                  </td>
                   <td class="font-mono text-sm">
                     <template v-if="post.reach != null && post.reach_subscribers != null">
                       {{ formatNum(post.reach_subscribers) }}&nbsp;/&nbsp;{{ formatNum(post.reach - post.reach_subscribers) }}
@@ -728,6 +727,23 @@ function formatGrowthLabel(iso, granularity) {
 function formatNum(n) {
   if (n == null) return '—'
   return new Intl.NumberFormat('ru-RU').format(n)
+}
+
+function hasButtonStats(post) {
+  if (!post) return false
+  if (post.button_clicks != null) return true
+  return Array.isArray(post.button_options) && post.button_options.length > 0
+}
+
+function buttonBreakdownText(post) {
+  const options = post?.button_options || []
+  const clicks = post?.button_answer_clicks || []
+  if (!options.length) {
+    return post?.button_clicks != null ? 'всего нажатий' : '—'
+  }
+  return options
+    .map((opt, idx) => `${opt}: ${clicks[idx] ?? 0}`)
+    .join(' · ')
 }
 function formatMoney(n) {
   if (n == null) return '—'
