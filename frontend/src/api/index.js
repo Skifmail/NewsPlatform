@@ -63,11 +63,25 @@ export const postsApi = {
 }
 
 export const mediaApi = {
-  upload: (file) => {
+  /**
+   * @param {File} file
+   * @param {{ onProgress?: (percent: number, loaded: number, total: number) => void }} [options]
+   */
+  upload: (file, options = {}) => {
     const form = new FormData()
     form.append('file', file)
     return api.post('/media/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (event) => {
+        if (!options.onProgress) return
+        const total = event.total || file.size || 0
+        if (!total) {
+          options.onProgress(0, event.loaded || 0, 0)
+          return
+        }
+        const percent = Math.min(100, Math.round(((event.loaded || 0) / total) * 100))
+        options.onProgress(percent, event.loaded || 0, total)
+      },
     })
   },
 }

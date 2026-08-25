@@ -32,7 +32,21 @@
             class="hidden"
             @change="onImagePick"
           />
-          <div v-if="imagePreview" class="media-preview">
+          <div v-if="uploadingImage" class="upload-progress">
+            <img v-if="imageLocalPreview" :src="imageLocalPreview" alt="" class="upload-thumb" />
+            <div class="upload-progress-body">
+              <p class="upload-progress-label">
+                Загрузка фото… {{ imageProgress }}%
+                <span v-if="imageProgressDetail" class="upload-progress-size">
+                  {{ imageProgressDetail }}
+                </span>
+              </p>
+              <div class="progress-track" role="progressbar" :aria-valuenow="imageProgress" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-fill" :style="{ width: `${imageProgress}%` }" />
+              </div>
+            </div>
+          </div>
+          <div v-else-if="imagePreview" class="media-preview">
             <img :src="imagePreview" alt="Обложка" />
             <button type="button" class="btn-ghost btn-sm" @click="clearImage">Убрать</button>
           </div>
@@ -40,10 +54,9 @@
             v-else
             type="button"
             class="media-drop"
-            :disabled="uploadingImage"
             @click="imageInput?.click()"
           >
-            {{ uploadingImage ? 'Загрузка…' : 'Выбрать фото' }}
+            Выбрать фото
           </button>
         </div>
         <div class="media-slot">
@@ -55,7 +68,27 @@
             class="hidden"
             @change="onVideoPick"
           />
-          <div v-if="videoPreview" class="media-preview">
+          <div v-if="uploadingVideo" class="upload-progress">
+            <video
+              v-if="videoLocalPreview"
+              :src="videoLocalPreview"
+              muted
+              playsinline
+              class="upload-thumb"
+            />
+            <div class="upload-progress-body">
+              <p class="upload-progress-label">
+                Загрузка видео… {{ videoProgress }}%
+                <span v-if="videoProgressDetail" class="upload-progress-size">
+                  {{ videoProgressDetail }}
+                </span>
+              </p>
+              <div class="progress-track" role="progressbar" :aria-valuenow="videoProgress" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-fill" :style="{ width: `${videoProgress}%` }" />
+              </div>
+            </div>
+          </div>
+          <div v-else-if="videoPreview" class="media-preview">
             <video :src="videoPreview" controls muted playsinline />
             <button type="button" class="btn-ghost btn-sm" @click="clearVideo">Убрать</button>
           </div>
@@ -63,10 +96,9 @@
             v-else
             type="button"
             class="media-drop"
-            :disabled="uploadingVideo"
             @click="videoInput?.click()"
           >
-            {{ uploadingVideo ? 'Загрузка…' : 'Выбрать видео' }}
+            Выбрать видео
           </button>
         </div>
       </div>
@@ -142,9 +174,35 @@ const videoInput = ref(null)
 const textArea = ref(null)
 const uploadingImage = ref(false)
 const uploadingVideo = ref(false)
+const imageProgress = ref(0)
+const videoProgress = ref(0)
+const imageProgressDetail = ref('')
+const videoProgressDetail = ref('')
+const imageLocalPreview = ref('')
+const videoLocalPreview = ref('')
 const submitting = ref(false)
 const imagePreview = ref('')
 const videoPreview = ref('')
+
+function formatBytes(n) {
+  if (!n || n <= 0) return ''
+  if (n < 1024) return `${n} Б`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} КБ`
+  return `${(n / (1024 * 1024)).toFixed(1)} МБ`
+}
+
+function progressDetail(loaded, total) {
+  if (!total) return formatBytes(loaded)
+  return `${formatBytes(loaded)} / ${formatBytes(total)}`
+}
+
+function revokeLocalPreview(urlRef) {
+  const url = urlRef.value
+  if (url && url.startsWith('blob:')) {
+    URL.revokeObjectURL(url)
+  }
+  urlRef.value = ''
+}
 
 const form = reactive({
   channelId: '',
@@ -204,8 +262,8 @@ onMounted(async () => {
   }
 })
 
-async function uploadFile(file, kind) {
-  const { data } = await mediaApi.upload(file)
+async function uploadFile(file, kind, onProgress) {
+  const { data } = await mediaApi.upload(file, { onProgress })
   if (kind === 'image' && data.kind !== 'image') {
     throw new Error('Ожидалось изображение')
   }
@@ -219,15 +277,26 @@ async function onImagePick(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
+  revokeLocalPreview(imageLocalPreview)
+  imageLocalPreview.value = URL.createObjectURL(file)
   uploadingImage.value = true
+  imageProgress.value = 0
+  imageProgressDetail.value = `0 / ${formatBytes(file.size)}`
   try {
-    const data = await uploadFile(file, 'image')
+    const data = await uploadFile(file, 'image', (percent, loaded, total) => {
+      imageProgress.value = percent
+      imageProgressDetail.value = progressDetail(loaded, total || file.size)
+    })
+    imageProgress.value = 100
     form.imageUrl = data.url
     imagePreview.value = data.public_url
   } catch (e) {
     await dialog.alertApiError(e, 'Не удалось загрузить изображение')
   } finally {
     uploadingImage.value = false
+    imageProgress.value = 0
+    imageProgressDetail.value = ''
+    revokeLocalPreview(imageLocalPreview)
   }
 }
 
@@ -235,26 +304,39 @@ async function onVideoPick(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
+  revokeLocalPreview(videoLocalPreview)
+  videoLocalPreview.value = URL.createObjectURL(file)
   uploadingVideo.value = true
+  videoProgress.value = 0
+  videoProgressDetail.value = `0 / ${formatBytes(file.size)}`
   try {
-    const data = await uploadFile(file, 'video')
+    const data = await uploadFile(file, 'video', (percent, loaded, total) => {
+      videoProgress.value = percent
+      videoProgressDetail.value = progressDetail(loaded, total || file.size)
+    })
+    videoProgress.value = 100
     form.videoUrl = data.url
     videoPreview.value = data.public_url
   } catch (e) {
     await dialog.alertApiError(e, 'Не удалось загрузить видео')
   } finally {
     uploadingVideo.value = false
+    videoProgress.value = 0
+    videoProgressDetail.value = ''
+    revokeLocalPreview(videoLocalPreview)
   }
 }
 
 function clearImage() {
   form.imageUrl = null
   imagePreview.value = ''
+  revokeLocalPreview(imageLocalPreview)
 }
 
 function clearVideo() {
   form.videoUrl = null
   videoPreview.value = ''
+  revokeLocalPreview(videoLocalPreview)
 }
 
 function wrapTag(tag) {
@@ -362,6 +444,34 @@ async function submit() {
 .media-preview img,
 .media-preview video {
   @apply max-h-40 w-full rounded-lg object-cover bg-panel-hover;
+}
+
+.upload-progress {
+  @apply flex flex-col gap-2;
+}
+
+.upload-thumb {
+  @apply max-h-28 w-full rounded-lg object-cover bg-panel-hover opacity-80;
+}
+
+.upload-progress-body {
+  @apply flex flex-col gap-1.5;
+}
+
+.upload-progress-label {
+  @apply text-xs font-medium text-[var(--text-primary)] tabular-nums;
+}
+
+.upload-progress-size {
+  @apply ml-1 font-normal text-[var(--text-secondary)];
+}
+
+.progress-track {
+  @apply h-2 w-full overflow-hidden rounded-full bg-panel-hover;
+}
+
+.progress-fill {
+  @apply h-full rounded-full bg-accent transition-[width] duration-150 ease-out;
 }
 
 .fmt-toolbar {
