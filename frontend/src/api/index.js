@@ -59,6 +59,17 @@ export const postsApi = {
   publishNow: (id) => api.post(`/posts/${id}/publish_now`),
   refreshImage: (id) => api.post(`/posts/${id}/refresh-image`),
   bulkQueue: (data) => api.post('/posts/queue/bulk', data),
+  createManual: (data) => api.post('/posts/manual', data),
+}
+
+export const mediaApi = {
+  upload: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post('/media/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
 }
 
 export const sourcesApi = {

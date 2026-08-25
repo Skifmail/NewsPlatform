@@ -76,10 +76,13 @@ class MediaAssetService:
 
     @staticmethod
     def _should_keep(url: str, image_source: str | None) -> bool:
-        """Хранить AI-сгенерированные и уже локальные файлы."""
+        """Хранить AI-сгенерированные, ручные и уже локальные файлы."""
         if is_local_media_url(url):
             return True
-        return image_source == ImageSource.GENERATED.value
+        return image_source in (
+            ImageSource.GENERATED.value,
+            ImageSource.MANUAL.value,
+        )
 
     async def _upsert(
         self,

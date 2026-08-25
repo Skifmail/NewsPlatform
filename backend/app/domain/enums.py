@@ -43,6 +43,7 @@ class ImageSource(StrEnum):
 
     ORIGINAL = "original"
     GENERATED = "generated"
+    MANUAL = "manual"
     NONE = "none"
 
 

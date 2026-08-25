@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.enums import PostStatus, PublishStatus
+from app.domain.enums import PostStatus, PublishStatus, ImageSource
 from app.domain.platform_settings import _parse_bool
 from app.domain.publish import PublishPermanentError
 from app.infrastructure.ai.image_service import ImageService
@@ -90,6 +90,11 @@ class PublishService:
             msg = f"Channel {post.channel_id} not found"
             raise ValueError(msg)
 
+        is_manual = (
+            post.image_source == ImageSource.MANUAL.value
+            or (post.ai_model or "") == "manual"
+        )
+
         if not bypass_daily_limit:
             posts_per_day = int(await self._settings.get("posts_per_day", "10"))
             published_today = await self._processed.count_published_today(channel.id)
@@ -98,7 +103,9 @@ class PublishService:
                 await self._reject(post, f"Дневной лимит канала «{channel.name}» исчерпан")
                 raise ValueError(msg)
 
-        if not post.article_body and not is_publishable_rewrite(post.rewritten_text):
+        if not post.article_body and not is_manual and not is_publishable_rewrite(
+            post.rewritten_text
+        ):
             msg = (
                 f"Post {post_id} blocked: rewrite looks like model reasoning, not HTML"
             )
@@ -126,10 +133,10 @@ class PublishService:
             await self._settings.get("postcard_animation_enabled", "true"), True
         )
         channel_animates = getattr(channel, "animate_postcards", False)
-        if (
-            post.generated_video_url
-            and animation_enabled
-            and channel_animates
+        # Ручные посты всегда отдают прикреплённое видео; авто-открытки —
+        # только при включённой анимации канала.
+        if post.generated_video_url and (
+            is_manual or (animation_enabled and channel_animates)
         ):
             video_bytes = await self._images.download_media_bytes(
                 post.generated_video_url

@@ -132,3 +132,25 @@ class QueueBulkRequest(BaseModel):
             msg = "Для отклонения укажите reason"
             raise ValueError(msg)
         return self
+
+
+class ManualPublishRequest(BaseModel):
+    """Запрос ручной публикации поста в канал."""
+
+    channel_id: int = Field(..., ge=1)
+    text: str = Field(..., min_length=1)
+    button_1: str = Field(..., min_length=1, max_length=64)
+    button_2: str = Field(..., min_length=1, max_length=64)
+    image_url: str | None = None
+    video_url: str | None = None
+    publish_immediately: bool = True
+
+
+class MediaUploadResponse(BaseModel):
+    """Ответ после загрузки файла в медиахранилище."""
+
+    url: str
+    public_url: str
+    kind: Literal["image", "video"]
+    filename: str
+    size: int

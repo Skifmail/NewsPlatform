@@ -14,6 +14,7 @@ import ApprovedView from '../views/ApprovedView.vue'
 import AnalyticsView from '../views/AnalyticsView.vue'
 import AnalyticsChannelView from '../views/AnalyticsChannelView.vue'
 import MediaLibraryView from '../views/MediaLibraryView.vue'
+import ManualPublishView from '../views/ManualPublishView.vue'
 import LoginView from '../views/LoginView.vue'
 
 const routes = [
@@ -21,6 +22,7 @@ const routes = [
   { path: '/', name: 'overview', component: OverviewView },
   { path: '/queue', name: 'queue', component: QueueView },
   { path: '/approved', name: 'approved', component: ApprovedView },
+  { path: '/publish', name: 'publish', component: ManualPublishView },
   { path: '/materials', name: 'materials', component: MaterialsView },
   { path: '/media', name: 'media', component: MediaLibraryView },
   { path: '/jobs', name: 'jobs', component: JobsView },

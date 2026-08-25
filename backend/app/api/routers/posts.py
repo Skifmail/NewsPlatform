@@ -8,6 +8,7 @@ from app.api.schemas.common import BulkActionResponse, MessageResponse
 from app.api.schemas.post import (
     ApproveRequest,
     ApprovedSummaryResponse,
+    ManualPublishRequest,
     ProcessedPostResponse,
     QueueBulkRequest,
     RejectRequest,
@@ -18,6 +19,7 @@ from app.infrastructure.models.processed_post import ProcessedPost
 from app.repositories.processed_post_repository import ProcessedPostRepository
 from app.services.image_refresh_service import ImageRefreshService
 from app.services.job_tracker import JobTracker
+from app.services.manual_publish_service import ManualPublishService
 from app.services.moderation_service import ModerationService
 from app.services.post_response_service import PostResponseService
 from app.tasks.publish_tasks import publish_post_task
@@ -53,6 +55,27 @@ async def get_approved_summary(session: DbSession, _: AuthDep) -> ApprovedSummar
     """Счётчик одобренных постов для бокового меню."""
     total = await ProcessedPostRepository(session).count_approved()
     return ApprovedSummaryResponse(total=total)
+
+
+@router.post("/manual", response_model=ProcessedPostResponse)
+async def create_manual_post(
+    body: ManualPublishRequest,
+    session: DbSession,
+    _: AuthDep,
+) -> ProcessedPost:
+    """Создаёт пост вручную и сразу ставит в очередь публикации."""
+    await require_manual_publish(session)
+    try:
+        return await ManualPublishService(session).create_and_publish(
+            channel_id=body.channel_id,
+            text=body.text,
+            button_options=[body.button_1, body.button_2],
+            image_url=body.image_url,
+            video_url=body.video_url,
+            publish_immediately=body.publish_immediately,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/{post_id}", response_model=ProcessedPostResponse)

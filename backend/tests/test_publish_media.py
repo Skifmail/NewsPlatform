@@ -100,7 +100,7 @@ async def test_telegram_publish_uses_send_video() -> None:
 
 
 @pytest.mark.asyncio
-async def test_max_send_message_prefers_video_over_image() -> None:
+async def test_max_send_message_attaches_image_and_video() -> None:
     session = MagicMock()
     ctx = MagicMock()
     ctx.__aenter__ = AsyncMock(return_value=ctx)
@@ -109,7 +109,10 @@ async def test_max_send_message_prefers_video_over_image() -> None:
     ctx.status = 200
     session.post = MagicMock(return_value=ctx)
 
-    with patch.object(MaxPublisher, "_upload_video", AsyncMock(return_value="video-token")) as up:
+    with (
+        patch.object(MaxPublisher, "_upload_image", AsyncMock(return_value="img-token")) as up_img,
+        patch.object(MaxPublisher, "_upload_video", AsyncMock(return_value="video-token")) as up_vid,
+    ):
         message_id = await MaxPublisher._send_message(
             session,
             "bot-token",
@@ -119,7 +122,11 @@ async def test_max_send_message_prefers_video_over_image() -> None:
             video_bytes=b"mp4",
         )
     assert message_id == "mid-1"
-    up.assert_awaited_once()
+    up_img.assert_awaited_once()
+    up_vid.assert_awaited_once()
+    body = session.post.call_args.kwargs["json"]
+    types = [a["type"] for a in body["attachments"]]
+    assert types == ["image", "video"]
 
 
 @pytest.mark.asyncio

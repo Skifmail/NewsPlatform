@@ -18,7 +18,6 @@ from app.infrastructure.models.processed_post import ProcessedPost
 from app.domain.article_meta import parse_article_meta
 from app.infrastructure.publishers.base import BasePublisher
 from app.infrastructure.publishers.max_keyboard import build_callback_keyboard
-from app.infrastructure.ai.paragraph_teaser_formatter import is_paragraph_article_channel
 from app.infrastructure.publishers.telegraph_publisher import TelegraphPublisher
 from app.utils.max_api import get_max_api_base, max_client_session
 from app.utils.telegram_channels import is_long_form_article_channel
@@ -69,6 +68,13 @@ class MaxPublisher(BasePublisher):
             raise RuntimeError(msg)
 
         text = append_post_footer(to_max_api_html(post.rewritten_text), channel.post_footer)
+        keyboard = None
+        meta = parse_article_meta(post.article_meta)
+        if meta.button_options:
+            keyboard = build_callback_keyboard(
+                meta.button_options,
+                payload_prefix=f"pq:{post.id}",
+            )
         async with max_client_session() as session:
             chat_id = await self._resolve_chat_id(
                 session, settings.max_bot_token, channel.platform_id
@@ -80,6 +86,7 @@ class MaxPublisher(BasePublisher):
                 text,
                 image_bytes,
                 video_bytes=video_bytes,
+                extra_attachments=[keyboard] if keyboard else None,
             )
             logger.info(
                 "MAX published",
@@ -159,8 +166,8 @@ class MaxPublisher(BasePublisher):
         text = append_post_footer(to_max_api_html(text), channel.post_footer)
 
         keyboard = None
-        if is_paragraph_article_channel(channel.name):
-            meta = parse_article_meta(post.article_meta)
+        meta = parse_article_meta(post.article_meta)
+        if meta.button_options:
             keyboard = build_callback_keyboard(
                 meta.button_options,
                 payload_prefix=f"pq:{post.id}",
@@ -509,7 +516,11 @@ class MaxPublisher(BasePublisher):
             RuntimeError: ошибка API.
             PublishPermanentError: ошибка разметки.
         """
-        attachments: list[dict[str, Any]] | None = None
+        attachments: list[dict[str, Any]] = []
+        if image_bytes:
+            image_token = await cls._upload_image(session, token, image_bytes)
+            attachments.append({"type": "image", "payload": {"token": image_token}})
+
         if video_bytes:
             from app.infrastructure.media.gifski_converter import is_gif_bytes
 
@@ -519,20 +530,22 @@ class MaxPublisher(BasePublisher):
                 logger.warning(
                     "MAX received GIF animation; clients may show a still frame"
                 )
-                gif_token = await cls._upload_image(
-                    session,
-                    token,
-                    video_bytes,
-                    filename="cover.gif",
-                    content_type="image/gif",
-                )
-                attachments = [{"type": "image", "payload": {"token": gif_token}}]
+                if not image_bytes:
+                    gif_token = await cls._upload_image(
+                        session,
+                        token,
+                        video_bytes,
+                        filename="cover.gif",
+                        content_type="image/gif",
+                    )
+                    attachments.append(
+                        {"type": "image", "payload": {"token": gif_token}}
+                    )
             else:
                 video_token = await cls._upload_video(session, token, video_bytes)
-                attachments = [{"type": "video", "payload": {"token": video_token}}]
-        elif image_bytes:
-            image_token = await cls._upload_image(session, token, image_bytes)
-            attachments = [{"type": "image", "payload": {"token": image_token}}]
+                attachments.append(
+                    {"type": "video", "payload": {"token": video_token}}
+                )
 
         body: dict[str, Any] = {
             "text": text,
@@ -540,7 +553,7 @@ class MaxPublisher(BasePublisher):
             "notify": True,
         }
         if extra_attachments:
-            attachments = (attachments or []) + list(extra_attachments)
+            attachments = attachments + list(extra_attachments)
         if attachments:
             body["attachments"] = attachments
 
