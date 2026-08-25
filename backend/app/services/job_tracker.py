@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import JobStatus, JobType
@@ -19,6 +20,34 @@ class JobTracker:
     def __init__(self, session: AsyncSession) -> None:
         self._repo = BackgroundJobRepository(session)
         self._session = session
+
+    async def _create_unique(self, job: BackgroundJob) -> BackgroundJob:
+        """Создаёт запись задачи или возвращает уже существующую по celery_task_id.
+
+        Защита от гонки: API регистрирует задачу, а воркер успевает вставить
+        ту же celery_task_id раньше (или наоборот).
+
+        Args:
+            job: новая запись.
+
+        Returns:
+            BackgroundJob: созданная или уже существующая.
+        """
+        existing = await self._repo.get_by_celery_id(job.celery_task_id)
+        if existing:
+            return existing
+        try:
+            async with self._session.begin_nested():
+                return await self._repo.create(job)
+        except IntegrityError:
+            existing = await self._repo.get_by_celery_id(job.celery_task_id)
+            if existing:
+                logger.debug(
+                    "background_job already registered",
+                    celery_task_id=job.celery_task_id,
+                )
+                return existing
+            raise
 
     async def enqueue_fetch(
         self,
@@ -43,7 +72,7 @@ class JobTracker:
             label=f"Парсинг: {source_name}",
             source_id=source_id,
         )
-        created = await self._repo.create(job)
+        created = await self._create_unique(job)
         await self._notify(created)
         return created
 
@@ -70,7 +99,7 @@ class JobTracker:
             label=f"Публикация: {channel_name}",
             raw_post_id=None,
         )
-        created = await self._repo.create(job)
+        created = await self._create_unique(job)
         await self._notify(created)
         return created
 
@@ -104,7 +133,7 @@ class JobTracker:
             parent_celery_task_id=parent_celery_task_id,
             result_summary=result_summary,
         )
-        created = await self._repo.create(job)
+        created = await self._create_unique(job)
         await self._notify(created)
         return created
 
@@ -132,7 +161,7 @@ class JobTracker:
             # source_id — только FK на sources; канал указан в label.
             source_id=None,
         )
-        created = await self._repo.create(job)
+        created = await self._create_unique(job)
         await self._notify(created)
         return created
 

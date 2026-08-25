@@ -5,6 +5,8 @@ Callers: ``app.api.routers.posts.create_manual_post`` (POST /api/posts/manual).
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -102,15 +104,16 @@ class ManualPublishService:
         )
 
         if publish_immediately:
-            task = publish_post_task.delay(saved.id)
+            task_id = str(uuid4())
             await JobTracker(self._session).enqueue_publish(
-                task.id, saved.id, channel.name
+                task_id, saved.id, channel.name
             )
             await self._session.commit()
+            publish_post_task.apply_async(args=[saved.id], task_id=task_id)
             logger.info(
                 "Manual publish queued",
                 post_id=saved.id,
-                celery_task_id=task.id,
+                celery_task_id=task_id,
             )
 
         return saved

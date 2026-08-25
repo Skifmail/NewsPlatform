@@ -51,7 +51,7 @@ async def test_manual_publish_creates_approved_post_with_buttons() -> None:
         ) as tracker_cls,
     ):
         media_cls.return_value.register_from_post = AsyncMock(return_value=[])
-        task.delay.return_value = SimpleNamespace(id="celery-1")
+        task.apply_async = MagicMock()
         tracker_cls.return_value.enqueue_publish = AsyncMock()
 
         result = await svc.create_and_publish(
@@ -73,7 +73,9 @@ async def test_manual_publish_creates_approved_post_with_buttons() -> None:
     assert created.article_body == created.rewritten_text
     assert '"button_options"' in (created.article_meta or "")
     assert "Да" in (created.article_meta or "")
-    task.delay.assert_called_once_with(42)
+    task.apply_async.assert_called_once()
+    assert task.apply_async.call_args.kwargs["task_id"]
+    tracker_cls.return_value.enqueue_publish.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -112,6 +112,7 @@ async def test_max_send_message_attaches_image_and_video() -> None:
     with (
         patch.object(MaxPublisher, "_upload_image", AsyncMock(return_value="img-token")) as up_img,
         patch.object(MaxPublisher, "_upload_video", AsyncMock(return_value="video-token")) as up_vid,
+        patch("app.infrastructure.publishers.max_publisher.asyncio.sleep", AsyncMock()),
     ):
         message_id = await MaxPublisher._send_message(
             session,
@@ -127,6 +128,48 @@ async def test_max_send_message_attaches_image_and_video() -> None:
     body = session.post.call_args.kwargs["json"]
     types = [a["type"] for a in body["attachments"]]
     assert types == ["image", "video"]
+
+
+@pytest.mark.asyncio
+async def test_max_send_message_retries_until_video_ready() -> None:
+    session = MagicMock()
+    not_ready = MagicMock()
+    not_ready.__aenter__ = AsyncMock(return_value=not_ready)
+    not_ready.__aexit__ = AsyncMock(return_value=False)
+    not_ready.json = AsyncMock(
+        return_value={
+            "code": "attachment.not.ready",
+            "message": "errors.process.attachment.video.not.processed",
+        }
+    )
+    not_ready.status = 400
+
+    ok = MagicMock()
+    ok.__aenter__ = AsyncMock(return_value=ok)
+    ok.__aexit__ = AsyncMock(return_value=False)
+    ok.json = AsyncMock(return_value={"message": {"message_id": "mid-ok"}})
+    ok.status = 200
+
+    session.post = MagicMock(side_effect=[not_ready, not_ready, ok])
+    sleep = AsyncMock()
+
+    with (
+        patch.object(MaxPublisher, "_upload_video", AsyncMock(return_value="video-token")),
+        patch("app.infrastructure.publishers.max_publisher.asyncio.sleep", sleep),
+    ):
+        message_id = await MaxPublisher._send_message(
+            session,
+            "bot-token",
+            123,
+            "text",
+            None,
+            video_bytes=b"mp4",
+        )
+
+    assert message_id == "mid-ok"
+    assert session.post.call_count == 3
+    # initial delay + 2 retries
+    assert sleep.await_count == 3
 
 
 @pytest.mark.asyncio

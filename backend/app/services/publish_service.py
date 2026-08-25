@@ -135,12 +135,33 @@ class PublishService:
         channel_animates = getattr(channel, "animate_postcards", False)
         # Ручные посты всегда отдают прикреплённое видео; авто-открытки —
         # только при включённой анимации канала.
-        if post.generated_video_url and (
-            is_manual or (animation_enabled and channel_animates)
-        ):
-            video_bytes = await self._images.download_media_bytes(
-                post.generated_video_url
+        # Callers: publish_post_task. При кэше MAX-токена не качаем 200 МБ снова.
+        # User: «если нажму повторить всё начнется заново».
+        need_video = bool(
+            post.generated_video_url
+            and (is_manual or (animation_enabled and channel_animates))
+        )
+        if need_video:
+            from app.domain.article_meta import parse_article_meta
+            from app.infrastructure.publishers.max_video_token_cache import (
+                get_cached_max_video_token,
             )
+
+            meta = parse_article_meta(post.article_meta)
+            cached_token = (
+                meta.max_video_token
+                if meta.max_video_source == post.generated_video_url
+                else None
+            ) or get_cached_max_video_token(post.generated_video_url)
+            if cached_token and channel.platform == "max":
+                logger.info(
+                    "Skipping video download; reusing MAX token",
+                    post_id=post_id,
+                )
+            else:
+                video_bytes = await self._images.download_media_bytes(
+                    post.generated_video_url
+                )
         if post.generated_image_url:
             image_bytes = await self._images.download_and_resize(
                 post.generated_image_url

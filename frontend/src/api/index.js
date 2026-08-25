@@ -70,8 +70,8 @@ export const mediaApi = {
   upload: (file, options = {}) => {
     const form = new FormData()
     form.append('file', file)
+    // Не задаём Content-Type вручную — браузер добавит boundary для multipart.
     return api.post('/media/upload', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (event) => {
         if (!options.onProgress) return
         const total = event.total || file.size || 0

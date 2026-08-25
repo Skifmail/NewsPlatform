@@ -15,9 +15,14 @@ from app.domain.enums import ContentMode
 from app.domain.publish import PublishPermanentError
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.processed_post import ProcessedPost
-from app.domain.article_meta import parse_article_meta
+from app.domain.article_meta import parse_article_meta, serialize_article_meta
 from app.infrastructure.publishers.base import BasePublisher
 from app.infrastructure.publishers.max_keyboard import build_callback_keyboard
+from app.infrastructure.publishers.max_video_token_cache import (
+    clear_cached_max_video_token,
+    get_cached_max_video_token,
+    set_cached_max_video_token,
+)
 from app.infrastructure.publishers.telegraph_publisher import TelegraphPublisher
 from app.utils.max_api import get_max_api_base, max_client_session
 from app.utils.telegram_channels import is_long_form_article_channel
@@ -30,8 +35,55 @@ from app.utils.text_format import (
 )
 
 _ATTACHMENT_NOT_READY = "attachment.not.ready"
+# Картинка обычно готова сразу; видео MAX обрабатывает асинхронно —
+# для роликов ~100–250 МБ нужно несколько минут (см. dev.max.ru uploads).
 _SEND_ATTEMPTS = 4
+_SEND_ATTEMPTS_WITH_VIDEO = 12
+_SEND_ATTEMPTS_LARGE_VIDEO = 30
+_VIDEO_READY_INITIAL_DELAY = 8.0
 _NUMERIC_CHAT_ID_RE = re.compile(r"^-?\d+$")
+
+
+def _video_size_mb(video_bytes: bytes | None) -> float:
+    """Размер видео в мегабайтах."""
+    if not video_bytes:
+        return 0.0
+    return len(video_bytes) / (1024 * 1024)
+
+
+def _video_initial_delay(video_bytes: bytes | None) -> float:
+    """Пауза после upload перед первой отправкой (зависит от размера)."""
+    mb = _video_size_mb(video_bytes)
+    if mb <= 0:
+        return 0.0
+    # ~0.7 с на МБ: 30 МБ ≈ 21 с, 200 МБ ≈ 140 с (потолок 180 с).
+    return min(180.0, max(_VIDEO_READY_INITIAL_DELAY, mb * 0.7))
+
+
+def _video_send_attempts(video_bytes: bytes | None) -> int:
+    """Число попыток POST /messages при наличии видео."""
+    mb = _video_size_mb(video_bytes)
+    if mb >= 40:
+        return _SEND_ATTEMPTS_LARGE_VIDEO
+    if mb > 0:
+        return _SEND_ATTEMPTS_WITH_VIDEO
+    return _SEND_ATTEMPTS
+
+
+def _attachment_retry_delay(attempt: int, *, has_video: bool) -> float:
+    """Пауза перед повтором send при attachment.not.ready.
+
+    Args:
+        attempt: номер попытки (1-based).
+        has_video: в сообщении есть video-вложение.
+
+    Returns:
+        float: секунды ожидания.
+    """
+    if has_video:
+        # 2, 3, 4.5… с потолком 30 с
+        return min(30.0, 2.0 * (1.5 ** (attempt - 1)))
+    return 0.4 * attempt
 
 
 class MaxPublisher(BasePublisher):
@@ -87,6 +139,7 @@ class MaxPublisher(BasePublisher):
                 image_bytes,
                 video_bytes=video_bytes,
                 extra_attachments=[keyboard] if keyboard else None,
+                post=post,
             )
             logger.info(
                 "MAX published",
@@ -185,6 +238,7 @@ class MaxPublisher(BasePublisher):
                 image_bytes,
                 video_bytes=video_bytes,
                 extra_attachments=[keyboard] if keyboard else None,
+                post=post,
             )
             logger.info(
                 "MAX long-form article published",
@@ -262,6 +316,7 @@ class MaxPublisher(BasePublisher):
                 text,
                 image_bytes,
                 video_bytes=video_bytes,
+                post=post,
             )
             logger.info(
                 "MAX article teaser published",
@@ -453,6 +508,160 @@ class MaxPublisher(BasePublisher):
         return video_token
 
     @staticmethod
+    def _persist_video_token(
+        post: ProcessedPost | None,
+        video_token: str,
+        video_source: str | None,
+    ) -> None:
+        """Пишет token в article_meta поста и Redis (для повторов без upload)."""
+        if video_source:
+            set_cached_max_video_token(video_source, video_token)
+        if post is None or not video_source:
+            return
+        meta = parse_article_meta(post.article_meta)
+        meta.max_video_token = video_token
+        meta.max_video_source = video_source
+        post.article_meta = serialize_article_meta(meta)
+
+    @classmethod
+    async def _get_video_info(
+        cls,
+        session: aiohttp.ClientSession,
+        token: str,
+        video_token: str,
+    ) -> dict[str, Any] | None:
+        """GET /videos/{token} — статус обработки ролика."""
+        async with session.get(
+            f"{get_max_api_base()}/videos/{video_token}",
+            headers=cls._auth_headers(token),
+        ) as resp:
+            if resp.status == 404:
+                return None
+            payload = await cls._read_json(resp)
+            if resp.status >= 400:
+                logger.warning(
+                    "MAX GET /videos failed",
+                    status=resp.status,
+                    payload=payload,
+                )
+                return None
+            return payload if isinstance(payload, dict) else None
+
+    @classmethod
+    def _video_info_ready(cls, info: dict[str, Any] | None) -> bool:
+        """Видео готово к attach, если есть mp4 URL в ответе GET /videos."""
+        if not info:
+            return False
+        urls = info.get("urls")
+        if not isinstance(urls, dict) or not urls:
+            return False
+        return any(str(key).startswith("mp4") for key in urls)
+
+    @classmethod
+    async def _wait_video_ready(
+        cls,
+        session: aiohttp.ClientSession,
+        token: str,
+        video_token: str,
+        *,
+        size_hint_bytes: int = 0,
+    ) -> bool:
+        """Ждёт, пока MAX обработает видео (опрос GET /videos/{token})."""
+        mb = size_hint_bytes / (1024 * 1024) if size_hint_bytes else 0.0
+        # 200 МБ → до ~15 мин опроса; мелкие ролики — быстрее.
+        timeout = min(900.0, max(90.0, mb * 4.0)) if mb else 120.0
+        poll = 5.0 if mb >= 40 else 2.5
+        deadline = asyncio.get_event_loop().time() + timeout
+        attempt = 0
+        while asyncio.get_event_loop().time() < deadline:
+            attempt += 1
+            info = await cls._get_video_info(session, token, video_token)
+            if info is None:
+                logger.warning(
+                    "MAX video token missing on GET /videos",
+                    attempt=attempt,
+                )
+                return False
+            if cls._video_info_ready(info):
+                logger.info(
+                    "MAX video ready",
+                    attempt=attempt,
+                    duration=info.get("duration"),
+                    width=info.get("width"),
+                    url_keys=list((info.get("urls") or {}).keys())[:6],
+                )
+                return True
+            logger.info(
+                "MAX video still processing",
+                attempt=attempt,
+                duration=info.get("duration"),
+                width=info.get("width"),
+            )
+            await asyncio.sleep(poll)
+        return False
+
+    @classmethod
+    async def _resolve_video_token(
+        cls,
+        session: aiohttp.ClientSession,
+        token: str,
+        *,
+        post: ProcessedPost | None,
+        video_bytes: bytes | None,
+    ) -> tuple[str | None, int]:
+        """Возвращает (token, size_hint) — с кэша или после upload.
+
+        Returns:
+            tuple: token и размер байт для расчёта таймаута (0 если неизвестен).
+        """
+        video_source = post.generated_video_url if post else None
+        size_hint = len(video_bytes) if video_bytes else 0
+
+        candidates: list[str] = []
+        if post:
+            meta = parse_article_meta(post.article_meta)
+            if (
+                meta.max_video_token
+                and meta.max_video_source == video_source
+                and meta.max_video_token.strip()
+            ):
+                candidates.append(meta.max_video_token.strip())
+        cached = get_cached_max_video_token(video_source)
+        if cached and cached not in candidates:
+            candidates.append(cached)
+
+        for candidate in candidates:
+            info = await cls._get_video_info(session, token, candidate)
+            if info is None:
+                clear_cached_max_video_token(video_source)
+                continue
+            logger.info("MAX reusing cached video token", source=video_source)
+            cls._persist_video_token(post, candidate, video_source)
+            return candidate, size_hint
+
+        if not video_bytes:
+            return None, 0
+
+        from app.infrastructure.media.gifski_converter import is_gif_bytes
+        from app.infrastructure.media.max_video_transcode import prepare_video_for_max
+
+        if is_gif_bytes(video_bytes):
+            return None, size_hint
+
+        # Крупные ролики (~100–200 МБ) MAX не успевает обработать →
+        # video.not.processed. Сжимаем до ~720p перед upload.
+        upload_bytes = prepare_video_for_max(video_bytes)
+        size_hint = len(upload_bytes)
+        video_token = await cls._upload_video(session, token, upload_bytes)
+        cls._persist_video_token(post, video_token, video_source)
+        logger.info(
+            "MAX video uploaded",
+            size_mb=round(size_hint / (1024 * 1024), 1) if size_hint else 0,
+            source=video_source,
+        )
+        return video_token, size_hint
+
+    @staticmethod
     def _extract_upload_token(
         upload_payload: dict[str, Any],
         upload_url: str,
@@ -498,35 +707,48 @@ class MaxPublisher(BasePublisher):
         image_bytes: bytes | None,
         video_bytes: bytes | None = None,
         extra_attachments: list[dict[str, Any]] | None = None,
+        post: ProcessedPost | None = None,
     ) -> str:
         """Отправляет текст и опционально видео или изображение в канал.
+
+        Видео: token кэшируется (article_meta + Redis). Повтор публикации
+        не заливает файл заново — ждёт GET /videos/{token} и шлёт сообщение.
 
         Args:
             session: HTTP-сессия.
             token: токен бота.
             chat_id: ID канала.
             text: HTML-текст.
-            image_bytes: статичная обложка (fallback).
-            video_bytes: MP4 или GIF анимация (приоритет).
+            image_bytes: статичная обложка.
+            video_bytes: MP4 (или None, если token уже в кэше поста).
+            extra_attachments: клавиатура и пр.
+            post: для чтения/записи max_video_token.
 
         Returns:
             str: message_id.
 
         Raises:
             RuntimeError: ошибка API.
-            PublishPermanentError: ошибка разметки.
+            PublishPermanentError: ошибка разметки / видео не готово.
         """
         attachments: list[dict[str, Any]] = []
         if image_bytes:
             image_token = await cls._upload_image(session, token, image_bytes)
             attachments.append({"type": "image", "payload": {"token": image_token}})
 
-        if video_bytes:
+        video_token: str | None = None
+        size_hint = len(video_bytes) if video_bytes else 0
+        if video_bytes or (
+            post
+            and post.generated_video_url
+            and (
+                parse_article_meta(post.article_meta).max_video_token
+                or get_cached_max_video_token(post.generated_video_url)
+            )
+        ):
             from app.infrastructure.media.gifski_converter import is_gif_bytes
 
-            if is_gif_bytes(video_bytes):
-                # Legacy posts stored as GIF: MAX often shows image/gif as a still.
-                # Prefer static cover if available; otherwise upload GIF as image.
+            if video_bytes and is_gif_bytes(video_bytes):
                 logger.warning(
                     "MAX received GIF animation; clients may show a still frame"
                 )
@@ -542,10 +764,28 @@ class MaxPublisher(BasePublisher):
                         {"type": "image", "payload": {"token": gif_token}}
                     )
             else:
-                video_token = await cls._upload_video(session, token, video_bytes)
-                attachments.append(
-                    {"type": "video", "payload": {"token": video_token}}
+                video_token, size_hint = await cls._resolve_video_token(
+                    session,
+                    token,
+                    post=post,
+                    video_bytes=video_bytes,
                 )
+                if video_token:
+                    ready = await cls._wait_video_ready(
+                        session,
+                        token,
+                        video_token,
+                        size_hint_bytes=size_hint,
+                    )
+                    if not ready:
+                        raise PublishPermanentError(
+                            "MAX ещё обрабатывает видео. Токен сохранён — "
+                            "нажмите «Опубликовать» снова через пару минут "
+                            "(повторная заливка файла не нужна)."
+                        )
+                    attachments.append(
+                        {"type": "video", "payload": {"token": video_token}}
+                    )
 
         body: dict[str, Any] = {
             "text": text,
@@ -557,8 +797,33 @@ class MaxPublisher(BasePublisher):
         if attachments:
             body["attachments"] = attachments
 
+        has_video = any(a.get("type") == "video" for a in attachments)
+        max_attempts = (
+            _video_send_attempts(b"x" * size_hint)
+            if has_video and size_hint
+            else (_SEND_ATTEMPTS_WITH_VIDEO if has_video else _SEND_ATTEMPTS)
+        )
+
         last_error: str | None = None
-        for attempt in range(1, _SEND_ATTEMPTS + 1):
+        dropped_cover = False
+        for attempt in range(1, max_attempts + 1):
+            if (
+                has_video
+                and not dropped_cover
+                and attempt > max(3, max_attempts // 2)
+                and any(a.get("type") == "image" for a in body.get("attachments", []))
+            ):
+                body["attachments"] = [
+                    a
+                    for a in body["attachments"]
+                    if a.get("type") != "image"
+                ]
+                dropped_cover = True
+                logger.warning(
+                    "MAX dropping cover image; retrying with video only",
+                    attempt=attempt,
+                )
+
             async with session.post(
                 f"{get_max_api_base()}/messages",
                 params={"chat_id": chat_id},
@@ -575,12 +840,15 @@ class MaxPublisher(BasePublisher):
                 raise RuntimeError(msg)
 
             error_code = str(payload.get("code", ""))
-            if error_code == _ATTACHMENT_NOT_READY and attempt < _SEND_ATTEMPTS:
-                delay = 0.4 * attempt
-                logger.debug(
+            if error_code == _ATTACHMENT_NOT_READY and attempt < max_attempts:
+                delay = _attachment_retry_delay(attempt, has_video=has_video)
+                logger.info(
                     "MAX attachment not ready, retry",
                     attempt=attempt,
+                    max_attempts=max_attempts,
                     delay=delay,
+                    has_video=has_video,
+                    dropped_cover=dropped_cover,
                 )
                 await asyncio.sleep(delay)
                 last_error = cls._format_api_error(payload, "send message")
@@ -591,9 +859,20 @@ class MaxPublisher(BasePublisher):
                     cls._format_api_error(payload, "send message")
                 )
 
+            if error_code == _ATTACHMENT_NOT_READY:
+                raise PublishPermanentError(
+                    (last_error or cls._format_api_error(payload, "send message"))
+                    + ". Токен видео сохранён — повторите публикацию позже без повторной заливки."
+                )
+
             msg = cls._format_api_error(payload, "send message")
             raise RuntimeError(msg)
 
+        if has_video:
+            raise PublishPermanentError(
+                (last_error or "MAX video attachment not ready")
+                + ". Токен видео сохранён — повторите публикацию позже без повторной заливки."
+            )
         msg = last_error or "MAX send message failed after retries"
         raise RuntimeError(msg)
 

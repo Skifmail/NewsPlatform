@@ -144,9 +144,19 @@ export const useDialogStore = defineStore('dialog', () => {
    * @returns {Promise<void>}
    */
   async function alertApiError(error, fallback) {
+    const status = error?.response?.status
     const detail = error?.response?.data?.detail
-    const message =
+    let message =
       typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.join(', ') : fallback
+    if (status === 413) {
+      message =
+        'Файл слишком большой для сервера. Максимум около 250 МБ — сожмите видео или выберите файл поменьше.'
+    } else if (!detail && error?.message && error.message !== 'Network Error') {
+      message = error.message || fallback
+    } else if (!detail && error?.message === 'Network Error') {
+      message =
+        'Сеть оборвала загрузку. Часто так бывает при слишком большом файле или обрыве соединения.'
+    }
     await alert({ message })
   }
 

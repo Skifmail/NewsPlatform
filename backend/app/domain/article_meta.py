@@ -21,6 +21,8 @@ class ArticleMeta:
         source_urls: URL источников.
         topic_queue_item_id: ID темы из редакционной очереди.
         format_variant: short | standard | long | video.
+        max_video_token: токен вложения MAX после upload (повтор без перезаливки).
+        max_video_source: generated_video_url, к которому привязан токен.
     """
 
     category: str = ""
@@ -32,6 +34,8 @@ class ArticleMeta:
     source_urls: list[str] = field(default_factory=list)
     topic_queue_item_id: str | None = None
     format_variant: str = "standard"
+    max_video_token: str | None = None
+    max_video_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Сериализует в dict."""
@@ -116,6 +120,16 @@ def article_meta_from_dict(data: dict[str, Any]) -> ArticleMeta:
         ),
         format_variant=str(data.get("format_variant") or "standard").strip()
         or "standard",
+        max_video_token=(
+            str(data["max_video_token"]).strip()
+            if data.get("max_video_token")
+            else None
+        ),
+        max_video_source=(
+            str(data["max_video_source"]).strip()
+            if data.get("max_video_source")
+            else None
+        ),
     )
 
 

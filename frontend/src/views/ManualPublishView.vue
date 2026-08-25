@@ -262,7 +262,14 @@ onMounted(async () => {
   }
 })
 
+const MAX_UPLOAD_BYTES = 250 * 1024 * 1024
+
 async function uploadFile(file, kind, onProgress) {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      `Файл слишком большой (${formatBytes(file.size)}). Максимум ${formatBytes(MAX_UPLOAD_BYTES)}.`
+    )
+  }
   const { data } = await mediaApi.upload(file, { onProgress })
   if (kind === 'image' && data.kind !== 'image') {
     throw new Error('Ожидалось изображение')

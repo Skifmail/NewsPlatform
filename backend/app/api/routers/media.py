@@ -27,7 +27,7 @@ _VIDEO_TYPES = {
     "video/webm": ".webm",
     "video/quicktime": ".mov",
 }
-_MAX_UPLOAD_BYTES = 80 * 1024 * 1024  # 80 MB
+_MAX_UPLOAD_BYTES = 250 * 1024 * 1024  # 250 MB
 
 
 @router.get("/media/{file_path:path}")

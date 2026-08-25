@@ -1,5 +1,7 @@
 """Роутер очереди постов."""
 
+from uuid import uuid4
+
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import AuthDep, DbSession
@@ -185,9 +187,12 @@ async def publish_now(
         post.status = PostStatus.APPROVED.value
         await repo.update(post)
     channel_name = post.channel.name if post.channel else "Канал"
-    task = publish_post_task.delay(post_id)
-    await JobTracker(session).enqueue_publish(task.id, post_id, channel_name)
+    # Сначала регистрируем job, потом ставим в Celery — иначе воркер
+    # может вставить ту же celery_task_id раньше API (UniqueViolation).
+    task_id = str(uuid4())
+    await JobTracker(session).enqueue_publish(task_id, post_id, channel_name)
     await session.commit()
+    publish_post_task.apply_async(args=[post_id], task_id=task_id)
     return MessageResponse(message="Publish task queued")
 
 
