@@ -22,6 +22,23 @@ _thread_rate_lock = threading.Lock()
 _MIN_INTERVAL = 1.0
 
 
+def _first_choice(data: dict[str, object]) -> dict[str, object]:
+    """Возвращает первый элемент choices или бросает RuntimeError.
+
+    DeepSeek иногда отдаёт ``choices: [null]`` — без проверки падает
+    ``'NoneType' object has no attribute 'get'``.
+    """
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        msg = "DeepSeek API: пустой ответ (нет choices)"
+        raise RuntimeError(msg)
+    first = choices[0]
+    if not isinstance(first, dict):
+        msg = "DeepSeek API: некорректный элемент choices"
+        raise RuntimeError(msg)
+    return first
+
+
 class DeepSeekClient:
     """Асинхронный клиент DeepSeek (OpenAI-compatible API)."""
 
@@ -137,13 +154,19 @@ class DeepSeekClient:
                     fail_step(event_id, msg)
                     raise RuntimeError(msg)
                 data = response.json()
-                choices = data.get("choices") or []
-                if not choices:
-                    msg = "DeepSeek API: пустой ответ (нет choices)"
+                if not isinstance(data, dict):
+                    msg = "DeepSeek API: ответ не JSON-объект"
                     fail_step(event_id, msg)
                     raise RuntimeError(msg)
-                message = choices[0].get("message") or {}
-                finish = choices[0].get("finish_reason")
+                try:
+                    choice = _first_choice(data)
+                except RuntimeError as exc:
+                    fail_step(event_id, str(exc))
+                    raise
+                message = choice.get("message") or {}
+                if not isinstance(message, dict):
+                    message = {}
+                finish = choice.get("finish_reason")
                 content = self._extract_message_text(message, json_mode=json_mode)
                 if not content:
                     logger.warning(
@@ -258,12 +281,14 @@ class DeepSeekClient:
                 msg = f"DeepSeek API error: {response.status_code}"
                 raise RuntimeError(msg)
             data = response.json()
-            choices = data.get("choices") or []
-            if not choices:
-                msg = "DeepSeek API: пустой ответ (нет choices)"
+            if not isinstance(data, dict):
+                msg = "DeepSeek API: ответ не JSON-объект"
                 raise RuntimeError(msg)
-            message = choices[0].get("message") or {}
-            finish = choices[0].get("finish_reason")
+            choice = _first_choice(data)
+            message = choice.get("message") or {}
+            if not isinstance(message, dict):
+                message = {}
+            finish = choice.get("finish_reason")
             if isinstance(finish, str):
                 finish_reason: str | None = finish
             else:

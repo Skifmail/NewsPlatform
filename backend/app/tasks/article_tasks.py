@@ -2,6 +2,7 @@
 
 from app.infrastructure.database import async_session_factory
 from app.services.article_generation_service import ArticleGenerationService
+from app.services.article_scheduler_recovery import release_article_scheduler_slot
 from app.services.job_execution import with_job_tracking
 from app.tasks.async_runner import run_async
 from app.tasks.celery_app import celery_app
@@ -44,4 +45,9 @@ def generate_article_task(
             _work,
         )
 
-    return run_async(_run())
+    try:
+        return run_async(_run())
+    except Exception:
+        if self.request.retries >= self.max_retries:
+            run_async(release_article_scheduler_slot(channel_id))
+        raise

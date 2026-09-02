@@ -1,5 +1,6 @@
 """Публикация во VK через API."""
 
+import json
 from io import BytesIO
 
 import aiohttp
@@ -69,6 +70,22 @@ def build_vk_message(post: ProcessedPost, limit: int = _VK_MESSAGE_LIMIT) -> str
     if boundary > limit // 2:
         return truncated[:boundary + 1].rstrip() + "…"
     return truncated + "…"
+
+
+def _vk_wall_photo_save_fields(upload_data: dict) -> dict[str, str] | None:
+    """Нормализует поля ответа upload-сервера для photos.saveWallPhoto."""
+    if not all(key in upload_data for key in ("photo", "server", "hash")):
+        return None
+    photo = upload_data["photo"]
+    if isinstance(photo, (list, dict)):
+        photo_str = json.dumps(photo, separators=(",", ":"), ensure_ascii=False)
+    else:
+        photo_str = str(photo)
+    return {
+        "photo": photo_str,
+        "server": str(upload_data["server"]),
+        "hash": str(upload_data["hash"]),
+    }
 
 
 class VkPublisher(BasePublisher):
@@ -321,10 +338,15 @@ class VkPublisher(BasePublisher):
         session: aiohttp.ClientSession,
         save_params: dict[str, str | int],
     ) -> dict | None:
-        """Сохраняет загруженное фото на стену (POST, затем GET при необходимости)."""
+        """Сохраняет загруженное фото на стену (POST FormData, затем GET)."""
+        str_params = {key: str(value) for key, value in save_params.items()}
+        form = aiohttp.FormData()
+        for key, value in str_params.items():
+            form.add_field(key, value)
+
         for method, kwargs in (
-            ("POST", {"data": save_params}),
-            ("GET", {"params": save_params}),
+            ("POST", {"data": form}),
+            ("GET", {"params": str_params}),
         ):
             async with session.request(
                 method,
@@ -335,11 +357,13 @@ class VkPublisher(BasePublisher):
             if "error" not in save_data:
                 return save_data
             err = save_data["error"]
+            code = err.get("error_code")
+            msg = err.get("error_msg", "")
             logger.warning(
-                "VK saveWallPhoto failed",
-                method=method,
-                error_code=err.get("error_code"),
-                error_msg=err.get("error_msg", ""),
+                "VK saveWallPhoto failed method={} error_code={} error_msg={}",
+                method,
+                code,
+                msg,
             )
         return None
 
@@ -406,9 +430,14 @@ class VkPublisher(BasePublisher):
             async with session.post(upload_url, data=form) as upload_resp:
                 upload_data = await upload_resp.json()
 
-            if upload_data.get("error") or not all(
-                key in upload_data for key in ("photo", "server", "hash")
-            ):
+            if upload_data.get("error"):
+                logger.error(
+                    "VK photo upload server returned invalid payload",
+                    payload=upload_data,
+                )
+                return None
+            photo_fields = _vk_wall_photo_save_fields(upload_data)
+            if not photo_fields:
                 logger.error(
                     "VK photo upload server returned invalid payload",
                     payload=upload_data,
@@ -418,9 +447,7 @@ class VkPublisher(BasePublisher):
             save_params: dict[str, str | int] = {
                 "access_token": token,
                 "v": api_version,
-                "photo": upload_data["photo"],
-                "server": upload_data["server"],
-                "hash": upload_data["hash"],
+                **photo_fields,
             }
             if group_id is not None:
                 save_params["group_id"] = group_id

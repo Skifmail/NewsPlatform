@@ -12,6 +12,7 @@ from app.infrastructure.models.processed_post import ProcessedPost
 from app.infrastructure.publishers.vk_publisher import (
     VkPublisher,
     _prepare_wall_photo_bytes,
+    _vk_wall_photo_save_fields,
     build_vk_message,
 )
 from app.utils.text_format import to_vk_text
@@ -27,6 +28,23 @@ def test_prepare_wall_photo_converts_png_to_jpeg() -> None:
     prepared = _prepare_wall_photo_bytes(_png_bytes())
     assert prepared is not None
     assert prepared.startswith(b"\xff\xd8")
+
+
+def test_vk_wall_photo_save_fields_serializes_list_photo() -> None:
+    fields = _vk_wall_photo_save_fields(
+        {"server": 906718, "photo": [{"w": 1280}], "hash": "abc123"}
+    )
+    assert fields is not None
+    assert fields["server"] == "906718"
+    assert fields["hash"] == "abc123"
+    assert fields["photo"].startswith("[")
+
+
+def test_vk_wall_photo_save_fields_accepts_string_photo() -> None:
+    fields = _vk_wall_photo_save_fields(
+        {"server": "1", "photo": "raw-photo-token", "hash": "h"}
+    )
+    assert fields == {"photo": "raw-photo-token", "server": "1", "hash": "h"}
 
 
 
