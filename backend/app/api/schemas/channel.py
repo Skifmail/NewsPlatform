@@ -122,5 +122,19 @@ class TopicQueueAppendRequest(BaseModel):
 class TopicQueueItemAction(BaseModel):
     """Действие над элементом очереди тем."""
 
-    item_id: str = Field(..., min_length=1, max_length=64)
-    action: str = Field(..., pattern="^(skip|restore_pending)$")
+    item_id: str | None = Field(
+        None,
+        min_length=1,
+        max_length=64,
+        description="ID темы; не нужен для clear_published",
+    )
+    action: str = Field(
+        ...,
+        pattern="^(skip|restore_pending|delete|update|clear_published)$",
+    )
+    title: str | None = Field(
+        None,
+        min_length=1,
+        max_length=500,
+        description="Новая формулировка для action=update",
+    )

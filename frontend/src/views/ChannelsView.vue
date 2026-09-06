@@ -316,12 +316,26 @@
                 >
                   Обновить список
                 </button>
+                <button
+                  v-if="(topicQueueSummaries[ch.id]?.published || 0) > 0"
+                  type="button"
+                  class="btn-danger btn-sm"
+                  :disabled="topicQueueBusy === ch.id"
+                  @click="clearPublishedTopics(ch.id)"
+                >
+                  Очистить опубликованные
+                </button>
               </div>
               <div v-if="topicQueueSummaries[ch.id]" class="topic-queue-summary field-hint mt-2">
                 В очереди: {{ topicQueueSummaries[ch.id].pending || 0 }} ·
                 опубликовано: {{ topicQueueSummaries[ch.id].published || 0 }} ·
                 пропущено: {{ topicQueueSummaries[ch.id].skipped || 0 }}
               </div>
+              <p class="field-hint mt-1">
+                Можно править формулировку, пропускать, возвращать в очередь и удалять
+                любую тему (в том числе уже опубликованную). Удаление убирает строку
+                из списка; антиповтор по истории постов за 90 дней сохраняется.
+              </p>
               <ul v-if="(topicQueueItems[ch.id] || []).length" class="topic-queue-list mt-3">
                 <li
                   v-for="item in topicQueueItems[ch.id]"
@@ -330,20 +344,57 @@
                   :data-status="item.status"
                 >
                   <span class="topic-queue-status">{{ topicStatusLabel(item.status) }}</span>
-                  <span class="topic-queue-title">{{ item.title }}</span>
-                  <span v-if="item.published_at" class="topic-queue-date">{{ formatQueueDate(item.published_at) }}</span>
-                  <button
-                    v-if="item.status === 'pending'"
-                    type="button"
-                    class="btn-danger btn-sm"
-                    @click="topicQueueAction(ch.id, item.id, 'skip')"
-                  >Пропустить</button>
-                  <button
-                    v-else-if="item.status === 'skipped'"
-                    type="button"
-                    class="btn-secondary btn-sm"
-                    @click="topicQueueAction(ch.id, item.id, 'restore_pending')"
-                  >Вернуть</button>
+                  <template v-if="topicQueueEditing?.channelId === ch.id && topicQueueEditing?.itemId === item.id">
+                    <input
+                      v-model="topicQueueEditing.title"
+                      class="input input-sm topic-queue-edit-input"
+                      :disabled="topicQueueBusy === ch.id"
+                      @keydown.enter.prevent="saveTopicEdit(ch.id)"
+                      @keydown.escape.prevent="cancelTopicEdit"
+                    />
+                    <button
+                      type="button"
+                      class="btn-primary btn-sm"
+                      :disabled="topicQueueBusy === ch.id || !(topicQueueEditing.title || '').trim()"
+                      @click="saveTopicEdit(ch.id)"
+                    >Сохранить</button>
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      :disabled="topicQueueBusy === ch.id"
+                      @click="cancelTopicEdit"
+                    >Отмена</button>
+                  </template>
+                  <template v-else>
+                    <span class="topic-queue-title">{{ item.title }}</span>
+                    <span v-if="item.published_at" class="topic-queue-date">{{ formatQueueDate(item.published_at) }}</span>
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      :disabled="topicQueueBusy === ch.id"
+                      @click="startTopicEdit(ch.id, item)"
+                    >Изменить</button>
+                    <button
+                      v-if="item.status === 'pending' || item.status === 'in_progress'"
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      :disabled="topicQueueBusy === ch.id"
+                      @click="topicQueueAction(ch.id, item.id, 'skip')"
+                    >Пропустить</button>
+                    <button
+                      v-if="item.status === 'skipped' || item.status === 'published'"
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      :disabled="topicQueueBusy === ch.id"
+                      @click="topicQueueAction(ch.id, item.id, 'restore_pending')"
+                    >В очередь</button>
+                    <button
+                      type="button"
+                      class="btn-danger btn-sm"
+                      :disabled="topicQueueBusy === ch.id"
+                      @click="deleteTopicItem(ch.id, item)"
+                    >Удалить</button>
+                  </template>
                 </li>
               </ul>
             </div>
@@ -427,6 +478,7 @@ const topicQueueDrafts = reactive({})
 const topicQueueItems = reactive({})
 const topicQueueSummaries = reactive({})
 const topicQueueBusy = ref(null)
+const topicQueueEditing = ref(null)
 const expandedId = ref(null)
 const showNewForm = ref(false)
 const DEFAULT_PUBLISH_TIMES = '09:00, 13:00, 17:00, 21:00'
@@ -677,17 +729,58 @@ async function appendTopicQueue(id) {
   }
 }
 
-async function topicQueueAction(id, itemId, action) {
+async function topicQueueAction(id, itemId, action, title = null) {
   topicQueueBusy.value = id
   try {
-    await channelsApi.topicQueueAction(id, itemId, action)
+    await channelsApi.topicQueueAction(id, itemId, action, title)
+    if (topicQueueEditing.value?.channelId === id) {
+      topicQueueEditing.value = null
+    }
     await refreshTopicQueue(id)
-    await load()
   } catch (e) {
     await dialog.alertApiError(e, 'Не удалось обновить тему')
   } finally {
     topicQueueBusy.value = null
   }
+}
+
+function startTopicEdit(channelId, item) {
+  topicQueueEditing.value = {
+    channelId,
+    itemId: item.id,
+    title: item.title,
+  }
+}
+
+function cancelTopicEdit() {
+  topicQueueEditing.value = null
+}
+
+async function saveTopicEdit(channelId) {
+  const draft = topicQueueEditing.value
+  if (!draft || draft.channelId !== channelId) return
+  const title = String(draft.title || '').trim()
+  if (!title) return
+  await topicQueueAction(channelId, draft.itemId, 'update', title)
+}
+
+async function deleteTopicItem(channelId, item) {
+  const ok = await dialog.confirm({
+    title: 'Удалить тему?',
+    message: `Убрать из списка: «${item.title}»?`,
+  })
+  if (!ok) return
+  await topicQueueAction(channelId, item.id, 'delete')
+}
+
+async function clearPublishedTopics(channelId) {
+  const count = topicQueueSummaries[channelId]?.published || 0
+  const ok = await dialog.confirm({
+    title: 'Очистить опубликованные?',
+    message: `Удалить из списка ${count} опубликованных тем? Антиповтор по истории постов сохранится.`,
+  })
+  if (!ok) return
+  await topicQueueAction(channelId, null, 'clear_published')
 }
 
 function isPostcardChannelForm(form) {
@@ -880,6 +973,13 @@ onMounted(load)
 .topic-queue-date {
   opacity: 0.7;
   font-size: 0.75rem;
+}
+.topic-queue-edit-input {
+  flex: 1;
+  min-width: 12rem;
+}
+.topic-queue-item .btn-sm {
+  flex-shrink: 0;
 }
 .manual-topic-field {
   @apply flex-1 min-w-[12rem] max-w-md;

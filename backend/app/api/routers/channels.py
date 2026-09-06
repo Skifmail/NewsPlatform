@@ -16,11 +16,14 @@ from app.domain.enums import ContentMode
 from app.infrastructure.models.channel import Channel
 from app.domain.topic_queue import (
     append_topics,
+    clear_published,
     mark_skipped,
     parse_topic_queue,
     parse_topics_from_text,
     queue_summary,
+    remove_topic,
     serialize_topic_queue,
+    update_topic_title,
 )
 from app.repositories.channel_repository import ChannelRepository
 from app.tasks.article_tasks import generate_article_task
@@ -154,31 +157,53 @@ async def topic_queue_action(
     session: DbSession,
     _: AuthDep,
 ):
-    """Пропускает тему или возвращает в pending."""
+    """Управление очередью: skip / restore / delete / update / clear_published."""
     repo = ChannelRepository(session)
     channel = await repo.get_by_id(channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     items = parse_topic_queue(channel.topic_queue)
-    if body.action == "skip":
-        items = mark_skipped(items, body.item_id)
-    elif body.action == "restore_pending":
-        restored = []
-        for item in items:
-            if item.id == body.item_id and item.status == "skipped":
-                from app.domain.topic_queue import TopicQueueItem
-                restored.append(
-                    TopicQueueItem(
-                        id=item.id,
-                        title=item.title,
-                        status="pending",
-                        entities=list(item.entities),
-                        notes=item.notes,
+
+    if body.action == "clear_published":
+        items = clear_published(items)
+    else:
+        if not body.item_id:
+            raise HTTPException(status_code=400, detail="item_id обязателен")
+        if body.action == "skip":
+            items = mark_skipped(items, body.item_id)
+        elif body.action == "restore_pending":
+            from app.domain.topic_queue import TopicQueueItem
+
+            restored = []
+            for item in items:
+                if item.id == body.item_id and item.status in {"skipped", "published"}:
+                    restored.append(
+                        TopicQueueItem(
+                            id=item.id,
+                            title=item.title,
+                            status="pending",
+                            entities=list(item.entities),
+                            notes=item.notes,
+                        )
                     )
-                )
-            else:
-                restored.append(item)
-        items = restored
+                else:
+                    restored.append(item)
+            items = restored
+        elif body.action == "delete":
+            before = len(items)
+            items = remove_topic(items, body.item_id)
+            if len(items) == before:
+                raise HTTPException(status_code=404, detail="Тема не найдена")
+        elif body.action == "update":
+            if not body.title or not body.title.strip():
+                raise HTTPException(status_code=400, detail="Укажите новый заголовок")
+            try:
+                items = update_topic_title(items, body.item_id, body.title)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        else:
+            raise HTTPException(status_code=400, detail="Неизвестное действие")
+
     channel.topic_queue = serialize_topic_queue(items)
     updated = await repo.update(channel)
     await session.commit()

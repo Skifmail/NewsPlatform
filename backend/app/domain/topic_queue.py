@@ -299,6 +299,75 @@ def published_titles(items: list[TopicQueueItem]) -> list[str]:
     return [item.title for item in items if item.status == "published"]
 
 
+
+def remove_topic(items: list[TopicQueueItem], item_id: str) -> list[TopicQueueItem]:
+    """Удаляет тему из очереди полностью (включая опубликованные).
+
+    Args:
+        items: очередь.
+        item_id: ID темы.
+
+    Returns:
+        list[TopicQueueItem]: очередь без указанной темы.
+    """
+    return [item for item in items if item.id != item_id]
+
+
+def update_topic_title(
+    items: list[TopicQueueItem],
+    item_id: str,
+    title: str,
+) -> list[TopicQueueItem]:
+    """Меняет формулировку темы (для pending/skipped/in_progress/published).
+
+    Args:
+        items: очередь.
+        item_id: ID темы.
+        title: новая формулировка.
+
+    Returns:
+        list[TopicQueueItem]: обновлённая очередь.
+
+    Raises:
+        ValueError: пустой заголовок или тема не найдена.
+    """
+    cleaned = title.strip()
+    if not cleaned:
+        raise ValueError("Тема не может быть пустой")
+    found = False
+    updated: list[TopicQueueItem] = []
+    for item in items:
+        if item.id != item_id:
+            updated.append(item)
+            continue
+        found = True
+        updated.append(
+            TopicQueueItem(
+                id=item.id,
+                title=cleaned,
+                status=item.status,
+                published_at=item.published_at,
+                published_post_id=item.published_post_id,
+                entities=list(item.entities),
+                notes=item.notes,
+            )
+        )
+    if not found:
+        raise ValueError("Тема не найдена")
+    return updated
+
+
+def clear_published(items: list[TopicQueueItem]) -> list[TopicQueueItem]:
+    """Убирает все опубликованные темы из списка (учёт остаётся в истории постов).
+
+    Args:
+        items: очередь.
+
+    Returns:
+        list[TopicQueueItem]: очередь без published.
+    """
+    return [item for item in items if item.status != "published"]
+
 def _item_from_raw(entry: object) -> TopicQueueItem | None:
     """Создаёт TopicQueueItem из сырого JSON-элемента."""
     if isinstance(entry, str):

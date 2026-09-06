@@ -8,11 +8,14 @@ from app.domain.paragraph_validator import validate_paragraph_draft
 from app.domain.topic_dedup import is_topic_too_similar
 from app.domain.topic_queue import (
     append_topics,
+    clear_published,
     mark_published,
     next_pending,
     parse_topic_queue,
     parse_topics_from_text,
+    remove_topic,
     serialize_topic_queue,
+    update_topic_title,
 )
 from app.infrastructure.ai.paragraph_teaser_formatter import (
     build_paragraph_teaser,
@@ -197,3 +200,16 @@ def test_validator_rejects_emoji_only_in_title() -> None:
         button_options=["Да", "Нет"],
     )
     assert any(i.code == "missing_emoji" for i in result.issues)
+
+
+def test_topic_queue_edit_delete_clear() -> None:
+    items = append_topics([], ["Тема A", "Тема B", "Тема C"])
+    items = mark_published(items, items[0].id, published_post_id=1)
+    items = update_topic_title(items, items[1].id, "Тема B обновлена")
+    assert items[1].title == "Тема B обновлена"
+    items = remove_topic(items, items[0].id)
+    assert all(i.status != "published" for i in items)
+    items = mark_published(items, items[0].id, published_post_id=2)
+    items = clear_published(items)
+    assert all(i.status != "published" for i in items)
+    assert len(items) == 1

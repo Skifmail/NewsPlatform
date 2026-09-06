@@ -102,7 +102,7 @@ export const channelsApi = {
   generateArticle: (id, data = {}) => api.post(`/channels/${id}/generate-article`, data),
   getTopicQueue: (id) => api.get(`/channels/${id}/topic-queue`),
   appendTopicQueue: (id, topics_text) => api.post(`/channels/${id}/topic-queue`, { topics_text }),
-  topicQueueAction: (id, item_id, action) => api.post(`/channels/${id}/topic-queue/action`, { item_id, action }),
+  topicQueueAction: (id, item_id, action, title = null) => api.post(`/channels/${id}/topic-queue/action`, { item_id, action, title }),
 }
 
 export const settingsApi = {
