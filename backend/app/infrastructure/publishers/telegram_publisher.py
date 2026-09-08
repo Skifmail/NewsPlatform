@@ -19,6 +19,10 @@ from app.infrastructure.publishers.telegram_user_publisher import (
 )
 from app.infrastructure.publishers.telegraph_publisher import TelegraphPublisher
 from app.infrastructure.stats.telethon_lock import TelethonSessionBusyError
+from app.domain.hashtags import (
+    hashtag_line_length,
+    resolve_hashtags_for_publish,
+)
 from app.utils.telegram_channels import is_telegram_long_form_channel
 from app.utils.text_format import (
     TELEGRAM_BOT_CAPTION_MAX,
@@ -26,6 +30,7 @@ from app.utils.text_format import (
     TELEGRAM_USER_CAPTION_MAX,
     append_cross_promote_footer,
     append_post_footer,
+    apply_channel_hashtags,
     build_article_read_more_html,
     build_article_telegram_text,
     cross_promote_footer_length,
@@ -72,6 +77,12 @@ class TelegramPublisher(BasePublisher):
         chat_id = channel.platform_id
         text = repair_telegram_html(
             to_telegram_api_html(post.rewritten_text)
+        )
+        text = apply_channel_hashtags(
+            text,
+            article_meta=post.article_meta,
+            channel_hashtags=channel.hashtags,
+            channel_name=channel.name,
         )
         text = append_cross_promote_footer(
             text,
@@ -149,17 +160,28 @@ class TelegramPublisher(BasePublisher):
         video_bytes: bytes | None = None,
     ) -> str:
         """Публикует статью целиком в Telegram без Telegraph (Github, Параграф)."""
-        # Резервируем место под футер, чтобы кросс-промо ссылка не обрезалась.
+        # Резервируем место под футер и хэштеги, чтобы кросс-промо не обрезалось.
+        tags = resolve_hashtags_for_publish(
+            article_meta_raw=post.article_meta,
+            channel_hashtags=channel.hashtags,
+            channel_name=channel.name,
+        )
         footer_reserve = cross_promote_footer_length(
             channel.cross_promote_url,
             channel.cross_promote_label,
             promote_emoji_id=channel.cross_promote_emoji_id,
-        )
+        ) + hashtag_line_length(tags)
         text = build_article_telegram_text(
             article_title=post.article_title,
             teaser_html=post.rewritten_text,
             body_html=post.article_body,
             max_length=TELEGRAM_USER_CAPTION_MAX - footer_reserve,
+        )
+        text = apply_channel_hashtags(
+            text,
+            article_meta=post.article_meta,
+            channel_hashtags=channel.hashtags,
+            channel_name=channel.name,
         )
         text = append_cross_promote_footer(
             text,
@@ -234,8 +256,14 @@ class TelegramPublisher(BasePublisher):
             article_body=post.article_body or "",
             post_id=post.id,
         )
-        caption = append_cross_promote_footer(
+        caption = apply_channel_hashtags(
             f"{teaser}\n\n{link}".strip(),
+            article_meta=post.article_meta,
+            channel_hashtags=channel.hashtags,
+            channel_name=channel.name,
+        )
+        caption = append_cross_promote_footer(
+            caption,
             channel.cross_promote_url,
             channel.cross_promote_label,
             promote_emoji_id=channel.cross_promote_emoji_id,

@@ -38,6 +38,10 @@ class ChannelCreate(BaseModel):
     cross_promote_label: str | None = Field(None, max_length=255)
     cross_promote_emoji_id: str | None = Field(None, max_length=32)
     post_footer: str | None = None
+    hashtags: str | None = Field(
+        None,
+        description="Каталог рубрик (#авиация #физика …), через пробел или перевод строки",
+    )
     topic_queue: str | None = Field(
         None,
         description="JSON-очередь редакционных тем",
@@ -65,6 +69,10 @@ class ChannelUpdate(BaseModel):
     cross_promote_label: str | None = Field(None, max_length=255)
     cross_promote_emoji_id: str | None = Field(None, max_length=32)
     post_footer: str | None = None
+    hashtags: str | None = Field(
+        None,
+        description="Каталог рубрик (#авиация #физика …)",
+    )
     topic_queue: str | None = None
     content_mode: str | None = Field(None, pattern="^(news|article)$")
     is_active: bool | None = None
@@ -90,6 +98,7 @@ class ChannelResponse(OrmSchema):
     cross_promote_label: str | None
     cross_promote_emoji_id: str | None
     post_footer: str | None
+    hashtags: str | None = None
     topic_queue: str | None
     content_mode: str
     animate_postcards: bool

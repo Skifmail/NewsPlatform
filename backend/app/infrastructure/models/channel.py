@@ -36,6 +36,11 @@ class Channel(Base):
         ),
     )
     post_footer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hashtags: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Каталог рубрик канала (#авиация #физика …); в пост уходит 1–2 тега",
+    )
     topic_queue: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,

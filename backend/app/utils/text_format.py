@@ -245,6 +245,59 @@ def append_post_footer(text: str, footer: str | None) -> str:
     return f"{stripped}\n\n{footer.strip()}" if stripped else footer.strip()
 
 
+def append_hashtags(text: str, tags: list[str] | None) -> str:
+    """Добавляет строку хэштегов в конец текста поста.
+
+    Хэштеги идут сразу после тела (до кросс-промо и ``post_footer``),
+    чтобы в мессенджере работали как кнопки фильтрации по каналу.
+
+    Args:
+        text: HTML или plain-текст поста.
+        tags: нормализованные теги (``#авиация``, …).
+
+    Returns:
+        str: текст со строкой тегов или исходный, если тегов нет.
+    """
+    from app.domain.hashtags import format_hashtag_line
+
+    line = format_hashtag_line(tags or [])
+    if not line:
+        return text.strip()
+    stripped = text.strip()
+    # Не дублируем, если теги уже в хвосте (ручная правка / повтор publish).
+    if line in stripped:
+        return stripped
+    return f"{stripped}\n\n{line}" if stripped else line
+
+
+def apply_channel_hashtags(
+    text: str,
+    *,
+    article_meta: str | None,
+    channel_hashtags: str | None,
+    channel_name: str | None,
+) -> str:
+    """Резолвит теги поста по каналу и дописывает их в конец текста.
+
+    Args:
+        text: тело поста.
+        article_meta: JSON метаданных.
+        channel_hashtags: каталог из Channel.hashtags.
+        channel_name: Channel.name.
+
+    Returns:
+        str: текст с хэштегами (если есть).
+    """
+    from app.domain.hashtags import resolve_hashtags_for_publish
+
+    tags = resolve_hashtags_for_publish(
+        article_meta_raw=article_meta,
+        channel_hashtags=channel_hashtags,
+        channel_name=channel_name,
+    )
+    return append_hashtags(text, tags)
+
+
 def cross_promote_footer_length(
     promote_url: str | None,
     promote_label: str | None = None,

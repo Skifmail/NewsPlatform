@@ -19,6 +19,7 @@ class ArticleMeta:
         entities: ключевые сущности темы.
         claims_to_verify: утверждения для фактчека.
         source_urls: URL источников.
+        hashtags: 1–2 рубричных хэштега (#авиация, #физика, …).
         topic_queue_item_id: ID темы из редакционной очереди.
         format_variant: short | standard | long | video.
         max_video_token: токен вложения MAX после upload (повтор без перезаливки).
@@ -32,6 +33,7 @@ class ArticleMeta:
     entities: list[str] = field(default_factory=list)
     claims_to_verify: list[str] = field(default_factory=list)
     source_urls: list[str] = field(default_factory=list)
+    hashtags: list[str] = field(default_factory=list)
     topic_queue_item_id: str | None = None
     format_variant: str = "standard"
     max_video_token: str | None = None
@@ -103,6 +105,14 @@ def article_meta_from_dict(data: dict[str, Any]) -> ArticleMeta:
         title = str(data.get("title") or "").strip()
         cover = _shorten_cover_title(title)
 
+    raw_hashtags = data.get("hashtags") or data.get("tags") or []
+    if isinstance(raw_hashtags, str):
+        hashtags = [raw_hashtags.strip()] if raw_hashtags.strip() else []
+    elif isinstance(raw_hashtags, list):
+        hashtags = [str(x).strip() for x in raw_hashtags if str(x).strip()][:2]
+    else:
+        hashtags = []
+
     return ArticleMeta(
         category=str(data.get("category") or "").strip(),
         cover_title=cover,
@@ -113,6 +123,7 @@ def article_meta_from_dict(data: dict[str, Any]) -> ArticleMeta:
         entities=_str_list("entities"),
         claims_to_verify=_str_list("claims_to_verify"),
         source_urls=_str_list("source_urls"),
+        hashtags=hashtags,
         topic_queue_item_id=(
             str(data["topic_queue_item_id"])
             if data.get("topic_queue_item_id")

@@ -34,6 +34,8 @@ class ProcessedPostResponse(OrmSchema):
     article_body: str | None = None
     telegraph_url: str | None = None
     research_sources: str | None = None
+    article_meta: str | None = None
+    publish_hashtags: list[str] = Field(default_factory=list)
     generated_image_url: str | None
     generated_video_url: str | None
     image_source: str | None
@@ -53,6 +55,14 @@ class ProcessedPostResponse(OrmSchema):
     def _expose_public_media_urls(self) -> "ProcessedPostResponse":
         self.generated_image_url = public_media_url(self.generated_image_url)
         self.generated_video_url = public_media_url(self.generated_video_url)
+        if not self.publish_hashtags:
+            from app.domain.hashtags import resolve_hashtags_for_publish
+
+            self.publish_hashtags = resolve_hashtags_for_publish(
+                article_meta_raw=self.article_meta,
+                channel_hashtags=self.channel.hashtags if self.channel else None,
+                channel_name=self.channel.name if self.channel else None,
+            )
         return self
 
 

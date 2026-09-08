@@ -105,6 +105,16 @@
               class="input w-full mt-1 text-xs"
               placeholder="❤️ Ставьте реакцию, если понравилось!"
             />
+            <label class="field-label mt-4">Хэштеги-рубрики</label>
+            <p class="field-hint mb-1">
+              Каталог меток (через пробел или с новой строки). В пост уходит 1–2 тега.
+            </p>
+            <textarea
+              v-model="form.hashtags"
+              rows="3"
+              class="input w-full mt-1 text-xs font-mono"
+              placeholder="#авиация #катастрофы #физика #космос #технологии"
+            />
             <button type="submit" class="btn-primary mt-4">Добавить канал</button>
           </form>
         </div>
@@ -280,6 +290,33 @@
               class="input w-full text-xs mt-1"
               placeholder="❤️ Ставьте реакцию, если понравилось!"
             />
+
+            <label class="field-label mt-5">Хэштеги-рубрики</label>
+            <p class="field-hint mb-1">
+              Каталог меток канала (по одной на строку или через пробел).
+              В конец каждого поста платформа ставит 1–2 тега из этого списка —
+              в мессенджере они работают как фильтр ленты.
+              Для Параграфа: #авиация #катастрофы #физика #космос #технологии.
+            </p>
+            <textarea
+              v-model="editForms[ch.id].hashtags"
+              rows="4"
+              class="input w-full text-xs mt-1 font-mono"
+              placeholder="#авиация&#10;#катастрофы&#10;#физика&#10;#космос&#10;#технологии"
+            />
+            <div v-if="pinMenuText(editForms[ch.id])" class="pin-menu-box mt-2">
+              <div class="pin-menu-head">
+                <span class="field-hint">Текст для закрепа (меню рубрик)</span>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  @click="copyPinMenu(editForms[ch.id])"
+                >
+                  Скопировать
+                </button>
+              </div>
+              <pre class="pin-menu-preview">{{ pinMenuText(editForms[ch.id]) }}</pre>
+            </div>
 
             <div
               v-if="editForms[ch.id].content_mode === 'article' && usesEditorialTopicQueue(editForms[ch.id])"
@@ -494,6 +531,7 @@ const form = ref({
   cross_promote_label: '',
   cross_promote_emoji_id: '',
   post_footer: '',
+  hashtags: '',
   publish_times: DEFAULT_PUBLISH_TIMES,
 })
 
@@ -533,6 +571,7 @@ function buildEditForm(ch) {
     cross_promote_label: ch.cross_promote_label || '',
     cross_promote_emoji_id: ch.cross_promote_emoji_id || '',
     post_footer: ch.post_footer || '',
+    hashtags: ch.hashtags || '',
     publish_times: ch.publish_times || '',
   }
 }
@@ -623,6 +662,7 @@ async function create() {
     cross_promote_label: '',
     cross_promote_emoji_id: '',
     post_footer: '',
+    hashtags: '',
     publish_times: DEFAULT_PUBLISH_TIMES,
   }
   showNewForm.value = false
@@ -655,6 +695,7 @@ async function saveChannel(id) {
       cross_promote_label: payload.cross_promote_label?.trim() || null,
       cross_promote_emoji_id: payload.cross_promote_emoji_id?.trim() || null,
       post_footer: payload.post_footer?.trim() || null,
+      hashtags: payload.hashtags?.trim() || null,
       publish_times: payload.publish_times?.trim(),
       animate_postcards: Boolean(payload.animate_postcards),
     })
@@ -670,6 +711,54 @@ async function saveChannel(id) {
 function isParagraphChannelForm(form) {
   if (!form) return false
   return String(form.name || '').toLowerCase().includes('параграф')
+}
+
+/**
+ * Нормализует каталог хэштегов из textarea.
+ * @param {string} raw
+ * @returns {string[]}
+ */
+function parseHashtagCatalog(raw) {
+  return String(raw || '')
+    .split(/[\s,]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => (t.startsWith('#') ? t : `#${t}`).toLowerCase())
+}
+
+/**
+ * Текст закрепа с меню рубрик.
+ * @param {{ hashtags?: string, name?: string } | null} form
+ * @returns {string}
+ */
+function pinMenuText(form) {
+  let tags = parseHashtagCatalog(form?.hashtags)
+  if (!tags.length && isParagraphChannelForm(form)) {
+    tags = ['#авиация', '#катастрофы', '#физика', '#космос', '#технологии']
+  }
+  if (!tags.length) return ''
+  return (
+    'Рубрики канала — нажмите тег, чтобы читать только эту тему:\n' +
+    `${tags.join('\n')}\n\n` +
+    'В конце каждого поста стоит 1–2 таких метки.'
+  )
+}
+
+async function copyPinMenu(form) {
+  const text = pinMenuText(form)
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    await dialog.alert({
+      title: 'Закреп',
+      message: 'Текст скопирован. Вставьте в канал и закрепите сообщение.',
+    })
+  } catch {
+    await dialog.alert({
+      title: 'Закреп',
+      message: text,
+    })
+  }
 }
 
 /** Очередь тем — только Параграф на MAX (не VK). */
@@ -856,6 +945,19 @@ onMounted(load)
 
 .field-hint {
   @apply text-xs text-[var(--text-secondary)];
+}
+
+.pin-menu-box {
+  @apply rounded-lg border border-panel-border bg-panel-muted/40 p-3;
+}
+
+.pin-menu-head {
+  @apply mb-2 flex items-center justify-between gap-2;
+}
+
+.pin-menu-preview {
+  @apply m-0 whitespace-pre-wrap break-words font-mono text-xs
+    text-[var(--text-primary)] leading-relaxed;
 }
 
 /* Добавление канала */

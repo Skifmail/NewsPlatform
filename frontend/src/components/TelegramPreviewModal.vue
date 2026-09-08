@@ -90,7 +90,8 @@
           </div>
 
           <p class="preview-footnote">
-            Форматирование: HTML (жирный, курсив, ссылки). Хэштеги добавляются при публикации отдельно.
+            Форматирование: HTML (жирный, курсив, ссылки). Хэштеги-рубрики
+            добавляются при публикации в конец поста (1–2 из каталога канала).
           </p>
         </div>
       </div>
@@ -143,10 +144,20 @@ const longFormChannel = computed(() =>
 )
 
 const publishText = computed(() => {
+  let text = ''
   if (props.post?.content_mode === 'article' && longFormChannel.value) {
-    return buildArticlePreviewText(props.post)
+    text = buildArticlePreviewText(props.post)
+  } else {
+    text = props.post?.rewritten_text || ''
   }
-  return props.post?.rewritten_text || ''
+  const tags = props.post?.publish_hashtags
+  if (Array.isArray(tags) && tags.length) {
+    const line = tags.join(' ')
+    if (line && !String(text).includes(line)) {
+      text = text ? `${String(text).trim()}\n\n${line}` : line
+    }
+  }
+  return text
 })
 
 const previewHtml = computed(() =>

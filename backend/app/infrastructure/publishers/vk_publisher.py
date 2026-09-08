@@ -8,6 +8,10 @@ from loguru import logger
 from PIL import Image
 
 from app.core.config import get_settings
+from app.domain.hashtags import (
+    format_hashtag_line,
+    resolve_hashtags_for_publish,
+)
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.processed_post import ProcessedPost
 from app.infrastructure.publishers.base import BasePublisher
@@ -124,12 +128,20 @@ class VkPublisher(BasePublisher):
 
         api_version = get_settings().vk_api_version
         owner_id = channel.platform_id.strip()
+        tags = resolve_hashtags_for_publish(
+            article_meta_raw=post.article_meta,
+            channel_hashtags=channel.hashtags,
+            channel_name=channel.name,
+        )
+        hashtag_line = format_hashtag_line(tags)
         footer = to_vk_text(channel.post_footer or "")
-        separator = "\n\n" if footer else ""
-        message_limit = _VK_MESSAGE_LIMIT - len(separator) - len(footer)
+        tail_parts = [part for part in (hashtag_line, footer) if part]
+        tail = "\n\n".join(tail_parts)
+        separator = "\n\n" if tail else ""
+        message_limit = _VK_MESSAGE_LIMIT - len(separator) - len(tail)
         message = build_vk_message(post, limit=max(1, message_limit))
-        if footer:
-            message = f"{message}{separator}{footer}"
+        if tail:
+            message = f"{message}{separator}{tail}"
         params: dict[str, str | int] = {
             "access_token": token,
             "v": api_version,

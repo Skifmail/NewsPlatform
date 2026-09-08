@@ -29,6 +29,7 @@ from app.utils.telegram_channels import is_long_form_article_channel
 from app.utils.text_format import (
     MAX_MESSAGE_MAX,
     append_post_footer,
+    apply_channel_hashtags,
     build_article_read_more_html,
     build_article_telegram_text,
     to_max_api_html,
@@ -119,7 +120,13 @@ class MaxPublisher(BasePublisher):
             msg = "MAX_BOT_TOKEN not configured"
             raise RuntimeError(msg)
 
-        text = append_post_footer(to_max_api_html(post.rewritten_text), channel.post_footer)
+        text = apply_channel_hashtags(
+            to_max_api_html(post.rewritten_text),
+            article_meta=post.article_meta,
+            channel_hashtags=channel.hashtags,
+            channel_name=channel.name,
+        )
+        text = append_post_footer(text, channel.post_footer)
         keyboard = None
         meta = parse_article_meta(post.article_meta)
         if meta.button_options:
@@ -216,7 +223,13 @@ class MaxPublisher(BasePublisher):
             body_html=post.article_body,
             max_length=MAX_MESSAGE_MAX,
         )
-        text = append_post_footer(to_max_api_html(text), channel.post_footer)
+        text = apply_channel_hashtags(
+            to_max_api_html(text),
+            article_meta=post.article_meta,
+            channel_hashtags=channel.hashtags,
+            channel_name=channel.name,
+        )
+        text = append_post_footer(text, channel.post_footer)
 
         keyboard = None
         meta = parse_article_meta(post.article_meta)
@@ -303,7 +316,13 @@ class MaxPublisher(BasePublisher):
             article_body=post.article_body or "",
             post_id=post.id,
         )
-        text = append_post_footer(f"{teaser}\n\n{link}".strip(), channel.post_footer)
+        text = apply_channel_hashtags(
+            f"{teaser}\n\n{link}".strip(),
+            article_meta=post.article_meta,
+            channel_hashtags=channel.hashtags,
+            channel_name=channel.name,
+        )
+        text = append_post_footer(text, channel.post_footer)
 
         async with max_client_session() as session:
             chat_id = await self._resolve_chat_id(

@@ -624,7 +624,7 @@ _WRITING_SYSTEM_PARAGRAPH = PromptDefaultEntry(
         "по смыслу, без спама (✈️ 🦐 🌊 🪙 💡 🏔️ 🧬 и т.п.). "
         "Ответь только валидным JSON с ключами: category, title, cover_title, "
         "post_text, body_html, image_prompt, hook, closing, interaction_question, "
-        "button_options, source_urls, entities, claims_to_verify."
+        "button_options, hashtags, source_urls, entities, claims_to_verify."
     ),
     channel_scope="paragraph",
     is_system_prompt=True,
@@ -713,10 +713,14 @@ _WRITING_PARAGRAPH_INSTRUCTIONS = PromptDefaultEntry(
         "\n"
         "Ответь JSON с ключами:\n"
         "category, title, cover_title, post_text, body_html, image_prompt,\n"
-        "hook, closing, interaction_question, button_options,\n"
+        "hook, closing, interaction_question, button_options, hashtags,\n"
         "source_urls, entities, claims_to_verify.\n"
         "\n"
         "- category — одна из: error, everyday_object, history, science, interactive, longform.\n"
+        "- hashtags — массив из 1–2 тегов ТОЛЬКО из списка:\n"
+        "  #авиация, #катастрофы, #физика, #космос, #технологии.\n"
+        "  Не придумывай другие. Пример: [\"#авиация\", \"#физика\"].\n"
+        "  Теги НЕ вставляй в post_text/body_html — платформа добавит их при публикации.\n"
         "- title — точный заголовок без кликбейта; в конце — 1 уместный эмодзи по теме\n"
         "  (✈️ 🦐 🌊 🪙 💡 🏔️ 🧬 и т.п.).\n"
         "- cover_title — 2–5 слов ЗАГЛАВНЫМИ для обложки (напр. «ЖУК СТРЕЛЯЕТ КИПЯТКОМ»).\n"
