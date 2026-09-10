@@ -21,19 +21,16 @@ PARAGRAPH_HASHTAGS: tuple[str, ...] = (
     "#технологии",
 )
 
-# Запасной маппинг category → 1–2 тега, если модель не вернула hashtags.
+# Запасной маппинг category → теги, если модель не вернула hashtags.
+# Для history пусто: лучше без тега, чем «технологии+физика» на вулкан/пожар.
 CATEGORY_HASHTAG_FALLBACK: dict[str, tuple[str, ...]] = {
-    "error": ("#катастрофы", "#технологии"),
-    "everyday_object": ("#технологии", "#физика"),
-    "history": ("#технологии", "#физика"),
-    "science": ("#физика", "#космос"),
-    "interactive": ("#технологии", "#физика"),
-    "longform": ("#технологии", "#физика"),
+    "error": ("#катастрофы",),
+    "everyday_object": ("#технологии",),
+    "history": (),
+    "science": ("#физика",),
+    "interactive": ("#технологии",),
+    "longform": ("#технологии",),
 }
-
-# #катастрофы — только для category=error (аварии / инженерные провалы).
-_DISASTER_TAG = "#катастрофы"
-_DISASTER_CATEGORIES = frozenset({"error"})
 
 _HASHTAG_TOKEN_RE = re.compile(r"#?[^\s#]+", re.UNICODE)
 _MAX_TAGS_PER_POST = 2
@@ -207,11 +204,6 @@ def resolve_post_hashtags(
     category = resolved.category.strip().lower()
 
     picked = [tag for tag in parse_hashtag_list(resolved.hashtags) if tag in catalog_set]
-    # Модель часто ставит #катастрофы на любую «драму» (история вулкана, пожар
-    # реки). Оставляем этот тег только для category=error.
-    if _DISASTER_TAG in picked and category not in _DISASTER_CATEGORIES:
-        picked = [tag for tag in picked if tag != _DISASTER_TAG]
-
     if not picked and category:
         fallback = CATEGORY_HASHTAG_FALLBACK.get(category, ())
         picked = [tag for tag in fallback if tag in catalog_set]

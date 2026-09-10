@@ -48,29 +48,29 @@ def test_resolve_fallback_from_category() -> None:
         meta=meta,
         channel_name="Параграф TG",
     )
-    assert tags == ["#катастрофы", "#технологии"]
+    assert tags == ["#катастрофы"]
 
 
-def test_resolve_drops_disaster_tag_outside_error_category() -> None:
-    """История/наука с #катастрофы от модели → fallback по category."""
+def test_resolve_keeps_ai_disaster_tag_for_history() -> None:
+    """Пожар реки / ЧП в истории — #катастрофы от модели сохраняем."""
     meta = ArticleMeta(category="history", hashtags=["#катастрофы"])
     tags = resolve_post_hashtags(
         meta=meta,
         channel_hashtags="\n".join(PARAGRAPH_HASHTAGS),
         channel_name="Параграф",
     )
-    assert tags == ["#технологии", "#физика"]
-    assert "#катастрофы" not in tags
+    assert tags == ["#катастрофы"]
 
 
-def test_resolve_keeps_disaster_tag_for_error_category() -> None:
-    meta = ArticleMeta(category="error", hashtags=["#катастрофы", "#авиация"])
+def test_resolve_history_without_hashtags_stays_empty() -> None:
+    """Без выбора модели для history не подставляем чужие рубрики."""
+    meta = ArticleMeta(category="history")
     tags = resolve_post_hashtags(
         meta=meta,
         channel_hashtags="\n".join(PARAGRAPH_HASHTAGS),
         channel_name="Параграф",
     )
-    assert tags == ["#катастрофы", "#авиация"]
+    assert tags == []
 
 
 def test_resolve_empty_without_catalog() -> None:
