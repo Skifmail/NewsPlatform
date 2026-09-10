@@ -51,6 +51,28 @@ def test_resolve_fallback_from_category() -> None:
     assert tags == ["#катастрофы", "#технологии"]
 
 
+def test_resolve_drops_disaster_tag_outside_error_category() -> None:
+    """История/наука с #катастрофы от модели → fallback по category."""
+    meta = ArticleMeta(category="history", hashtags=["#катастрофы"])
+    tags = resolve_post_hashtags(
+        meta=meta,
+        channel_hashtags="\n".join(PARAGRAPH_HASHTAGS),
+        channel_name="Параграф",
+    )
+    assert tags == ["#технологии", "#физика"]
+    assert "#катастрофы" not in tags
+
+
+def test_resolve_keeps_disaster_tag_for_error_category() -> None:
+    meta = ArticleMeta(category="error", hashtags=["#катастрофы", "#авиация"])
+    tags = resolve_post_hashtags(
+        meta=meta,
+        channel_hashtags="\n".join(PARAGRAPH_HASHTAGS),
+        channel_name="Параграф",
+    )
+    assert tags == ["#катастрофы", "#авиация"]
+
+
 def test_resolve_empty_without_catalog() -> None:
     tags = resolve_post_hashtags(
         meta=ArticleMeta(category="science", hashtags=["#физика"]),
