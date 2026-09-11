@@ -2,8 +2,6 @@
 
 from typing import Any
 
-from app.utils.safe_format import safe_format
-
 
 def is_paragraph_article_channel(channel_name: str) -> bool:
     """Определяет, нужен ли формат анонса канала «Параграф».
@@ -29,26 +27,16 @@ def uses_editorial_topic_queue(channel_name: str, platform: str | None) -> bool:
     Returns:
         bool: True, если канал должен брать темы из topic_queue.
     """
-    return is_paragraph_article_channel(channel_name) and (platform or "").lower() == "max"
-
-
-def paragraph_writing_instructions(template: str, teaser_max_length: int) -> str:
-    """Собирает инструкции для ArticleWriter (Параграф) из шаблона панели промптов.
-
-    Args:
-        template: шаблон инструкций.
-        teaser_max_length: лимит анонса.
-
-    Returns:
-        str: блок инструкций на русском.
-    """
-    return safe_format(template, teaser_max_length=teaser_max_length)
+    return (
+        is_paragraph_article_channel(channel_name) and (platform or "").lower() == "max"
+    )
 
 
 def build_paragraph_teaser(
     data: dict[str, Any],
     *,
     teaser_max_length: int,
+    truncate: bool = True,
 ) -> str:
     """Собирает HTML-анонс «Параграф» без обязательной цитаты.
 
@@ -57,6 +45,7 @@ def build_paragraph_teaser(
     Args:
         data: поля из ответа модели.
         teaser_max_length: лимит длины.
+        truncate: сокращать ли текст; False сохраняет историю для проверки автором.
 
     Returns:
         str: HTML для публикации.
@@ -67,9 +56,7 @@ def build_paragraph_teaser(
     ).strip()
     # Цитата только если модель явно дала осмысленную (не обязательна).
     quote = _normalize_quote(str(data.get("quote") or ""))
-    closing = str(
-        data.get("interaction_question") or data.get("closing") or ""
-    ).strip()
+    closing = str(data.get("interaction_question") or data.get("closing") or "").strip()
 
     # Если hook — это уже полный post_text, не дублируем closing внутри.
     lines: list[str] = []
@@ -85,7 +72,7 @@ def build_paragraph_teaser(
     teaser = "\n".join(lines).strip()
     if not teaser and title:
         teaser = f"<b>{title}</b>"
-    if len(teaser) > teaser_max_length:
+    if truncate and len(teaser) > teaser_max_length:
         teaser = _truncate_teaser(lines, teaser_max_length)
     return teaser
 
@@ -96,7 +83,7 @@ def _normalize_quote(raw: str) -> str:
 
 
 def _quote_is_useful(quote: str, hook: str) -> bool:
-    """Отсекает цитаты, которые просто повторяют hook или на английском без кириллицы."""
+    """Отсекает повторы hook и непереведённые английские цитаты."""
     if len(quote) < 12:
         return False
     q = quote.lower()

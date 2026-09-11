@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from html import unescape
 
+from app.domain.paragraph_policy import PARAGRAPH_POST_MAX, PARAGRAPH_TARGET_MIN
 from app.utils.text_format import MAX_MESSAGE_MAX, repair_telegram_html, to_max_api_html
 
 # Узкопрофессиональные / внетематические маркеры (эксперт: пост про 1С).
@@ -58,10 +59,10 @@ _CYRILLIC = re.compile(r"[а-яёА-ЯЁ]")
 # Эмодзи по всему посту: минимум 2 в видимом тексте (title+анонс+тело).
 _HAS_EMOJI = re.compile(
     "["
-    "\U0001F300-\U0001FAFF"  # Misc Symbols and Pictographs … Symbols Extended-A
-    "\U00002700-\U000027BF"  # Dingbats
-    "\U00002600-\U000026FF"  # Misc symbols
-    "\U0001F1E0-\U0001F1FF"  # flags
+    "\U0001f300-\U0001faff"  # Misc Symbols and Pictographs … Symbols Extended-A
+    "\U00002700-\U000027bf"  # Dingbats
+    "\U00002600-\U000026ff"  # Misc symbols
+    "\U0001f1e0-\U0001f1ff"  # flags
     "]"
 )
 
@@ -95,7 +96,6 @@ _SUSPICIOUS_METERS = re.compile(
     r"\b",
     re.IGNORECASE,
 )
-
 
 
 @dataclass
@@ -139,8 +139,8 @@ def validate_paragraph_draft(
     cover_title: str = "",
     interaction_question: str = "",
     button_options: list[str] | None = None,
-    target_min: int = 850,
-    target_max: int = 1400,
+    target_min: int = PARAGRAPH_TARGET_MIN,
+    target_max: int = PARAGRAPH_POST_MAX,
     hard_max: int = MAX_MESSAGE_MAX,
     recent_topics: list[str] | None = None,
     topic_too_similar: bool = False,
@@ -164,7 +164,11 @@ def validate_paragraph_draft(
         ValidationResult: итог проверки.
     """
     issues: list[ValidationIssue] = []
-    plain = _visible_text(f"{title}\n{teaser}\n{body_html}")
+    # Полный пост уже содержит заголовок; не считаем его повторно.
+    publication = "\n\n".join(block for block in (teaser, body_html) if block)
+    plain = _visible_text(publication)
+    if _visible_text(title) not in plain:
+        plain = _visible_text(f"{title}\n{publication}")
     combined_lower = plain.lower()
 
     if topic_too_similar:
@@ -217,7 +221,8 @@ def validate_paragraph_draft(
         issues.append(
             ValidationIssue(
                 "too_short",
-                f"Текст слишком короткий ({visible_len} симв., цель {target_min}–{target_max}).",
+                f"Текст слишком короткий ({visible_len} симв., "
+                f"цель {target_min}–{target_max}).",
                 blocking=False,
             )
         )
@@ -225,7 +230,8 @@ def validate_paragraph_draft(
         issues.append(
             ValidationIssue(
                 "too_long",
-                f"Текст длиннее целевого формата ({visible_len} симв., цель до {target_max}).",
+                f"Текст длиннее целевого формата ({visible_len} симв., "
+                f"цель до {target_max}).",
             )
         )
 
@@ -257,7 +263,7 @@ def validate_paragraph_draft(
             )
         )
 
-    last_plain = _visible_text(body_html).rstrip()
+    last_plain = _visible_text(body_html or teaser).rstrip()
     if last_plain and not _SENTENCE_END.search(last_plain):
         issues.append(
             ValidationIssue(

@@ -8,7 +8,9 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.domain.article import ArticleDraft
+from app.domain.article_errors import InvalidArticleDraftError
 from app.domain.article_meta import article_meta_from_dict, serialize_article_meta
+from app.domain.paragraph_policy import PARAGRAPH_POST_MAX
 from app.infrastructure.ai.deepseek_client import DeepSeekClient
 from app.infrastructure.ai.devtools_teaser_formatter import (
     build_devtools_teaser,
@@ -16,21 +18,20 @@ from app.infrastructure.ai.devtools_teaser_formatter import (
     extract_github_url,
     is_devtools_article_channel,
 )
+from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.ai.paragraph_teaser_formatter import (
     build_paragraph_teaser,
     is_paragraph_article_channel,
-    paragraph_writing_instructions,
 )
 from app.infrastructure.ai.postcard_teaser_formatter import (
     is_postcard_article_channel,
 )
-from app.infrastructure.ai.image_prompt_builder import ImagePromptBuilder
 from app.infrastructure.models.channel import Channel
-from app.utils.text_format import normalize_telegram_html
 from app.utils.article_body_sanitize import sanitize_article_body_html
 from app.utils.safe_format import safe_format
+from app.utils.text_format import normalize_telegram_html
 
-# Лимит вывода deepseek-chat ≈8192 токена; длинный JSON с HTML не влезает в 12000 символов.
+# Ограничиваем размер длинной статьи и бюджет ответа модели с HTML/JSON.
 _ARTICLE_OUTPUT_CHAR_CAP = 7500
 _ARTICLE_MAX_TOKENS = 32000
 
@@ -66,6 +67,7 @@ def _trim_to_last_sentence(text: str) -> str:
     match = re.match(r'["»)]*(?:</[a-zA-Z0-9]+>)*', tail)
     end = best + 1 + (match.end() if match else 0)
     return stripped[:end].rstrip()
+
 
 @dataclass(frozen=True)
 class WriterPrompts:
@@ -125,7 +127,7 @@ class ArticleWriter:
             ArticleDraft: черновик статьи.
 
         Raises:
-            RuntimeError: при ошибке парсинга ответа.
+            InvalidArticleDraftError: если обе попытки не дали целый черновик в лимите.
         """
         effective_body_max = min(body_max_length, _ARTICLE_OUTPUT_CHAR_CAP)
         if effective_body_max < body_max_length:
@@ -165,7 +167,7 @@ class ArticleWriter:
         )
         if draft is None:
             msg = "Не удалось распознать статью от модели"
-            raise RuntimeError(msg)
+            raise InvalidArticleDraftError(msg)
         return draft
 
     async def _generate_draft(
@@ -200,15 +202,17 @@ class ArticleWriter:
             postcard_hint=self._prompts.image_hint_postcard,
             paragraph_hint=self._prompts.image_hint_paragraph,
         )
-        paragraph_early = is_paragraph_article_channel(channel.name)
-        if paragraph_early:
-            # Эксперт: основной формат 850–1400, не «мини-статья» 2500+.
-            min_length = min(850, body_max_length)
-            body_max_length = min(body_max_length, 1400)
-        else:
-            min_length = max(2500, body_max_length // 2)
+        paragraph = is_paragraph_article_channel(channel.name)
+        min_length = max(2500, body_max_length // 2)
+        if paragraph:
+            teaser_max_length = PARAGRAPH_POST_MAX
+        template = (
+            self._prompts.paragraph_instructions
+            if paragraph
+            else self._prompts.default_template
+        )
         prompt = safe_format(
-            self._prompts.default_template,
+            template,
             channel_name=channel.name,
             channel_niche=niche,
             topic=topic,
@@ -235,15 +239,10 @@ class ArticleWriter:
                 image_guidelines=image_guidelines,
             )
         elif devtools:
-            prompt = (
-                f"{prompt}\n\n"
-                f"{devtools_writing_instructions(self._prompts.devtools_instructions, recent_hooks=recent_hooks)}"
+            instructions = devtools_writing_instructions(
+                self._prompts.devtools_instructions, recent_hooks=recent_hooks
             )
-        elif paragraph:
-            prompt = (
-                f"{prompt}\n\n"
-                f"{paragraph_writing_instructions(self._prompts.paragraph_instructions, teaser_max_length)}"
-            )
+            prompt = f"{prompt}\n\n{instructions}"
         if devtools:
             system_prompt = self._prompts.system_devtools
         elif paragraph:
@@ -263,7 +262,7 @@ class ArticleWriter:
         )
         if finish_reason == "length":
             logger.warning(
-                "Article truncated by max_tokens — обрежем по последнему предложению",
+                "Ответ модели достиг лимита токенов",
                 chars=len(result),
                 max_tokens=_ARTICLE_MAX_TOKENS,
             )
@@ -305,17 +304,21 @@ class ArticleWriter:
         Returns:
             ArticleDraft | None: черновик или None.
         """
+        paragraph = channel is not None and is_paragraph_article_channel(channel.name)
+        if paragraph and truncated:
+            return None
         data = ArticleWriter._load_json_object(result)
+        if paragraph and data is None:
+            return None
         if not isinstance(data, dict):
-            data = ArticleWriter._extract_fields_fallback(result)
+            fallback = ArticleWriter._extract_fields_fallback(result)
+            data = dict(fallback) if fallback is not None else None
         if not isinstance(data, dict):
             return None
 
         title = str(data.get("title", "")).strip()
         teaser = str(data.get("teaser", "")).strip()
-        raw_body = str(
-            data.get("body_html") or data.get("post_text") or ""
-        ).strip()
+        raw_body = str(data.get("body_html") or data.get("post_text") or "").strip()
         body = normalize_telegram_html(raw_body)
         image_prompt = str(data.get("image_prompt", "")).strip()
         greeting_text = str(data.get("greeting_text", "")).strip()
@@ -338,14 +341,22 @@ class ArticleWriter:
             )
         elif channel and is_paragraph_article_channel(channel.name):
             # Короткий формат: вся история в teaser, body пустой (без дубля).
-            post_text = str(data.get("post_text") or "").strip()
+            post_text = str(data.get("post_text") or raw_body).strip()
             hook = str(data.get("hook") or "").strip()
             if post_text and len(post_text) > len(hook):
                 data = {**data, "hook": post_text}
             teaser = build_paragraph_teaser(
                 data,
-                teaser_max_length=max(teaser_max_length, 1400),
+                teaser_max_length=PARAGRAPH_POST_MAX,
+                truncate=False,
             )
+            if len(normalize_telegram_html(teaser)) > PARAGRAPH_POST_MAX:
+                logger.warning(
+                    "Полный пост ПАРАГРАФА превышает лимит; нужна новая генерация",
+                    chars=len(teaser),
+                    limit=PARAGRAPH_POST_MAX,
+                )
+                return None
             body = ""
         elif len(teaser) > teaser_max_length:
             teaser = f"{teaser[: teaser_max_length - 1].rstrip()}…"
@@ -365,7 +376,7 @@ class ArticleWriter:
             and "github.com" not in body.lower()
         ):
             body = (
-                f'{body}\n\n<b>🔗 Репозиторий:</b> '
+                f"{body}\n\n<b>🔗 Репозиторий:</b> "
                 f'<a href="{repo_url}">{repo_url}</a>'
             )
         meta_json = None
@@ -381,7 +392,6 @@ class ArticleWriter:
             greeting_text=greeting_text,
             article_meta_json=meta_json,
         )
-
 
     @staticmethod
     def _load_json_object(result: str) -> dict[str, object] | None:
@@ -457,6 +467,7 @@ class ArticleWriter:
         if not match:
             return None
         try:
-            return json.loads(f'"{match.group(1)}"')
+            value: object = json.loads(f'"{match.group(1)}"')
+            return value if isinstance(value, str) else None
         except json.JSONDecodeError:
             return match.group(1).replace("\\n", "\n").replace('\\"', '"')

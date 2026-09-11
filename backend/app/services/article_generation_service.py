@@ -13,7 +13,10 @@ from app.domain.article import (
     serialize_topic_history,
 )
 from app.domain.article_meta import parse_article_meta
+from app.domain.enums import ContentMode, PostStatus
+from app.domain.paragraph_policy import PARAGRAPH_POST_MAX
 from app.domain.paragraph_validator import validate_paragraph_draft
+from app.domain.tool_category import is_ai_tool
 from app.domain.topic_dedup import is_topic_too_similar, merge_topic_lists
 from app.domain.topic_queue import (
     mark_in_progress,
@@ -23,27 +26,25 @@ from app.domain.topic_queue import (
     published_titles,
     serialize_topic_queue,
 )
-from app.domain.tool_category import is_ai_tool
-from app.domain.enums import ContentMode, PostStatus
 from app.infrastructure.ai.article_writer import ArticleWriter, WriterPrompts
 from app.infrastructure.ai.devtools_teaser_formatter import (
     extract_devtools_hook,
     is_devtools_article_channel,
 )
+from app.infrastructure.ai.image_service import ImageGenPrompts, ImageService
 from app.infrastructure.ai.paragraph_teaser_formatter import (
     is_paragraph_article_channel,
     uses_editorial_topic_queue,
 )
 from app.infrastructure.ai.postcard_teaser_formatter import is_postcard_article_channel
-from app.infrastructure.ai.image_service import ImageGenPrompts, ImageService
 from app.infrastructure.ai.topic_ideation import IdeationPrompts, TopicIdeationService
+from app.infrastructure.models.channel import Channel
+from app.infrastructure.models.processed_post import ProcessedPost
 from app.infrastructure.parsers.github_repo_logo import parse_github_repo
 from app.infrastructure.search.github_trending_client import (
     GitHubTrendingClient,
     TrendingRepo,
 )
-from app.infrastructure.models.channel import Channel
-from app.infrastructure.models.processed_post import ProcessedPost
 from app.repositories.channel_repository import ChannelRepository
 from app.repositories.processed_post_repository import ProcessedPostRepository
 from app.repositories.setting_repository import SettingRepository
@@ -89,9 +90,7 @@ class ArticleGenerationService:
             system_postcard=await self._prompts.get("ideation.system_postcard"),
             system_paragraph=await self._prompts.get("ideation.system_paragraph"),
             devtools_extra=await self._prompts.get("ideation.devtools_extra"),
-            devtools_with_repos=await self._prompts.get(
-                "ideation.devtools_with_repos"
-            ),
+            devtools_with_repos=await self._prompts.get("ideation.devtools_with_repos"),
             devtools_no_repos=await self._prompts.get("ideation.devtools_no_repos"),
             paragraph_extra=await self._prompts.get("ideation.paragraph_extra"),
         )
@@ -113,9 +112,7 @@ class ArticleGenerationService:
             ),
             image_hint_default=await self._prompts.get("image.writer_hint_default"),
             image_hint_postcard=await self._prompts.get("image.writer_hint_postcard"),
-            image_hint_paragraph=await self._prompts.get(
-                "image.writer_hint_paragraph"
-            ),
+            image_hint_paragraph=await self._prompts.get("image.writer_hint_paragraph"),
         )
 
     async def _load_image_prompts(self) -> ImageGenPrompts:
@@ -161,22 +158,21 @@ class ArticleGenerationService:
             msg = f"Channel {channel_id} is not in article mode"
             raise ValueError(msg)
 
-        await report_job_stage(
-            celery_task_id, "Загрузка настроек канала…", 12
-        )
+        await report_job_stage(celery_task_id, "Загрузка настроек канала…", 12)
 
         platform_settings = await PlatformSettingsService(self._session).get_merged()
         ideation = TopicIdeationService(await self._load_ideation_prompts())
         writer = ArticleWriter(await self._load_writer_prompts())
         teaser_max = int(await self._settings.get("article_teaser_max_length", "900"))
         body_max = int(await self._settings.get("article_body_max_length", "12000"))
-        telegram_max = int(await self._settings.get("article_telegram_max_length", "3800"))
+        telegram_max = int(
+            await self._settings.get("article_telegram_max_length", "3800")
+        )
         tavily_keys_raw = platform_settings.get("tavily_api_keys")
         tavily_active_key_id = platform_settings.get("tavily_active_key_id", "")
-        tavily_auto_switch = (
-            str(platform_settings.get("tavily_auto_switch", "true")).lower()
-            in {"true", "1", "yes", "on"}
-        )
+        tavily_auto_switch = str(
+            platform_settings.get("tavily_auto_switch", "true")
+        ).lower() in {"true", "1", "yes", "on"}
 
         if is_telegram_long_form_channel(channel):
             # Тело должно поместиться вместе с анонсом и футером в одно сообщение,
@@ -195,7 +191,9 @@ class ArticleGenerationService:
 
         history_key = article_topic_history_key(channel_id)
         recent = await self._load_recent_topics(channel)
-        settings_history = parse_topic_history(await self._settings.get(history_key, ""))
+        settings_history = parse_topic_history(
+            await self._settings.get(history_key, "")
+        )
         queue_items = parse_topic_queue(channel.topic_queue)
         recent = merge_topic_lists(
             published_titles(queue_items),
@@ -206,11 +204,11 @@ class ArticleGenerationService:
         recent_hooks: list[str] | None = None
         candidate_repos: list[str] | None = None
         if is_devtools_article_channel(channel.topic, channel.name):
-            teasers = await self._processed.list_recent_article_teasers(channel_id, limit=12)
+            teasers = await self._processed.list_recent_article_teasers(
+                channel_id, limit=12
+            )
             recent_hooks = [
-                hook
-                for teaser in teasers
-                if (hook := extract_devtools_hook(teaser))
+                hook for teaser in teasers if (hook := extract_devtools_hook(teaser))
             ][:8] or None
             # Правило «≤1 AI-инструмента из 3 подряд»: если хотя бы один из
             # последних 2 постов — AI/LLM, новый пост должен быть не-AI.
@@ -235,9 +233,14 @@ class ArticleGenerationService:
         if is_postcard:
             postcard_theme_service = PostcardThemeService(self._session)
             if not manual_topic:
-                selected_postcard_theme = await postcard_theme_service.pick_next(channel)
+                selected_postcard_theme = await postcard_theme_service.pick_next(
+                    channel
+                )
                 manual_topic = selected_postcard_theme.name
-        elif uses_editorial_topic_queue(channel.name, channel.platform) and not manual_topic:
+        elif (
+            uses_editorial_topic_queue(channel.name, channel.platform)
+            and not manual_topic
+        ):
             # Только Параграф (MAX). Пустая очередь → fallback на ideation/интернет.
             queue_item = next_pending(queue_items)
             if queue_item is not None:
@@ -259,15 +262,13 @@ class ArticleGenerationService:
                     platform=channel.platform,
                 )
 
-        # Для Параграфа — короткие посты 850–1400.
+        # Полная история с развязкой; резерв до лимита MAX — под оформление.
         if is_paragraph:
-            teaser_max = max(teaser_max, 1400)
-            body_max = min(body_max, 1400)
+            teaser_max = PARAGRAPH_POST_MAX
+            body_max = PARAGRAPH_POST_MAX
 
         for draft_attempt in range(1, _MAX_DRAFT_DEDUP_ATTEMPTS + 1):
-            await report_job_stage(
-                celery_task_id, "Выбор темы и угла статьи…", 25
-            )
+            await report_job_stage(celery_task_id, "Выбор темы и угла статьи…", 25)
             if manual_topic:
                 plan = await ideation.plan_manual_topic(channel, manual_topic)
             else:
@@ -301,9 +302,7 @@ class ArticleGenerationService:
                     auto_switch=tavily_auto_switch,
                 )
 
-            await report_job_stage(
-                celery_task_id, "Написание статьи через AI…", 62
-            )
+            await report_job_stage(celery_task_id, "Написание статьи через AI…", 62)
             draft = await writer.write(
                 channel,
                 topic=plan.topic,
@@ -315,7 +314,10 @@ class ArticleGenerationService:
             )
             emit_internal(
                 label="Черновик статьи готов",
-                detail=f"«{draft.title}» — {len(draft.body_html or draft.teaser)} симв.",
+                detail=(
+                    f"«{draft.title}» — "
+                    f"{len(draft.body_html or draft.teaser)} симв."
+                ),
                 progress=75,
             )
 
@@ -327,7 +329,7 @@ class ArticleGenerationService:
                 validation = validate_paragraph_draft(
                     title=draft.title,
                     teaser=draft.teaser,
-                    body_html=draft.body_html or draft.teaser,
+                    body_html=draft.body_html,
                     cover_title=meta.cover_title,
                     interaction_question=meta.interaction_question,
                     button_options=meta.button_options,
@@ -341,7 +343,10 @@ class ArticleGenerationService:
                         issues=validation.blocking_messages,
                         attempt=draft_attempt,
                     )
-                    if draft_attempt < _PARAGRAPH_VALIDATE_ATTEMPTS and not manual_topic:
+                    if (
+                        draft_attempt < _PARAGRAPH_VALIDATE_ATTEMPTS
+                        and not manual_topic
+                    ):
                         recent = merge_topic_lists(
                             [plan.topic, draft.title],
                             recent,
@@ -349,24 +354,26 @@ class ArticleGenerationService:
                         )
                         continue
                     if validation.blocking_messages and not manual_topic:
-                        # При ручной/очередной теме — пропускаем только duplicate/off_topic жёстко
+                        # Сохраняем прежние правила повторной генерации.
                         hard = [
-                            m for m in validation.issues
-                            if m.blocking and m.code in {
-                                "broken_html", "unclosed_tags",
-                                "incomplete_sentence", "incomplete_clause",
-                                "platform_limit", "off_topic",
+                            m
+                            for m in validation.issues
+                            if m.blocking
+                            and m.code
+                            in {
+                                "broken_html",
+                                "unclosed_tags",
+                                "incomplete_sentence",
+                                "incomplete_clause",
+                                "platform_limit",
+                                "off_topic",
                             }
                         ]
                         if hard and draft_attempt < _MAX_DRAFT_DEDUP_ATTEMPTS:
                             continue
 
             # Ручная тема и devtools/trending: дедуп заголовка не ретраим.
-            if (
-                manual_topic
-                or candidate_repos
-                or not similar
-            ):
+            if manual_topic or candidate_repos or not similar:
                 break
 
             logger.warning(
@@ -388,9 +395,7 @@ class ArticleGenerationService:
                 )
                 raise RuntimeError(msg)
 
-        await report_job_stage(
-            celery_task_id, "Генерация обложки…", 80
-        )
+        await report_job_stage(celery_task_id, "Генерация обложки…", 80)
         images = ImageService.from_settings_dict(
             platform_settings, prompts=await self._load_image_prompts()
         )
@@ -408,9 +413,7 @@ class ArticleGenerationService:
 
         video_url = None
         if image_url:
-            await report_job_stage(
-                celery_task_id, "Анимация обложки…", 88
-            )
+            await report_job_stage(celery_task_id, "Анимация обложки…", 88)
             video_url = await images.maybe_animate_postcard(
                 channel=channel,
                 image_url=image_url,
@@ -440,9 +443,7 @@ class ArticleGenerationService:
             progress=91,
         )
 
-        await report_job_stage(
-            celery_task_id, "Сохранение в очередь модерации…", 92
-        )
+        await report_job_stage(celery_task_id, "Сохранение в очередь модерации…", 92)
         settings = get_settings()
         processed = ProcessedPost(
             raw_post_id=None,
@@ -607,7 +608,9 @@ class ArticleGenerationService:
             settings_parts.extend(parse_topic_history(raw))
             ch = await self._channels.get_by_id(cid)
             if ch is not None:
-                settings_parts.extend(published_titles(parse_topic_queue(ch.topic_queue)))
+                settings_parts.extend(
+                    published_titles(parse_topic_queue(ch.topic_queue))
+                )
         return merge_topic_lists(db_titles, settings_parts, limit=_TOPIC_HISTORY_LIMIT)
 
     async def _article_history_channel_ids(self, channel: Channel) -> list[int]:
@@ -628,9 +631,7 @@ class ArticleGenerationService:
             ] or [channel.id]
         return [channel.id]
 
-    async def _persist_topic_history(
-        self, channel: Channel, topics: list[str]
-    ) -> None:
+    async def _persist_topic_history(self, channel: Channel, topics: list[str]) -> None:
         """Сохраняет историю тем; для «Параграф» — во все связанные каналы.
 
         Args:
