@@ -114,6 +114,7 @@ class Settings(BaseSettings):
 
     # MAX (мессенджер) — токен бота из business.max.ru
     max_bot_token: str = ""
+    max_webhook_secret: str = ""
     # Базовый URL Bot API MAX. С 19.07.2025 платформа мигрирует на platform-api2.
     max_api_base: str = "https://platform-api2.max.ru"
     # Путь к PEM-бандлу доверенных CA Минцифры (Russian Trusted Root/Sub CA),

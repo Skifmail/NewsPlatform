@@ -16,6 +16,7 @@ import AnalyticsChannelView from '../views/AnalyticsChannelView.vue'
 import MediaLibraryView from '../views/MediaLibraryView.vue'
 import ManualPublishView from '../views/ManualPublishView.vue'
 import LoginView from '../views/LoginView.vue'
+import SupplementsView from '../views/SupplementsView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
@@ -28,6 +29,7 @@ const routes = [
   { path: '/jobs', name: 'jobs', component: JobsView },
   { path: '/logs', name: 'logs', component: LogsView },
   { path: '/sources', name: 'sources', component: SourcesView },
+  { path: '/supplements', name: 'supplements', component: SupplementsView },
   { path: '/channels', name: 'channels', component: ChannelsView },
   { path: '/analytics', name: 'analytics', component: AnalyticsView },
   {

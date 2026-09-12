@@ -1,0 +1,597 @@
+"""Подготовка, личное согласование и однократная отправка дополнительных постов."""
+
+import hashlib
+import json
+import re
+import secrets
+from datetime import UTC, datetime, timedelta
+from typing import Final
+
+from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain.supplements import (
+    MOSCOW,
+    PAIR_TTL_MINUTES,
+    STALE_MINUTES,
+    DeliveryUncertain,
+    SupplementError,
+    due_kind,
+    validate_decision,
+    validate_text,
+)
+from app.infrastructure.models.channel import Channel
+from app.infrastructure.models.processed_post import ProcessedPost
+from app.infrastructure.models.publish_log import PublishLog
+from app.infrastructure.models.supplement import SupplementConfig, SupplementDraft
+from app.infrastructure.publishers.max_review_client import MaxReviewClient
+from app.infrastructure.search.tavily_client import TavilySearchResult
+from app.repositories.setting_repository import SettingRepository
+from app.repositories.supplement_repository import SupplementRepository
+from app.services.supplement_generator import SupplementGenerator, _fresh
+
+_TOKEN_BYTES: Final = 32
+_EDITABLE: Final = frozenset(
+    {"review_pending", "awaiting", "delivery_failed", "delivery_unknown", "rejected"}
+)
+
+
+def _utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def publication_text(draft: SupplementDraft) -> str:
+    """Собирает точный текст для просмотра и публикации.
+
+    Args:
+        draft: Черновик с проверенными источниками.
+
+    Returns:
+        Обычный текст со ссылками без скрытых добавок публикатора.
+    """
+    links = "\n".join(str(source["url"]) for source in draft.sources)
+    return f"{draft.text}\n\nИсточники:\n{links}"
+
+
+class SupplementService:
+    """Управляет переходами состояний через блокировки и сохранённые задания.
+
+    Attributes:
+        repo: Репозиторий атомарных изменений.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        """Подключает сессию и существующий бот.
+
+        Args:
+            session: Сессия БД.
+        """
+        self._session = session
+        self.repo = SupplementRepository(session)
+        self._max = MaxReviewClient()
+
+    async def reserve(
+        self,
+        channel_id: int,
+        *,
+        manual_kind: str | None = None,
+        now: datetime | None = None,
+    ) -> int | None:
+        """Резервирует уникальный слот, не затрагивая утренние статьи.
+
+        Args:
+            channel_id: Канал.
+            manual_kind: Ручная подготовка вместо расписания.
+            now: Текущее время, подменяемое в тестах.
+
+        Returns:
+            Идентификатор задания или None, если слот не наступил/уже занят.
+
+        Raises:
+            SupplementError: Не настроено согласование или канал неактивен.
+        """
+        now = now or datetime.now(UTC)
+        config = await self.repo.config(channel_id)
+        channel = await self._session.get(Channel, channel_id)
+        if channel is None or not channel.is_active:
+            raise SupplementError("Канал выключен")
+        if config.recipient_id is None:
+            raise SupplementError("Сначала подключите редактора через MAX")
+        if manual_kind is not None and manual_kind not in {"fact", "news"}:
+            raise SupplementError("Неизвестный формат")
+        kind = manual_kind or (
+            due_kind(now, config.clock, config.fact_days, config.news_day)
+            if config.enabled
+            else None
+        )
+        if kind is None:
+            await self._session.commit()
+            return None
+        slot = (
+            f"manual:{secrets.token_hex(8)}"
+            if manual_kind
+            else now.astimezone(MOSCOW).date().isoformat()
+        )
+        existing = await self._session.scalar(
+            select(SupplementDraft.id).where(
+                SupplementDraft.channel_id == channel_id,
+                SupplementDraft.slot_key == slot,
+            )
+        )
+        if existing is not None:
+            await self._session.commit()
+            return None
+        draft = SupplementDraft(
+            channel_id=channel_id,
+            slot_key=slot,
+            requested_kind=kind,
+            kind=kind,
+            target_chat_id=channel.platform_id,
+            trace={
+                "rules": config.rules,
+                "fact_rules": config.fact_rules,
+                "news_rules": config.news_rules,
+                "channel_name": channel.name,
+                "configured_platform_id": channel.platform_id,
+            },
+        )
+        self._session.add(draft)
+        await self._session.commit()
+        logger.info(
+            "Дополнительный материал поставлен на подготовку",
+            draft_id=draft.id,
+            channel_id=channel_id,
+            kind=kind,
+        )
+        return draft.id
+
+    async def generate(self, draft_id: int) -> None:
+        """Подготавливает сохранённое задание без отправки в канал.
+
+        Args:
+            draft_id: Черновик в состоянии queued.
+
+        Raises:
+            SupplementError: Черновик отсутствует.
+        """
+        draft = await self.repo.draft(draft_id)
+        if draft.status != "queued":
+            await self._session.commit()
+            return
+        draft.status = "generating"
+        history = await self.repo.history(draft.channel_id, draft.id)
+        snapshot = dict(draft.trace)
+        settings = SettingRepository(self._session)
+        search_settings = {
+            "keys_raw": await settings.get("tavily_api_keys", "[]"),
+            "active_key_id": await settings.get("tavily_active_key_id", ""),
+            "auto_switch": (await settings.get("tavily_auto_switch", "true")).lower()
+            == "true",
+        }
+        await self._session.commit()
+        try:
+            result = await SupplementGenerator().generate(
+                draft.requested_kind,
+                str(snapshot["rules"]),
+                history,
+                search_settings,
+                datetime.now(UTC),
+                fact_rules=str(snapshot["fact_rules"]),
+                news_rules=str(snapshot["news_rules"]),
+            )
+        except SupplementError as exc:
+            draft.status = "generation_failed"
+            draft.error = str(exc)
+            await self._session.commit()
+            logger.warning(
+                "Подготовка дополнительного материала не завершена",
+                draft_id=draft_id,
+                reason=str(exc),
+            )
+            return
+        draft.kind = result["kind"]
+        draft.title = result["title"]
+        draft.text = result["text"]
+        draft.sources = result["sources"]
+        draft.trace = {**snapshot, **result["trace"]}
+        draft.status = "review_pending"
+        draft.error = None
+        await self._session.commit()
+
+    async def deliver(self, draft_id: int) -> None:
+        """Отправляет карточку редактору, фиксируя неопределённые результаты.
+
+        Args:
+            draft_id: Черновик для согласования.
+
+        Raises:
+            SupplementError: Черновик или конфигурация отсутствуют.
+        """
+        draft = await self.repo.draft(draft_id)
+        if draft.status != "review_pending":
+            await self._session.commit()
+            return
+        config = await self.repo.config(draft.channel_id)
+        if config.recipient_id is None:
+            draft.status, draft.error = "delivery_failed", "Редактор не подключён"
+            await self._session.commit()
+            return
+        recipient = config.recipient_id
+        draft.status = "delivering"
+        await self._session.commit()
+        label = "Короткий факт" if draft.kind == "fact" else "Научная новость"
+        fallback = str(draft.trace.get("fallback_reason") or "")
+        text = (
+            f"{label} · {draft.trace.get('channel_name', 'Канал')}\n"
+            "Одобрение отправит текст ниже в канал сразу.\n\n"
+            f"{publication_text(draft)}"
+        )
+        if fallback:
+            text += f"\n\nЗамена новости фактом: {fallback}"
+        buttons = [
+            [
+                {
+                    "type": "callback",
+                    "text": "Одобрить",
+                    "payload": f"extra:{draft.id}:{draft.revision}:approve",
+                },
+                {
+                    "type": "callback",
+                    "text": "Отклонить",
+                    "payload": f"extra:{draft.id}:{draft.revision}:reject",
+                },
+            ]
+        ]
+        try:
+            if not re.fullmatch(r"-?\d+", draft.target_chat_id):
+                draft.target_chat_id = await self._max.resolve_chat_id(
+                    draft.target_chat_id
+                )
+                await self._session.commit()
+            result = await self._max.send(text, user_id=recipient, buttons=buttons)
+            draft.review_mid = result["mid"]
+            draft.status = "awaiting"
+            draft.error = None
+        except DeliveryUncertain as exc:
+            draft.status, draft.error = "delivery_unknown", str(exc)
+        except SupplementError as exc:
+            draft.status, draft.error = "delivery_failed", str(exc)
+        await self._session.commit()
+
+    async def decide(
+        self, draft_id: int, revision: int, user_id: int, message_id: str, action: str
+    ) -> str:
+        """Сохраняет решение владельца; отправка выполняется отдельной задачей.
+
+        Args:
+            draft_id: Черновик из кнопки.
+            revision: Версия из кнопки.
+            user_id: Автор нажатия.
+            message_id: Сообщение согласования.
+            action: approve или reject.
+
+        Returns:
+            Новое состояние.
+
+        Raises:
+            SupplementError: Решение не разрешено или новость устарела.
+        """
+        draft = await self.repo.draft(draft_id)
+        config = await self.repo.config(draft.channel_id)
+        validate_decision(
+            draft.status,
+            user_id,
+            config.recipient_id,
+            revision,
+            draft.revision,
+            message_id,
+            draft.review_mid,
+        )
+        if action not in {"approve", "reject"}:
+            raise SupplementError("Неизвестное действие")
+        channel = await self._session.get(Channel, draft.channel_id)
+        if (
+            channel is None
+            or not channel.is_active
+            or channel.platform_id
+            != draft.trace.get("configured_platform_id", draft.target_chat_id)
+        ):
+            raise SupplementError(
+                "Канал выключен или изменился адрес; подготовьте новую карточку"
+            )
+        if action == "approve":
+            validate_text(draft.text, draft.kind)
+            self._check_freshness(draft)
+        draft.status = "approved" if action == "approve" else "rejected"
+        draft.decided_by = user_id
+        draft.decided_at = datetime.now(UTC)
+        await self._session.commit()
+        logger.info(
+            "Решение редактора сохранено",
+            draft_id=draft_id,
+            action=action,
+            user_id=user_id,
+        )
+        return draft.status
+
+    def _check_freshness(self, draft: SupplementDraft) -> None:
+        if draft.kind == "news" and (
+            not draft.sources
+            or any(
+                not _fresh(
+                    TavilySearchResult(
+                        title=str(s.get("title", "")),
+                        url=str(s.get("url", "")),
+                        content=str(s.get("content", "")),
+                        published_date=s.get("published_date"),
+                    ),
+                    datetime.now(UTC),
+                )
+                for s in draft.sources
+            )
+        ):
+            raise SupplementError(
+                "Новость устарела или её дата не подтверждена; подготовьте новую"
+            )
+
+    async def publish(self, draft_id: int) -> None:
+        """Отправляет одобренный снимок текста не более одного раза автоматически.
+
+        Args:
+            draft_id: Одобренный материал.
+
+        Raises:
+            SupplementError: Черновик не найден.
+        """
+        draft = await self.repo.draft(draft_id)
+        if draft.status != "approved":
+            await self._session.commit()
+            return
+        config = await self.repo.config(draft.channel_id)
+        channel = await self._session.get(Channel, draft.channel_id)
+        try:
+            if draft.decided_by != config.recipient_id or draft.decided_at is None:
+                raise SupplementError("Редактор изменён; требуется новое согласование")
+            if (
+                channel is None
+                or not channel.is_active
+                or channel.platform != "max"
+                or channel.platform_id
+                != draft.trace.get("configured_platform_id", draft.target_chat_id)
+            ):
+                raise SupplementError("Канал выключен или изменён после согласования")
+            self._check_freshness(draft)
+            validate_text(draft.text, draft.kind)
+            if not re.fullmatch(r"-?\d+", draft.target_chat_id):
+                raise SupplementError(
+                    "Для согласования укажите числовой ID канала MAX в "
+                    "настройках канала"
+                )
+        except SupplementError as exc:
+            draft.status, draft.error = "publish_failed", str(exc)
+            await self._session.commit()
+            await self._update_status(draft)
+            return
+        draft.status = "publishing"
+        await self._session.commit()
+        try:
+            result = await self._max.send(
+                publication_text(draft), chat_id=draft.target_chat_id
+            )
+        except DeliveryUncertain as exc:
+            draft.status, draft.error = "publish_unknown", str(exc)
+        except SupplementError as exc:
+            draft.status, draft.error = "publish_failed", str(exc)
+        else:
+            draft.platform_mid, draft.platform_url = result["mid"], result["url"]
+            draft.status, draft.error = "published", None
+            post = ProcessedPost(
+                channel_id=draft.channel_id,
+                rewritten_text=publication_text(draft),
+                article_title=draft.title,
+                content_mode="news",
+                status="published",
+                published_at=datetime.now(UTC),
+                ai_model="supplement",
+                research_sources=json.dumps(draft.sources, ensure_ascii=False),
+                article_meta=json.dumps(
+                    {"supplement_id": draft.id, "supplement_kind": draft.kind},
+                    ensure_ascii=False,
+                ),
+                publish_text_hash=hashlib.sha256(
+                    publication_text(draft).encode()
+                ).hexdigest(),
+            )
+            self._session.add(post)
+            await self._session.flush()
+            draft.processed_post_id = post.id
+            self._session.add(
+                PublishLog(
+                    processed_post_id=post.id,
+                    channel_id=draft.channel_id,
+                    platform_post_id=draft.platform_mid,
+                    status="success",
+                )
+            )
+        await self._session.commit()
+        await self._update_status(draft)
+
+    async def _update_status(self, draft: SupplementDraft) -> None:
+        if not draft.review_mid:
+            return
+        status_text = (
+            "Опубликовано"
+            if draft.status == "published"
+            else "Не опубликовано: " + str(draft.error or draft.status)
+        )
+        try:
+            await self._max.update_review(
+                draft.review_mid,
+                (
+                    f"{status_text}\n{draft.platform_url or ''}\n\n"
+                    f"{publication_text(draft)}"
+                ),
+            )
+        except SupplementError:
+            draft.trace = {
+                **draft.trace,
+                "notification_error": (
+                    "Не удалось обновить карточку MAX; " "актуальный статус в GUI"
+                ),
+            }
+            await self._session.commit()
+
+    async def edit(self, draft_id: int, text: str) -> None:
+        """Редактирует текст и отзывает предыдущие кнопки.
+
+        Args:
+            draft_id: Материал на проверке.
+            text: Новый обычный текст.
+
+        Raises:
+            SupplementError: Материал уже публикуется или нарушает формат.
+        """
+        draft = await self.repo.draft(draft_id)
+        if draft.status not in _EDITABLE:
+            raise SupplementError("Этот материал сейчас нельзя редактировать")
+        validate_text(text, draft.kind)
+        draft.trace = {
+            **draft.trace,
+            "edits": [
+                *draft.trace.get("edits", []),
+                {
+                    "revision": draft.revision,
+                    "text": draft.text,
+                    "at": datetime.now(UTC).isoformat(),
+                },
+            ],
+        }
+        draft.text = text.strip()
+        draft.revision += 1
+        draft.review_mid = None
+        draft.status, draft.error = "review_pending", None
+        draft.decided_by, draft.decided_at = None, None
+        await self._session.commit()
+
+    async def retry(self, draft_id: int, *, confirmed_absent: bool = False) -> None:
+        """Возобновляет ошибку только явным действием редактора в GUI.
+
+        Args:
+            draft_id: Материал с ошибкой.
+            confirmed_absent: Редактор проверил отсутствие поста в канале.
+
+        Raises:
+            SupplementError: Повтор опасен или состояние не допускает повтор.
+        """
+        draft = await self.repo.draft(draft_id)
+        if draft.status == "publish_unknown" and not confirmed_absent:
+            raise SupplementError(
+                "Сначала проверьте канал и подтвердите отсутствие поста"
+            )
+        if draft.status not in {
+            "generation_failed",
+            "delivery_failed",
+            "delivery_unknown",
+            "publish_failed",
+            "publish_unknown",
+        }:
+            raise SupplementError("Для этого состояния повтор недоступен")
+        draft.trace = {
+            **draft.trace,
+            "retries": [
+                *draft.trace.get("retries", []),
+                {
+                    "at": datetime.now(UTC).isoformat(),
+                    "status": draft.status,
+                    "error": draft.error,
+                    "confirmed_absent": confirmed_absent,
+                },
+            ],
+        }
+        draft.status = (
+            "queued" if draft.status == "generation_failed" else "review_pending"
+        )
+        draft.revision += 1
+        draft.review_mid, draft.error = None, None
+        draft.decided_at, draft.decided_by = None, None
+        await self._session.commit()
+
+    async def create_pair_token(self, channel_id: int) -> str:
+        """Выдаёт одноразовый токен привязки, сохраняя только хеш.
+
+        Args:
+            channel_id: Канал.
+
+        Returns:
+            Токен сроком на пятнадцать минут.
+
+        Raises:
+            SupplementError: Канал не найден.
+        """
+        config = await self.repo.config(channel_id)
+        token = secrets.token_urlsafe(_TOKEN_BYTES)
+        config.pair_hash = hashlib.sha256(token.encode()).hexdigest()
+        config.pair_expires_at = datetime.now(UTC) + timedelta(minutes=PAIR_TTL_MINUTES)
+        await self._session.commit()
+        return token
+
+    async def bind(self, token: str, user_id: int, name: str) -> None:
+        """Привязывает автора заверенного bot_started и погашает токен.
+
+        Args:
+            token: Одноразовый параметр ссылки.
+            user_id: Пользователь MAX.
+            name: Отображаемое имя.
+
+        Raises:
+            SupplementError: Токен истёк или уже использован.
+        """
+        if user_id <= 0 or not token:
+            raise SupplementError("Некорректное событие привязки")
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        config = await self._session.scalar(
+            select(SupplementConfig)
+            .where(SupplementConfig.pair_hash == digest)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            config is None
+            or config.pair_expires_at is None
+            or _utc(config.pair_expires_at) <= datetime.now(UTC)
+        ):
+            raise SupplementError(
+                "Ссылка истекла или уже использована; создайте новую в GUI"
+            )
+        config.recipient_id, config.recipient_name = user_id, name[:255]
+        config.pair_hash, config.pair_expires_at = None, None
+        await self._session.commit()
+        logger.info(
+            "Редактор MAX подключён", channel_id=config.channel_id, user_id=user_id
+        )
+
+    async def recover_stale(self) -> None:
+        """Отмечает прерванные операции, не повторяя сомнительную отправку.
+
+        Raises:
+            SupplementError: Не используется; ошибки БД передаются вызывающему коду.
+        """
+        cutoff = datetime.now(UTC) - timedelta(minutes=STALE_MINUTES)
+        rows = await self._session.scalars(
+            select(SupplementDraft)
+            .where(
+                SupplementDraft.status.in_(["generating", "delivering", "publishing"]),
+                SupplementDraft.updated_at < cutoff,
+            )
+            .with_for_update(skip_locked=True)
+        )
+        mapping = {
+            "generating": "generation_failed",
+            "delivering": "delivery_unknown",
+            "publishing": "publish_unknown",
+        }
+        for draft in rows:
+            draft.status = mapping[draft.status]
+            draft.error = "Операция прервана. Проверьте результат в MAX перед повтором."
+        await self._session.commit()

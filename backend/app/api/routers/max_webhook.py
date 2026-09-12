@@ -8,9 +8,8 @@ interactive callback buttons with personal answer notification.
 
 from __future__ import annotations
 
-from typing import Any
-
 import json
+from typing import Any
 
 import aiohttp
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -19,9 +18,11 @@ from loguru import logger
 from app.api.deps import DbSession
 from app.core.config import get_settings
 from app.domain.article_meta import parse_article_meta
+from app.domain.supplements import SupplementError
 from app.infrastructure.publishers.max_keyboard import parse_callback_payload
 from app.repositories.post_metrics_repository import PostMetricsRepository
 from app.repositories.processed_post_repository import ProcessedPostRepository
+from app.services.supplement_webhook import handle_supplement_update
 from app.utils.max_api import get_max_api_base, max_client_session
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -46,9 +47,18 @@ async def max_webhook(
     settings = get_settings()
     expected = (getattr(settings, "max_webhook_secret", None) or "").strip()
     if expected and x_max_bot_api_secret != expected:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad secret")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="bad secret"
+        )
 
     payload: dict[str, Any] = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid update")
+    try:
+        if await handle_supplement_update(session, payload, x_max_bot_api_secret):
+            return {"status": "ok"}
+    except SupplementError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     update_type = str(payload.get("update_type") or payload.get("type") or "")
     if update_type != "message_callback":
         return {"status": "ignored", "update_type": update_type}

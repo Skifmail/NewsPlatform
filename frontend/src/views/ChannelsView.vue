@@ -436,6 +436,7 @@
               </ul>
             </div>
 
+            <RouterLink v-if="ch.platform === 'max'" :to="{ path: '/supplements', query: { channel: ch.id } }" class="btn-secondary mt-4">Дополнительные публикации и согласование в MAX →</RouterLink>
             <div class="article-schedule mt-5 pt-4 border-t border-panel-border">
               <h4 class="schedule-title">Расписание публикаций</h4>
               <label class="field-mini w-full">

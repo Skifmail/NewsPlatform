@@ -24,6 +24,7 @@ class TavilySearchResult:
     title: str
     url: str
     content: str
+    published_date: str | None = None
 
 
 class TavilyClient:
@@ -40,6 +41,7 @@ class TavilyClient:
         keys_raw: str | None = None,
         active_key_id: str | None = None,
         auto_switch: bool = True,
+        time_range: str | None = None,
     ) -> list[TavilySearchResult]:
         """Выполняет поиск по запросу с failover по ключам.
 
@@ -50,6 +52,7 @@ class TavilyClient:
             keys_raw: JSON ключей из настроек БД.
             active_key_id: выбранный вручную ключ.
             auto_switch: переключаться при исчерпании лимита.
+            time_range: Ограничение свежести, например week; None без ограничения.
 
         Returns:
             list[TavilySearchResult]: результаты поиска.
@@ -85,6 +88,7 @@ class TavilyClient:
                     query,
                     max_results=max_results,
                     search_depth=search_depth,
+                    **({"time_range": time_range} if time_range else {}),
                 )
             except _TavilyQuotaError as exc:
                 mark_key_exhausted(entry.id)
@@ -119,6 +123,7 @@ class TavilyClient:
         *,
         max_results: int,
         search_depth: str,
+        time_range: str | None = None,
     ) -> list[TavilySearchResult]:
         """Выполняет один поисковый запрос конкретным ключом.
 
@@ -142,6 +147,9 @@ class TavilyClient:
             "search_depth": search_depth,
             "include_answer": False,
         }
+        if time_range:
+            payload["time_range"] = time_range
+            payload["topic"] = "news"
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(self._API_URL, json=payload)
             body_text = response.text[:500]
@@ -177,6 +185,11 @@ class TavilyClient:
                     title=str(item.get("title") or url),
                     url=url,
                     content=str(item.get("content") or "")[:2000],
+                    published_date=(
+                        str(item["published_date"])
+                        if item.get("published_date")
+                        else None
+                    ),
                 )
             )
         logger.info(

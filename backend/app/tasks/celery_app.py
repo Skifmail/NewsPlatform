@@ -19,6 +19,7 @@ celery_app = Celery(
         "app.tasks.scheduler_tasks",
         "app.tasks.article_tasks",
         "app.tasks.analytics_tasks",
+        "app.tasks.supplement_tasks",
     ],
 )
 
@@ -39,10 +40,15 @@ celery_app.conf.update(
     # на процесс) — параллелить их нельзя.
     task_default_queue="celery",
     task_routes={
+        "app.tasks.supplement_tasks.generate": {"queue": "ai"},
         "app.tasks.ai_tasks.process_post": {"queue": "ai"},
         "app.tasks.article_tasks.generate_article": {"queue": "ai"},
     },
     beat_schedule={
+        "supplement-scheduler-tick": {
+            "task": "app.tasks.supplement_tasks.tick",
+            "schedule": crontab(minute="*"),
+        },
         "platform-scheduler-tick": {
             "task": "app.tasks.scheduler_tasks.platform_scheduler_tick",
             "schedule": crontab(minute="*"),

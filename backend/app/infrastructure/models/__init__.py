@@ -15,6 +15,7 @@ from app.infrastructure.models.publish_log import PublishLog
 from app.infrastructure.models.raw_post import RawPost
 from app.infrastructure.models.setting import Setting
 from app.infrastructure.models.source import Source
+from app.infrastructure.models.supplement import SupplementConfig, SupplementDraft
 from app.infrastructure.models.telegram_broadcast_stats import TelegramBroadcastStats
 
 __all__ = [
@@ -33,5 +34,7 @@ __all__ = [
     "PromptTemplate",
     "PublishLog",
     "Setting",
+    "SupplementConfig",
+    "SupplementDraft",
     "TelegramBroadcastStats",
 ]

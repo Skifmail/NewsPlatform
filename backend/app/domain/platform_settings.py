@@ -60,6 +60,8 @@ def is_internal_setting_key(key: str) -> bool:
     Returns:
         bool: True если ключ служебный.
     """
+    if key.startswith("supplement_max_webhook_"):
+        return True
     if key in SCHEDULER_INTERNAL_KEYS:
         return True
     if key.startswith(ARTICLE_SCHEDULER_KEY_PREFIX):
@@ -117,7 +119,7 @@ PLATFORM_SETTINGS_DEFAULTS: dict[str, str] = {
     "openrouter_video_model": "x-ai/grok-imagine-video",
     "postcard_animation_enabled": "true",
     "postcard_animation_duration": "2",
-    # MP4→GIF via gifski (https://github.com/ImageOptim/gifski); fallback to MP4 on failure.
+    # MP4→GIF via gifski; fallback to MP4 on failure.
     "postcard_animation_as_gif": "true",
     "postcard_gif_quality": "100",
     "postcard_gif_width": "1024",
