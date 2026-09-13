@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from loguru import logger
 
+from app.core.config import get_settings
 from app.domain.supplements import (
     FACT_RULES,
     NEWS_MAX_AGE_DAYS,
@@ -23,7 +24,8 @@ from app.infrastructure.search.tavily_client import TavilyClient, TavilySearchRe
 
 _QUERY_LIMIT: Final = 3
 _SOURCE_LIMIT: Final = 2
-_TOKENS: Final = 1800
+_TOKENS: Final = 12000
+_JSON_TEMPERATURE: Final = 0.2
 _IMAGE_PROMPT_LIMIT: Final = 1500
 _JSON_FENCE: Final = "```"
 _ProgressCallback = Callable[[str, int, str], Awaitable[None]]
@@ -106,8 +108,14 @@ class SupplementGenerator:
     async def _request_json(
         self, prompt: str, *, stage: str
     ) -> tuple[dict[str, Any], bool]:
+        model = get_settings().deepseek_fast_model
         raw = await self._ai.chat_completion(
-            _SYSTEM, prompt, max_tokens=_TOKENS, json_mode=True
+            _SYSTEM,
+            prompt,
+            max_tokens=_TOKENS,
+            temperature=_JSON_TEMPERATURE,
+            model=model,
+            json_mode=True,
         )
         try:
             return _json_object(raw), False
@@ -129,7 +137,12 @@ class SupplementGenerator:
                 ensure_ascii=False,
             )
             retry_raw = await self._ai.chat_completion(
-                _SYSTEM, retry_prompt, max_tokens=_TOKENS, json_mode=True
+                _SYSTEM,
+                retry_prompt,
+                max_tokens=_TOKENS,
+                temperature=_JSON_TEMPERATURE,
+                model=model,
+                json_mode=True,
             )
             try:
                 return _json_object(retry_raw), True

@@ -303,3 +303,44 @@ async def test_generate_when_json_is_invalid_twice_should_fail_safely() -> None:
 
     assert ai.chat_completion.await_count == 2
     search.search.assert_not_awaited()
+
+
+async def test_generate_when_requesting_json_should_use_fast_model_and_large_budget(
+    mocker: MockerFixture,
+) -> None:
+    """Короткий JSON не должен обрезаться из-за рассуждений основной модели."""
+    settings = mocker.patch("app.services.supplement_generator.get_settings")
+    settings.return_value.deepseek_fast_model = "deepseek-fast-test"
+    ai = AsyncMock()
+    ai.chat_completion.side_effect = [
+        json.dumps({"queries": ["кварц физика"]}),
+        json.dumps(
+            {
+                "title": "Кварц",
+                "text": (
+                    "Кварц создаёт электрический заряд при сжатии, поэтому его "
+                    "используют в точных датчиках давления."
+                ),
+                "source_urls": ["https://example.org/quartz"],
+                "reason": "Понятный бытовой пример",
+                "image_prompt": "Кристалл кварца рядом с датчиком давления",
+            }
+        ),
+    ]
+    search = AsyncMock()
+    search.search.return_value = [
+        TavilySearchResult(
+            "Quartz",
+            "https://example.org/quartz",
+            "Quartz produces an electric charge under mechanical stress.",
+        )
+    ]
+
+    await SupplementGenerator(ai, search).generate(
+        "fact", "Наука простыми словами", [], {}, datetime.now(UTC)
+    )
+
+    for request in ai.chat_completion.await_args_list:
+        assert request.kwargs["model"] == "deepseek-fast-test"
+        assert request.kwargs["max_tokens"] >= 8000
+        assert request.kwargs["temperature"] <= 0.3
