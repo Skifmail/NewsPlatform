@@ -35,3 +35,28 @@ async def test_resolve_when_invalid_response_should_fail(mocker: MockerFixture) 
     mocker.patch.object(MaxReviewClient, "request", new=AsyncMock(return_value={}))
     with pytest.raises(SupplementError):
         await MaxReviewClient().resolve_chat_id("paragraph")
+
+
+async def test_send_when_image_provided_should_attach_image_before_keyboard(
+    mocker: MockerFixture,
+) -> None:
+    """Карточка согласования содержит ту же картинку и кнопки решения."""
+    client = MaxReviewClient()
+    upload = mocker.patch.object(
+        client, "_upload_image", new=AsyncMock(return_value="image-token")
+    )
+    request = mocker.patch.object(
+        client,
+        "request",
+        new=AsyncMock(return_value={"message": {"body": {"mid": "mid"}}}),
+    )
+    buttons = [[{"type": "callback", "text": "Одобрить", "payload": "ok"}]]
+
+    await client.send("Текст", user_id=7, buttons=buttons, image_bytes=b"jpeg")
+
+    upload.assert_awaited_once_with(b"jpeg")
+    body = request.await_args.kwargs["body"]
+    assert body["attachments"] == [
+        {"type": "image", "payload": {"token": "image-token"}},
+        {"type": "inline_keyboard", "payload": {"buttons": buttons}},
+    ]

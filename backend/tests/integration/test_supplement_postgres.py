@@ -67,6 +67,9 @@ async def postgres_sessions(
                     review_mid="mid",
                     target_chat_id="-10",
                     sources=[{"url": "https://example.org"}],
+                    image_url="local://covers/test.png",
+                    image_source="generated",
+                    image_prompt="Тестовая обложка",
                 )
             )
             await session.commit()
@@ -84,6 +87,11 @@ async def test_decision_when_concurrent_callbacks_should_accept_once(
     """Конкурирующие обработчики не принимают два решения."""
     mocker.patch(
         "app.services.supplement_service.MaxReviewClient", return_value=AsyncMock()
+    )
+    mocker.patch.object(
+        SupplementService,
+        "_image_bytes",
+        new=AsyncMock(return_value=b"same-image"),
     )
 
     async def decide() -> str:
@@ -105,6 +113,11 @@ async def test_publish_when_concurrent_workers_should_send_once(
     client = AsyncMock()
     client.send.return_value = {"mid": "published", "url": "https://example.org/post"}
     mocker.patch("app.services.supplement_service.MaxReviewClient", return_value=client)
+    mocker.patch.object(
+        SupplementService,
+        "_image_bytes",
+        new=AsyncMock(return_value=b"same-image"),
+    )
     async with postgres_sessions() as session:
         await SupplementService(session).decide(1, 1, 7, "mid", "approve")
 

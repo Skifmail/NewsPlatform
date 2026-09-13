@@ -49,6 +49,27 @@ def test_validate_text_when_decimal_should_keep_single_sentence() -> None:
     validate_text("Измеренное значение составило 3.14 единицы.", "fact")
 
 
+def test_validate_text_when_fact_is_expert_level_should_raise() -> None:
+    """Не пропускает отклонённую редактором перегруженную формулировку."""
+    with pytest.raises(SupplementError, match="простыми словами"):
+        validate_text(
+            "Физики из Университета Карнеги-Меллона обнаружили аномальный эффект "
+            "Холла в плоскости низкоразмерной системы, показав, что электрический "
+            "отклик возникает и при параллельном магнитном поле, что меняет "
+            "столетнее представление.",
+            "fact",
+        )
+
+
+def test_validate_text_when_fact_is_plain_should_allow() -> None:
+    """Пропускает один короткий факт с одной понятной мыслью."""
+    validate_text(
+        "Утконос находит добычу с закрытыми глазами, улавливая клювом слабые "
+        "электрические сигналы её мышц.",
+        "fact",
+    )
+
+
 @pytest.mark.parametrize(
     ("state", "user", "version", "message"),
     [

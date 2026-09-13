@@ -5,7 +5,7 @@ import json
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Final, cast
 
 from loguru import logger
 from sqlalchemy import select
@@ -21,6 +21,7 @@ from app.domain.supplements import (
     validate_decision,
     validate_text,
 )
+from app.infrastructure.ai.image_service import ImageGenPrompts, ImageService
 from app.infrastructure.models.channel import Channel
 from app.infrastructure.models.processed_post import ProcessedPost
 from app.infrastructure.models.publish_log import PublishLog
@@ -29,6 +30,9 @@ from app.infrastructure.publishers.max_review_client import MaxReviewClient
 from app.infrastructure.search.tavily_client import TavilySearchResult
 from app.repositories.setting_repository import SettingRepository
 from app.repositories.supplement_repository import SupplementRepository
+from app.services.media_asset_service import MediaAssetService
+from app.services.platform_settings_service import PlatformSettingsService
+from app.services.prompt_service import PromptService
 from app.services.supplement_generator import SupplementGenerator, _fresh
 
 _TOKEN_BYTES: Final = 32
@@ -61,15 +65,73 @@ class SupplementService:
         repo: Репозиторий атомарных изменений.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        image_service: ImageService | None = None,
+    ) -> None:
         """Подключает сессию и существующий бот.
 
         Args:
             session: Сессия БД.
+            image_service: Сервис обложек или тестовая замена.
         """
         self._session = session
         self.repo = SupplementRepository(session)
         self._max = MaxReviewClient()
+        self._images = image_service
+
+    async def _image_service(self) -> ImageService:
+        if self._images is not None:
+            return self._images
+        prompts = PromptService(self._session)
+        image_prompts = ImageGenPrompts(
+            no_text_negative=await prompts.get("negative.qwen_no_text"),
+            news_negative=await prompts.get("negative.qwen_news"),
+            cover_template=await prompts.get("image.cover_prompt"),
+            postcard_cover_template=await prompts.get("image.cover_prompt_postcard"),
+        )
+        merged = await PlatformSettingsService(self._session).get_merged()
+        self._images = ImageService.from_settings_dict(
+            merged,
+            prompts=image_prompts,
+        )
+        return self._images
+
+    async def _generate_image(
+        self,
+        draft: SupplementDraft,
+        channel: Channel,
+        image_prompt: str,
+    ) -> tuple[str, str]:
+        images = await self._image_service()
+        image_url, image_source = await images.resolve_article_image(
+            channel=channel,
+            article_title=draft.title,
+            topic=channel.topic,
+            image_prompt=image_prompt,
+            teaser=draft.text,
+        )
+        if not image_url or image_source == "none":
+            raise SupplementError(
+                "OpenAI не создал обложку; материал не отправлен на согласование"
+            )
+        return image_url, image_source
+
+    async def _image_bytes(self, draft: SupplementDraft) -> bytes:
+        if not draft.image_url:
+            raise SupplementError(
+                "У этой версии нет обложки; подготовьте материал заново"
+            )
+        result = await (await self._image_service()).download_and_resize(
+            draft.image_url
+        )
+        if not result:
+            raise SupplementError(
+                "Сохранённая обложка недоступна; подготовьте материал заново"
+            )
+        return cast(bytes, result)
 
     async def reserve(
         self,
@@ -144,7 +206,7 @@ class SupplementService:
             channel_id=channel_id,
             kind=kind,
         )
-        return draft.id
+        return cast(int, draft.id)
 
     async def generate(self, draft_id: int) -> None:
         """Подготавливает сохранённое задание без отправки в канал.
@@ -160,29 +222,67 @@ class SupplementService:
             await self._session.commit()
             return
         draft.status = "generating"
-        history = await self.repo.history(draft.channel_id, draft.id)
         snapshot = dict(draft.trace)
-        settings = SettingRepository(self._session)
-        search_settings = {
-            "keys_raw": await settings.get("tavily_api_keys", "[]"),
-            "active_key_id": await settings.get("tavily_active_key_id", ""),
-            "auto_switch": (await settings.get("tavily_auto_switch", "true")).lower()
-            == "true",
-        }
+        channel = await self._session.get(Channel, draft.channel_id)
+        if channel is None:
+            raise SupplementError("Канал не найден")
         await self._session.commit()
         try:
-            result = await SupplementGenerator().generate(
-                draft.requested_kind,
-                str(snapshot["rules"]),
-                history,
-                search_settings,
-                datetime.now(UTC),
-                fact_rules=str(snapshot["fact_rules"]),
-                news_rules=str(snapshot["news_rules"]),
-            )
-        except SupplementError as exc:
+            if snapshot.get("regenerate_image_only") is True:
+                if not draft.image_prompt:
+                    raise SupplementError(
+                        "Нет описания обложки; перегенерируйте весь материал"
+                    )
+                image_url, image_source = await self._generate_image(
+                    draft,
+                    channel,
+                    draft.image_prompt,
+                )
+                draft.image_url = image_url
+                draft.image_source = image_source
+                draft.trace = {
+                    key: value
+                    for key, value in snapshot.items()
+                    if key != "regenerate_image_only"
+                }
+            else:
+                history = await self.repo.history(draft.channel_id, draft.id)
+                settings = SettingRepository(self._session)
+                search_settings = {
+                    "keys_raw": await settings.get("tavily_api_keys", "[]"),
+                    "active_key_id": await settings.get("tavily_active_key_id", ""),
+                    "auto_switch": (
+                        await settings.get("tavily_auto_switch", "true")
+                    ).lower()
+                    == "true",
+                }
+                result = await SupplementGenerator().generate(
+                    draft.requested_kind,
+                    str(snapshot["rules"]),
+                    history,
+                    search_settings,
+                    datetime.now(UTC),
+                    fact_rules=str(snapshot["fact_rules"]),
+                    news_rules=str(snapshot["news_rules"]),
+                )
+                draft.kind = result["kind"]
+                draft.title = result["title"]
+                draft.text = result["text"]
+                draft.sources = result["sources"]
+                draft.image_prompt = result["image_prompt"]
+                draft.trace = {**snapshot, **result["trace"]}
+                draft.image_url, draft.image_source = await self._generate_image(
+                    draft,
+                    channel,
+                    draft.image_prompt,
+                )
+        except (SupplementError, RuntimeError, ValueError, TypeError, KeyError) as exc:
             draft.status = "generation_failed"
-            draft.error = str(exc)
+            draft.error = (
+                str(exc)
+                if isinstance(exc, SupplementError)
+                else "Не удалось создать обязательную обложку материала"
+            )
             await self._session.commit()
             logger.warning(
                 "Подготовка дополнительного материала не завершена",
@@ -190,11 +290,6 @@ class SupplementService:
                 reason=str(exc),
             )
             return
-        draft.kind = result["kind"]
-        draft.title = result["title"]
-        draft.text = result["text"]
-        draft.sources = result["sources"]
-        draft.trace = {**snapshot, **result["trace"]}
         draft.status = "review_pending"
         draft.error = None
         await self._session.commit()
@@ -218,6 +313,12 @@ class SupplementService:
             await self._session.commit()
             return
         recipient = config.recipient_id
+        try:
+            image_bytes = await self._image_bytes(draft)
+        except SupplementError as exc:
+            draft.status, draft.error = "delivery_failed", str(exc)
+            await self._session.commit()
+            return
         draft.status = "delivering"
         await self._session.commit()
         label = "Короткий факт" if draft.kind == "fact" else "Научная новость"
@@ -249,7 +350,12 @@ class SupplementService:
                     draft.target_chat_id
                 )
                 await self._session.commit()
-            result = await self._max.send(text, user_id=recipient, buttons=buttons)
+            result = await self._max.send(
+                text,
+                user_id=recipient,
+                buttons=buttons,
+                image_bytes=image_bytes,
+            )
             draft.review_mid = result["mid"]
             draft.status = "awaiting"
             draft.error = None
@@ -302,6 +408,8 @@ class SupplementService:
             )
         if action == "approve":
             validate_text(draft.text, draft.kind)
+            if not draft.image_url:
+                raise SupplementError("У этой версии нет обложки")
             self._check_freshness(draft)
         draft.status = "approved" if action == "approve" else "rejected"
         draft.decided_by = user_id
@@ -313,7 +421,7 @@ class SupplementService:
             action=action,
             user_id=user_id,
         )
-        return draft.status
+        return cast(str, draft.status)
 
     def _check_freshness(self, draft: SupplementDraft) -> None:
         if draft.kind == "news" and (
@@ -363,6 +471,7 @@ class SupplementService:
                 raise SupplementError("Канал выключен или изменён после согласования")
             self._check_freshness(draft)
             validate_text(draft.text, draft.kind)
+            image_bytes = await self._image_bytes(draft)
             if not re.fullmatch(r"-?\d+", draft.target_chat_id):
                 raise SupplementError(
                     "Для согласования укажите числовой ID канала MAX в "
@@ -377,7 +486,9 @@ class SupplementService:
         await self._session.commit()
         try:
             result = await self._max.send(
-                publication_text(draft), chat_id=draft.target_chat_id
+                publication_text(draft),
+                chat_id=draft.target_chat_id,
+                image_bytes=image_bytes,
             )
         except DeliveryUncertain as exc:
             draft.status, draft.error = "publish_unknown", str(exc)
@@ -390,6 +501,8 @@ class SupplementService:
                 channel_id=draft.channel_id,
                 rewritten_text=publication_text(draft),
                 article_title=draft.title,
+                generated_image_url=draft.image_url,
+                image_source=draft.image_source,
                 content_mode="news",
                 status="published",
                 published_at=datetime.now(UTC),
@@ -405,6 +518,10 @@ class SupplementService:
             )
             self._session.add(post)
             await self._session.flush()
+            await MediaAssetService(self._session).register_from_post(
+                post,
+                title=draft.title,
+            )
             draft.processed_post_id = post.id
             self._session.add(
                 PublishLog(
@@ -468,9 +585,17 @@ class SupplementService:
             ],
         }
         draft.text = text.strip()
+        if not draft.image_prompt:
+            draft.image_prompt = (
+                f"Научно-популярная иллюстрация к теме «{draft.title}»: "
+                f"{draft.text}"
+            )
         draft.revision += 1
         draft.review_mid = None
-        draft.status, draft.error = "review_pending", None
+        draft.image_url = None
+        draft.image_source = None
+        draft.trace = {**draft.trace, "regenerate_image_only": True}
+        draft.status, draft.error = "queued", None
         draft.decided_by, draft.decided_at = None, None
         await self._session.commit()
 

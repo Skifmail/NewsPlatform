@@ -56,6 +56,7 @@ class SupplementDraft(Base):
         trace: Снимок правил, поиска, объяснения модели и проверок.
         status: Состояние подготовки, согласования или доставки.
         target_chat_id: Адрес канала, зафиксированный перед показом редактору.
+        image_url: Сохранённая обложка показанной версии.
     """
 
     __tablename__ = "supplement_drafts"
@@ -71,6 +72,9 @@ class SupplementDraft(Base):
     kind: Mapped[str] = mapped_column(String(10), default="fact")
     title: Mapped[str] = mapped_column(String(255), default="")
     text: Mapped[str] = mapped_column(Text, default="")
+    image_url: Mapped[str | None] = mapped_column(Text)
+    image_source: Mapped[str | None] = mapped_column(String(50))
+    image_prompt: Mapped[str | None] = mapped_column(Text)
     sources: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     trace: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(30), default="queued", index=True)

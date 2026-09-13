@@ -2,7 +2,7 @@
 
 import re
 from typing import Any, Final
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, quote, urlparse, urlsplit
 
 import aiohttp
 
@@ -112,6 +112,7 @@ class MaxReviewClient:
         user_id: int | None = None,
         chat_id: str | None = None,
         buttons: list[list[dict[str, str]]] | None = None,
+        image_bytes: bytes | None = None,
     ) -> dict[str, str]:
         """Отправляет ровно переданный обычный текст, без незаметного оформления.
 
@@ -120,6 +121,7 @@ class MaxReviewClient:
             user_id: Личный получатель.
             chat_id: Канал назначения.
             buttons: Кнопки только личной карточки.
+            image_bytes: Сохранённая обложка показываемой версии.
 
         Returns:
             Идентификатор и ссылка на сообщение.
@@ -137,10 +139,16 @@ class MaxReviewClient:
         )
         params["disable_link_preview"] = "true"
         body: dict[str, Any] = {"text": text}
+        attachments: list[dict[str, Any]] = []
+        if image_bytes:
+            image_token = await self._upload_image(image_bytes)
+            attachments.append({"type": "image", "payload": {"token": image_token}})
         if buttons:
-            body["attachments"] = [
+            attachments.append(
                 {"type": "inline_keyboard", "payload": {"buttons": buttons}}
-            ]
+            )
+        if attachments:
+            body["attachments"] = attachments
         data = await self.request("POST", "/messages", params=params, body=body)
         message = data.get("message", {})
         mid = message.get("body", {}).get("mid") if isinstance(message, dict) else None
@@ -149,6 +157,64 @@ class MaxReviewClient:
                 "MAX не вернул идентификатор отправленного сообщения"
             )
         return {"mid": str(mid), "url": str(message.get("url") or "")}
+
+    async def _upload_image(self, image_bytes: bytes) -> str:
+        token = get_settings().max_bot_token
+        if not token:
+            raise SupplementError("MAX_BOT_TOKEN не настроен")
+        try:
+            async with max_client_session(
+                timeout=aiohttp.ClientTimeout(total=_TIMEOUT)
+            ) as http:
+                async with http.post(
+                    f"{get_max_api_base()}/uploads",
+                    params={"type": "image"},
+                    headers={"Authorization": token},
+                ) as response:
+                    if response.status >= 400:
+                        raise SupplementError(
+                            f"MAX отклонил загрузку обложки: HTTP {response.status}"
+                        )
+                    metadata = await response.json()
+                upload_url = metadata.get("url") if isinstance(metadata, dict) else None
+                if not isinstance(upload_url, str) or not upload_url:
+                    raise SupplementError("MAX не вернул адрес загрузки обложки")
+                form = aiohttp.FormData()
+                form.add_field(
+                    "data",
+                    image_bytes,
+                    filename="supplement.jpg",
+                    content_type="image/jpeg",
+                )
+                async with http.post(upload_url, data=form) as upload_response:
+                    if upload_response.status >= 400:
+                        raise SupplementError(
+                            "MAX отклонил файл обложки: "
+                            f"HTTP {upload_response.status}"
+                        )
+                    payload = await upload_response.json()
+        except SupplementError:
+            raise
+        except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
+            raise DeliveryUncertain(
+                "MAX не подтвердил загрузку обложки; повторите вручную"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise SupplementError("MAX вернул некорректный ответ загрузки обложки")
+        top_level = payload.get("token")
+        if isinstance(top_level, str) and top_level:
+            return top_level
+        photos = payload.get("photos")
+        if isinstance(photos, dict):
+            for photo in photos.values():
+                if isinstance(photo, dict):
+                    nested = photo.get("token")
+                    if isinstance(nested, str) and nested:
+                        return nested
+        query_token = parse_qs(urlparse(upload_url).query).get("token", [None])[0]
+        if isinstance(query_token, str) and query_token:
+            return query_token
+        raise SupplementError("MAX не вернул токен загруженной обложки")
 
     async def update_review(self, mid: str, text: str) -> None:
         """Обновляет карточку и убирает обработанные кнопки.

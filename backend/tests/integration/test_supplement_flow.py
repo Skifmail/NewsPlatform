@@ -44,6 +44,11 @@ def transport(mocker: MockerFixture) -> AsyncMock:
     client = AsyncMock()
     client.send.return_value = {"mid": "sent", "url": "https://max.ru/c/10/sent"}
     mocker.patch("app.services.supplement_service.MaxReviewClient", return_value=client)
+    mocker.patch.object(
+        SupplementService,
+        "_image_bytes",
+        new=AsyncMock(return_value=b"same-image"),
+    )
     return client
 
 
@@ -61,6 +66,9 @@ async def _draft(session: AsyncSession, state: str = "awaiting") -> SupplementDr
         revision=1,
         target_chat_id="-10",
         sources=[{"url": "https://nasa.gov/a"}],
+        image_url="local://covers/fact.png",
+        image_source="generated",
+        image_prompt="Металл и дерево на нейтральном фоне",
     )
     session.add(draft)
     await session.commit()
@@ -100,6 +108,7 @@ async def test_publish_when_approved_twice_should_send_once(
     assert draft.status == "published"
     assert draft.processed_post_id is not None
     assert transport.send.await_count == 1
+    assert transport.send.await_args.kwargs["image_bytes"] == b"same-image"
 
 
 async def test_publish_when_timeout_should_block_automatic_retry(
@@ -125,6 +134,9 @@ async def test_edit_when_waiting_should_invalidate_old_buttons(
     service = SupplementService(session)
     await service.edit(draft.id, "Дерево проводит тепло хуже металла.")
     assert draft.revision == 2
+    assert draft.status == "queued"
+    assert draft.image_url is None
+    assert draft.trace["regenerate_image_only"] is True
     with pytest.raises(SupplementError):
         await service.decide(draft.id, 1, 7, "mid", "approve")
     transport.send.assert_not_awaited()
@@ -204,6 +216,7 @@ async def test_deliver_when_waiting_should_send_only_to_editor(
     assert draft.status == "awaiting"
     assert transport.send.call_args.kwargs["user_id"] == 7
     assert "chat_id" not in transport.send.call_args.kwargs
+    assert transport.send.call_args.kwargs["image_bytes"] == b"same-image"
     assert "Одобрить" in str(transport.send.call_args.kwargs["buttons"])
 
 
@@ -319,3 +332,61 @@ async def test_deliver_when_public_channel_should_pin_resolved_target(
     await service.publish(draft.id)
     assert draft.status == "published"
     assert transport.send.call_args.kwargs["chat_id"] == "-10"
+
+
+async def test_generate_when_text_ready_should_create_cover_before_review(
+    session: AsyncSession, transport: AsyncMock, mocker: MockerFixture
+) -> None:
+    """Новый материал не попадает на согласование без сгенерированной обложки."""
+    draft = await _draft(session, "queued")
+    generator = mocker.patch("app.services.supplement_service.SupplementGenerator")
+    generator.return_value.generate = AsyncMock(
+        return_value={
+            "kind": "fact",
+            "title": "Как утконос ищет добычу",
+            "text": "Утконос находит добычу, улавливая клювом электрические сигналы.",
+            "sources": [{"url": "https://example.org/platypus"}],
+            "image_prompt": "Утконос под водой ищет небольшую добычу",
+            "trace": {"selection_reason": "Понятный факт"},
+        }
+    )
+    images = AsyncMock()
+    images.resolve_article_image.return_value = (
+        "local://covers/platypus.png",
+        "generated",
+    )
+
+    await SupplementService(session, image_service=images).generate(draft.id)
+
+    assert draft.status == "review_pending"
+    assert draft.image_url == "local://covers/platypus.png"
+    assert draft.image_source == "generated"
+    images.resolve_article_image.assert_awaited_once()
+
+
+async def test_generate_when_cover_fails_should_not_deliver_text(
+    session: AsyncSession, transport: AsyncMock, mocker: MockerFixture
+) -> None:
+    """Сбой обязательной картинки блокирует карточку и публикацию текста."""
+    draft = await _draft(session, "queued")
+    generator = mocker.patch("app.services.supplement_service.SupplementGenerator")
+    generator.return_value.generate = AsyncMock(
+        return_value={
+            "kind": "fact",
+            "title": "Кварц",
+            "text": "Кварц вырабатывает напряжение, когда его сжимают.",
+            "sources": [{"url": "https://example.org/quartz"}],
+            "image_prompt": "Кристалл кварца под давлением",
+            "trace": {},
+        }
+    )
+    images = AsyncMock()
+    images.resolve_article_image.return_value = (None, "none")
+    service = SupplementService(session, image_service=images)
+
+    await service.generate(draft.id)
+    await service.deliver(draft.id)
+
+    assert draft.status == "generation_failed"
+    assert "облож" in str(draft.error).lower()
+    transport.send.assert_not_awaited()

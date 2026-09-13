@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.api.deps import AuthDep, DbSession
 from app.core.config import get_settings
 from app.domain.supplements import MOSCOW, SupplementError, due_kind
+from app.infrastructure.media_store import public_media_url
 from app.infrastructure.models.supplement import SupplementConfig, SupplementDraft
 from app.infrastructure.publishers.max_review_client import MaxReviewClient
 from app.repositories.setting_repository import SettingRepository
@@ -137,6 +138,8 @@ def _draft_response(draft: SupplementDraft) -> dict[str, Any]:
         "kind",
         "title",
         "text",
+        "image_source",
+        "image_prompt",
         "sources",
         "trace",
         "status",
@@ -152,6 +155,7 @@ def _draft_response(draft: SupplementDraft) -> dict[str, Any]:
     )
     return {
         **{key: getattr(draft, key) for key in keys},
+        "image_url": public_media_url(draft.image_url),
         "publication_text": publication_text(draft) if draft.text else "",
     }
 

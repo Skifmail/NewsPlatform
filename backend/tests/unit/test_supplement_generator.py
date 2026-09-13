@@ -26,6 +26,7 @@ async def test_generate_when_model_invents_source_should_fail(
                 "text": "Кварц обладает пьезоэффектом.",
                 "source_urls": [url],
                 "reason": "Бытовая физика",
+                "image_prompt": "Кристалл кварца крупным планом",
             }
         ),
     ]
@@ -53,6 +54,7 @@ async def test_generate_when_news_has_no_dated_sources_should_fallback(
                 "text": "Кварц обладает пьезоэффектом.",
                 "source_urls": ["https://nasa.gov/x"],
                 "reason": "Физика",
+                "image_prompt": "Кристалл кварца крупным планом",
             }
         ),
     ]
@@ -97,6 +99,7 @@ async def test_generate_when_fresh_news_should_preserve_sources_and_prompts() ->
                 ),
                 "source_urls": ["https://example.org/research"],
                 "reason": "Понятная инженерия",
+                "image_prompt": "Небольшой кварцевый датчик в лаборатории",
             }
         ),
     ]
@@ -116,6 +119,58 @@ async def test_generate_when_fresh_news_should_preserve_sources_and_prompts() ->
     assert result["sources"][0]["published_date"] == "2026-09-11T12:00:00Z"
     assert result["trace"]["writing_prompt"]
     assert result["trace"]["selection_reason"] == "Понятная инженерия"
+    assert result["image_prompt"] == "Небольшой кварцевый датчик в лаборатории"
     search.search.assert_awaited_once_with(
         "новое исследование кварца", time_range="week"
     )
+
+
+async def test_generate_when_text_is_complex_should_rewrite_plainly() -> None:
+    """Сложный первый вариант переписывается без повторного поиска."""
+    ai = AsyncMock()
+    ai.chat_completion.side_effect = [
+        json.dumps({"queries": ["эффект Холла исследование"]}),
+        json.dumps(
+            {
+                "title": "Эффект Холла",
+                "text": (
+                    "Физики обнаружили аномальный эффект Холла в плоскости "
+                    "низкоразмерной системы, показав, что электрический отклик "
+                    "возникает при параллельном магнитном поле, что меняет "
+                    "столетнее представление."
+                ),
+                "source_urls": ["https://example.org/hall"],
+                "reason": "Неожиданный результат",
+                "image_prompt": "Лабораторная установка с магнитом",
+            }
+        ),
+        json.dumps(
+            {
+                "title": "Магнитное поле удивило физиков",
+                "text": (
+                    "Электрический ток повёл себя необычно, когда магнитное поле "
+                    "направили вдоль тонкого материала."
+                ),
+                "source_urls": ["https://example.org/hall"],
+                "reason": "Тот же факт простыми словами",
+                "image_prompt": "Тонкий материал между полюсами магнита",
+            }
+        ),
+    ]
+    search = AsyncMock()
+    search.search.return_value = [
+        TavilySearchResult(
+            "Hall effect",
+            "https://example.org/hall",
+            "Researchers measured an in-plane anomalous Hall effect.",
+        )
+    ]
+
+    result = await SupplementGenerator(ai, search).generate(
+        "fact", "Наука простыми словами", [], {}, datetime.now(UTC)
+    )
+
+    assert result["text"].startswith("Электрический ток повёл себя необычно")
+    assert result["image_prompt"] == "Тонкий материал между полюсами магнита"
+    assert ai.chat_completion.await_count == 3
+    search.search.assert_awaited_once()

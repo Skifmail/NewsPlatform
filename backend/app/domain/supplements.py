@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 MOSCOW: Final = ZoneInfo("Europe/Moscow")
 FACT_LIMIT: Final = 500
 NEWS_LIMIT: Final = 1000
+PLAIN_SENTENCE_WORD_LIMIT: Final = 24
+PLAIN_SENTENCE_COMMA_LIMIT: Final = 1
 NEWS_MAX_AGE_DAYS: Final = 7
 HISTORY_LIMIT: Final = 80
 PAIR_TTL_MINUTES: Final = 15
@@ -18,9 +20,13 @@ DEFAULT_RULES: Final = (
     "Не давать медицинских советов и инструкций опасных опытов. "
     "Предпочитать первоисточники: исследования, университеты, научные организации."
 )
-FACT_RULES: Final = "Один самостоятельный факт, одно предложение, ориентир 20–35 слов."
+FACT_RULES: Final = (
+    "Один самостоятельный факт, одно предложение из 12–22 слов. "
+    "Одна мысль простыми словами для читателя без специальных знаний."
+)
 NEWS_RULES: Final = (
-    "2–3 коротких предложения: что произошло, почему интересно, ограничения. "
+    "2–3 коротких предложения, каждое до 24 слов: что произошло, почему интересно, "
+    "ограничения. Объяснять простыми словами для читателя без специальных знаний. "
     "Отличать гипотезу от результата, лабораторный опыт от готовой технологии."
 )
 
@@ -79,7 +85,7 @@ def due_kind(
 
 
 def validate_text(text: str, kind: str) -> None:
-    """Проверяет длину, обычный текст и число предложений.
+    """Проверяет длину, структуру и понятность текста.
 
     Args:
         text: Текст без служебных подписей и источников.
@@ -100,6 +106,16 @@ def validate_text(text: str, kind: str) -> None:
         raise SupplementError("Факт должен состоять из одного предложения")
     if kind == "news" and not 2 <= len(sentences) <= 3:
         raise SupplementError("Новость должна состоять из двух–трёх предложений")
+    for sentence in sentences:
+        words = re.findall(r"[A-Za-zА-Яа-яЁё0-9]+(?:-[A-Za-zА-Яа-яЁё0-9]+)*", sentence)
+        if (
+            len(words) > PLAIN_SENTENCE_WORD_LIMIT
+            or sentence.count(",") > PLAIN_SENTENCE_COMMA_LIMIT
+        ):
+            raise SupplementError(
+                "Перепишите материал простыми словами: одна мысль в коротком "
+                "предложении без цепочки уточнений"
+            )
 
 
 def validate_decision(
