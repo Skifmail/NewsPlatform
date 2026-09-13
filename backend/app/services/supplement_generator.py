@@ -26,6 +26,7 @@ _QUERY_LIMIT: Final = 3
 _SOURCE_LIMIT: Final = 2
 _TOKENS: Final = 12000
 _JSON_TEMPERATURE: Final = 0.2
+_PLAIN_LANGUAGE_ATTEMPTS: Final = 2
 _IMAGE_PROMPT_LIMIT: Final = 1500
 _JSON_FENCE: Final = "```"
 _ProgressCallback = Callable[[str, int, str], Awaitable[None]]
@@ -362,42 +363,59 @@ class SupplementGenerator:
         try:
             validate_text(text, kind)
         except SupplementError as first_error:
-            await _notify(
-                progress,
-                "simplifying",
-                58,
-                "Упрощаем формулировки и повторно проверяем текст",
-            )
-            rewrite_prompt = json.dumps(
-                {
-                    "task": (
-                        "Перепиши тот же подтверждённый материал проще. Не добавляй "
-                        "фактов и не меняй source_urls. Верни полный объект с title, "
-                        "text, image_prompt, source_urls и reason. Факт — одно "
-                        "предложение из 12–22 слов; новость — 2–3 предложения до "
-                        "24 слов каждое. Одна мысль в предложении, не более одной "
-                        "запятой, без специальных терминов без объяснения."
+            validation_error = first_error
+            for attempt in range(1, _PLAIN_LANGUAGE_ATTEMPTS + 1):
+                await _notify(
+                    progress,
+                    "simplifying",
+                    58,
+                    (
+                        "Упрощаем формулировки и повторно проверяем текст "
+                        f"({attempt}/{_PLAIN_LANGUAGE_ATTEMPTS})"
                     ),
-                    "problem": str(first_error),
-                    "draft": result,
-                    "sources": [asdict(s) for s in usable.values()],
-                },
-                ensure_ascii=False,
-            )
-            result, plain_language_json_retry = await self._request_json(
-                rewrite_prompt, stage="plain_language"
-            )
-            trace["plain_language_retry_prompt"] = rewrite_prompt
-            trace["plain_language_json_retry"] = plain_language_json_retry
-            title, text = result.get("title"), result.get("text")
-            if (
-                not isinstance(title, str)
-                or not title.strip()
-                or len(title) > 255
-                or not isinstance(text, str)
-            ):
-                raise SupplementError("Некорректный упрощённый текст") from first_error
-            validate_text(text, kind)
+                )
+                rewrite_prompt = json.dumps(
+                    {
+                        "task": (
+                            "Перепиши тот же подтверждённый материал проще. Не "
+                            "добавляй фактов и не меняй source_urls. Верни полный "
+                            "объект с title, text, image_prompt, source_urls и "
+                            "reason. Факт — строго одно предложение из 12–22 слов "
+                            "и только одна точка в самом конце; новость — 2–3 "
+                            "предложения до 24 слов каждое. Одна мысль в "
+                            "предложении, не более одной запятой, без специальных "
+                            "терминов без объяснения."
+                        ),
+                        "problem": str(validation_error),
+                        "attempt": attempt,
+                        "draft": result,
+                        "sources": [asdict(s) for s in usable.values()],
+                    },
+                    ensure_ascii=False,
+                )
+                result, plain_language_json_retry = await self._request_json(
+                    rewrite_prompt, stage="plain_language"
+                )
+                trace["plain_language_retry_prompt"] = rewrite_prompt
+                trace["plain_language_json_retry"] = plain_language_json_retry
+                trace["plain_language_attempts"] = attempt
+                title, text = result.get("title"), result.get("text")
+                if (
+                    not isinstance(title, str)
+                    or not title.strip()
+                    or len(title) > 255
+                    or not isinstance(text, str)
+                ):
+                    raise SupplementError(
+                        "Некорректный упрощённый текст"
+                    ) from first_error
+                try:
+                    validate_text(text, kind)
+                    break
+                except SupplementError as retry_error:
+                    validation_error = retry_error
+                    if attempt == _PLAIN_LANGUAGE_ATTEMPTS:
+                        raise
         if is_topic_too_similar(title, history):
             raise SupplementError("Тема повторяет недавнюю публикацию; выберите другую")
         urls = result.get("source_urls")

@@ -344,3 +344,57 @@ async def test_generate_when_requesting_json_should_use_fast_model_and_large_bud
         assert request.kwargs["model"] == "deepseek-fast-test"
         assert request.kwargs["max_tokens"] >= 8000
         assert request.kwargs["temperature"] <= 0.3
+
+
+async def test_generate_when_simplification_is_invalid_should_retry_plain_text() -> (
+    None
+):
+    """Повторно сложный факт должен получить ещё одну безопасную редактуру."""
+    source_url = "https://example.org/quartz"
+    common = {
+        "title": "Кварц",
+        "source_urls": [source_url],
+        "reason": "Понятный бытовой пример",
+        "image_prompt": "Кристалл кварца рядом с датчиком давления",
+    }
+    ai = AsyncMock()
+    ai.chat_completion.side_effect = [
+        json.dumps({"queries": ["кварц физика"]}),
+        json.dumps(
+            {
+                **common,
+                "text": "Кварц создаёт электрический заряд. Его применяют в датчиках.",
+            }
+        ),
+        json.dumps(
+            {
+                **common,
+                "text": "Кварц реагирует на сжатие. Так работают точные датчики.",
+            }
+        ),
+        json.dumps(
+            {
+                **common,
+                "text": (
+                    "Кварц создаёт электрический заряд при сжатии, поэтому его "
+                    "используют в точных датчиках давления."
+                ),
+            }
+        ),
+    ]
+    search = AsyncMock()
+    search.search.return_value = [
+        TavilySearchResult(
+            "Quartz",
+            source_url,
+            "Quartz produces an electric charge under mechanical stress.",
+        )
+    ]
+
+    result = await SupplementGenerator(ai, search).generate(
+        "fact", "Наука простыми словами", [], {}, datetime.now(UTC)
+    )
+
+    assert result["text"].startswith("Кварц создаёт электрический заряд при сжатии")
+    assert result["trace"]["plain_language_attempts"] == 2
+    assert ai.chat_completion.await_count == 4
