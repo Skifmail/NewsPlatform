@@ -55,6 +55,10 @@ class SupplementDraft(Base):
         revision: Версия, включаемая в кнопки согласования.
         trace: Снимок правил, поиска, объяснения модели и проверок.
         status: Состояние подготовки, согласования или доставки.
+        progress_stage: Текущий наблюдаемый этап фоновой работы.
+        progress_percent: Оценка завершённости этапов от 0 до 100.
+        progress_detail: Понятное пользователю описание текущей операции.
+        progress_updated_at: Время последнего подтверждённого продвижения.
         target_chat_id: Адрес канала, зафиксированный перед показом редактору.
         image_url: Сохранённая обложка показанной версии.
     """
@@ -78,6 +82,14 @@ class SupplementDraft(Base):
     sources: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     trace: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
+    progress_stage: Mapped[str] = mapped_column(String(40), default="queued")
+    progress_percent: Mapped[int] = mapped_column(default=5)
+    progress_detail: Mapped[str] = mapped_column(
+        String(255), default="Задание ожидает запуска"
+    )
+    progress_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     revision: Mapped[int] = mapped_column(default=1)
     review_mid: Mapped[str | None] = mapped_column(String(255))
     target_chat_id: Mapped[str] = mapped_column(String(255), default="")

@@ -44,3 +44,23 @@ def test_draft_when_image_exists_should_show_approved_cover() -> None:
     assert 'class="draft-cover"' in page
     assert "mediaUrl(draft.image_url)" in page
     assert "Эта картинка придёт в MAX" in page
+
+
+def test_draft_when_preparing_should_show_animated_named_progress() -> None:
+    """Подготовка должна показывать этап, процент и анимированную шкалу."""
+    page = VIEW_PATH.read_text(encoding="utf-8")
+
+    assert 'class="generation-progress"' in page
+    assert 'role="progressbar"' in page
+    assert "draft.progress_percent" in page
+    assert "progressStageLabel" in page
+    assert "progress-shimmer" in page
+
+
+def test_draft_when_progress_is_stale_should_explain_possible_delay() -> None:
+    """Давно не обновлявшаяся работа не должна выглядеть как нормальная."""
+    page = VIEW_PATH.read_text(encoding="utf-8")
+
+    assert "isProgressStalled" in page
+    assert "Давно нет обновлений" in page
+    assert "3000" in page

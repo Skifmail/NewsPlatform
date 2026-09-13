@@ -77,6 +77,24 @@
         <article v-for="draft in visibleDrafts" :key="draft.id" class="draft">
           <div class="draft-header"><span class="badge" :class="{ failed: draft.error, done: draft.status === 'published' }">{{ statusLabel(draft.status) }}</span><span class="muted">{{ kindLabel(draft.kind) }} · версия {{ draft.revision }} · {{ formatDate(draft.created_at) }}</span></div>
           <h3>{{ draft.title || 'Материал готовится' }}</h3>
+          <div v-if="isProgressVisible(draft)" class="generation-progress" :class="{ stalled: isProgressStalled(draft) }">
+            <div class="progress-heading">
+              <span class="progress-live-dot" aria-hidden="true"></span>
+              <div>
+                <strong>{{ progressStageLabel(draft.progress_stage) }}</strong>
+                <p>{{ draft.progress_detail || 'Получаем актуальное состояние процесса…' }}</p>
+              </div>
+              <strong class="progress-percent">{{ progressValue(draft) }}%</strong>
+            </div>
+            <div class="progress-track" role="progressbar" :aria-label="progressStageLabel(draft.progress_stage)" :aria-valuenow="progressValue(draft)" aria-valuemin="0" aria-valuemax="100">
+              <div class="progress-fill" :style="{ width: `${progressValue(draft)}%` }"><span class="progress-shimmer"></span></div>
+            </div>
+            <div class="progress-steps" aria-label="Этапы подготовки">
+              <span v-for="step in progressSteps" :key="step.percent" :class="{ complete: progressValue(draft) >= step.percent, current: isCurrentStep(draft, step) }">{{ step.label }}</span>
+            </div>
+            <p class="progress-updated">{{ progressAge(draft) }}</p>
+            <p v-if="isProgressStalled(draft)" class="progress-warning">Давно нет обновлений. Возможно, внешний сервис отвечает дольше обычного; платформа продолжает проверять состояние.</p>
+          </div>
           <div v-if="draft.image_url" class="cover-block">
             <img class="draft-cover" :src="mediaUrl(draft.image_url)" :alt="draft.title || 'Обложка материала'" />
             <p class="muted">Эта картинка придёт в MAX на одобрение и после одобрения будет опубликована вместе с текстом.</p>
@@ -122,7 +140,17 @@ const days = ['Понедельник', 'Вторник', 'Среда', 'Чет�
 const channels = ref([]), channelId = ref(null), config = ref(null), form = ref(null), drafts = ref([])
 const connection = ref({}), webhookUrl = ref(''), pairUrl = ref(''), busy = ref(false), loading = ref(true)
 const error = ref(''), notice = ref(''), filter = ref('all'), editId = ref(null), editText = ref('')
+const nowMs = ref(Date.now())
 let timer, refreshPending = false, loadedChannelId = null
+const progressSteps = [
+  { label: 'Источники', percent: 5, until: 47 },
+  { label: 'Текст', percent: 48, until: 71 },
+  { label: 'Обложка', percent: 72, until: 87 },
+  { label: 'Отправка в MAX', percent: 88, until: 100 },
+]
+const activeProgressStatuses = ['queued', 'generating', 'review_pending', 'delivering']
+const stalledStatuses = ['queued', 'generating', 'delivering']
+const STALLED_AFTER_MS = 3 * 60 * 1000
 const configFields = ['enabled', 'clock', 'fact_days', 'news_day', 'rules', 'fact_rules', 'news_rules']
 const editableConfig = (value) => Object.fromEntries(configFields.map((key) => [key, JSON.parse(JSON.stringify(value[key]))]))
 const dirty = computed(() => config.value && form.value && JSON.stringify(form.value) !== JSON.stringify(editableConfig(config.value)))
@@ -134,6 +162,18 @@ const canRegenerate = (draft) => editable(draft) || ['generation_failed', 'publi
 const visibleDrafts = computed(() => drafts.value.filter((draft) => filter.value === 'all' || (filter.value === 'review' && ['awaiting', 'review_pending'].includes(draft.status)) || (filter.value === 'errors' && isError(draft)) || (filter.value === 'published' && draft.status === 'published')))
 const kindLabel = (kind) => kind === 'news' ? 'Научная новость' : 'Короткий факт'
 const statusLabel = (status) => ({ queued: 'В очереди подготовки', generating: 'Текст и обложка готовятся', review_pending: 'Ожидает отправки в MAX', delivering: 'Отправляется редактору', awaiting: 'Ждёт вашего решения в MAX', approved: 'Одобрено · ожидает отправки', publishing: 'Публикуется', published: 'Опубликовано', rejected: 'Отклонено / пропущено', generation_failed: 'Ошибка подготовки', delivery_failed: 'Не доставлено редактору', delivery_unknown: 'Доставка карточки не подтверждена', publish_failed: 'Публикация отклонена', publish_unknown: 'Проверьте канал вручную' }[status] || status)
+const progressStageLabel = (stage) => ({ queued: 'Ожидает запуска', planning: 'Подбор темы', searching: 'Поиск и проверка источников', writing: 'Написание текста', simplifying: 'Упрощение текста', text_ready: 'Текст проверен', image: 'Создание обложки OpenAI', ready_for_delivery: 'Подготовка сообщения', delivering: 'Отправка в MAX', awaiting_approval: 'Доставлено редактору', failed: 'Подготовка остановлена' }[stage] || 'Подготовка материала')
+const progressValue = (draft) => Math.min(100, Math.max(0, Number(draft.progress_percent) || (draft.status === 'queued' ? 5 : 10)))
+const isProgressVisible = (draft) => activeProgressStatuses.includes(draft.status)
+const progressTimestamp = (draft) => new Date(draft.progress_updated_at || draft.updated_at || draft.created_at).getTime()
+const isProgressStalled = (draft) => stalledStatuses.includes(draft.status) && nowMs.value - progressTimestamp(draft) > STALLED_AFTER_MS
+const progressAge = (draft) => {
+  const seconds = Math.max(0, Math.floor((nowMs.value - progressTimestamp(draft)) / 1000))
+  if (seconds < 15) return 'Состояние обновлено только что'
+  if (seconds < 60) return `Последнее продвижение ${seconds} сек. назад`
+  return `Последнее продвижение ${Math.floor(seconds / 60)} мин. назад`
+}
+const isCurrentStep = (draft, step) => progressValue(draft) >= step.percent && progressValue(draft) <= step.until
 const formatDate = (value) => value ? new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) + ' МСК' : ''
 const safeLink = (value) => { try { const url = new URL(value); return url.protocol === 'https:' ? url.href : null } catch { return null } }
 const mediaUrl = (value) => { if (!value) return ''; if (value.startsWith('/api/media/')) return value; return safeLink(value) || '' }
@@ -201,10 +241,11 @@ onMounted(async () => {
   })
   loading.value = false
   timer = setInterval(async () => {
+    nowMs.value = Date.now()
     if (busy.value || refreshPending || document.hidden || !channelId.value) return
     refreshPending = true
     try { await loadChannel() } catch (exc) { error.value = errorText(exc) } finally { refreshPending = false }
-  }, 10000)
+  }, 3000)
 })
 onUnmounted(() => clearInterval(timer))
 </script>
@@ -227,9 +268,18 @@ label { display: block; font-size: .83rem; font-weight: 550; margin: 12px 0; } l
 .notice { padding: 12px 16px; border-radius: 10px; background: #0ea5e912; border: 1px solid #0ea5e933; overflow-wrap: anywhere; } .notice.error { background: #ef444412; border-color: #ef444455; } .notice.success { background: #14b8a612; border-color: #14b8a655; } .connected { color: #0d9488; font-weight: 550; }
 details { margin: 16px 0; } summary { cursor: pointer; font-size: .85rem; font-weight: 550; } details .btn-secondary { margin-top: 6px; }
 .draft { border-top: 1px solid #64748b33; padding: 22px 0 8px; } .draft-header { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; } .badge { border-radius: 20px; padding: 5px 10px; font-size: .73rem; background: #0ea5e919; color: var(--text-primary); } .badge.failed { background: #ef444419; } .badge.done { background: #14b8a619; }
+.generation-progress { max-width: 850px; margin: 14px 0 18px; padding: 16px; border: 1px solid #14b8a644; border-radius: 12px; background: linear-gradient(120deg, #14b8a60c, #0ea5e908); }
+.progress-heading { display: grid; grid-template-columns: 10px 1fr auto; align-items: start; gap: 10px; } .progress-heading p { margin: 2px 0 0; color: var(--text-secondary); font-size: .82rem; }
+.progress-live-dot { width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: #14b8a6; box-shadow: 0 0 0 0 #14b8a666; animation: progress-pulse 1.6s ease-out infinite; } .progress-percent { color: #2dd4bf; font-variant-numeric: tabular-nums; }
+.progress-track { height: 9px; margin: 14px 0 12px; overflow: hidden; border-radius: 999px; background: #64748b2b; } .progress-fill { position: relative; height: 100%; min-width: 5px; overflow: hidden; border-radius: inherit; background: linear-gradient(90deg, #0d9488, #2dd4bf); transition: width .5s ease; }
+.progress-shimmer { position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, #ffffff66, transparent); animation: progress-shimmer 1.5s ease-in-out infinite; }
+.progress-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; } .progress-steps span { padding-top: 7px; border-top: 2px solid #64748b33; color: var(--text-secondary); font-size: .7rem; } .progress-steps span.complete { border-color: #14b8a677; } .progress-steps span.current { color: var(--text-primary); border-color: #2dd4bf; font-weight: 650; }
+.progress-updated { margin: 10px 0 0; color: var(--text-secondary); font-size: .75rem; } .progress-warning { margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: #f59e0b16; border: 1px solid #f59e0b44; color: #fbbf24; font-size: .8rem; } .generation-progress.stalled .progress-live-dot { background: #f59e0b; animation-duration: 3s; }
+@keyframes progress-shimmer { to { transform: translateX(100%); } } @keyframes progress-pulse { 70% { box-shadow: 0 0 0 7px #14b8a600; } 100% { box-shadow: 0 0 0 0 #14b8a600; } }
+@media (prefers-reduced-motion: reduce) { .progress-live-dot, .progress-shimmer { animation: none; } .progress-fill { transition: none; } }
 .post-preview { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: .95rem; line-height: 1.75; margin: 16px 0; max-width: 850px; }
 .cover-block { max-width: 720px; margin: 16px 0; } .draft-cover { display: block; width: 100%; max-height: 420px; object-fit: cover; border-radius: 12px; border: 1px solid #64748b33; }
 .trace { background: #64748b08; padding: 14px; border-radius: 10px; } .trace-json { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; max-height: 450px; overflow-y: auto; } .source-snippet { font-size: .8rem; color: var(--text-secondary); }
 a { color: #0d9488; text-decoration: underline; overflow-wrap: anywhere; } .empty { padding: 25px 0; color: var(--text-secondary); } button:disabled { opacity: .45; cursor: not-allowed; } .edit-box { padding: 16px; border: 1px solid #14b8a644; border-radius: 12px; }
-@media (max-width: 850px) { .settings-grid, .rules-grid { grid-template-columns: 1fr; } .intro { align-items: stretch; flex-direction: column; } .panel { padding: 18px; } .filter-label { margin-left: 0; } }
+@media (max-width: 850px) { .settings-grid, .rules-grid { grid-template-columns: 1fr; } .intro { align-items: stretch; flex-direction: column; } .panel { padding: 18px; } .filter-label { margin-left: 0; } .progress-steps { grid-template-columns: 1fr 1fr; } }
 </style>

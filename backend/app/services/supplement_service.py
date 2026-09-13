@@ -99,6 +99,19 @@ class SupplementService:
         )
         return self._images
 
+    async def _set_progress(
+        self,
+        draft: SupplementDraft,
+        stage: str,
+        percent: int,
+        detail: str,
+    ) -> None:
+        draft.progress_stage = stage
+        draft.progress_percent = max(draft.progress_percent, min(percent, 100))
+        draft.progress_detail = detail[:255]
+        draft.progress_updated_at = datetime.now(UTC)
+        await self._session.commit()
+
     async def _generate_image(
         self,
         draft: SupplementDraft,
@@ -190,6 +203,10 @@ class SupplementService:
             requested_kind=kind,
             kind=kind,
             target_chat_id=channel.platform_id,
+            progress_stage="queued",
+            progress_percent=5,
+            progress_detail="Задание ожидает запуска",
+            progress_updated_at=datetime.now(UTC),
             trace={
                 "rules": config.rules,
                 "fact_rules": config.fact_rules,
@@ -226,13 +243,24 @@ class SupplementService:
         channel = await self._session.get(Channel, draft.channel_id)
         if channel is None:
             raise SupplementError("Канал не найден")
-        await self._session.commit()
+        await self._set_progress(
+            draft,
+            "planning",
+            10,
+            "Запускаем подготовку и читаем редакционные правила",
+        )
         try:
             if snapshot.get("regenerate_image_only") is True:
                 if not draft.image_prompt:
                     raise SupplementError(
                         "Нет описания обложки; перегенерируйте весь материал"
                     )
+                await self._set_progress(
+                    draft,
+                    "image",
+                    72,
+                    "Создаём новую обложку OpenAI для исправленного текста",
+                )
                 image_url, image_source = await self._generate_image(
                     draft,
                     channel,
@@ -264,6 +292,9 @@ class SupplementService:
                     datetime.now(UTC),
                     fact_rules=str(snapshot["fact_rules"]),
                     news_rules=str(snapshot["news_rules"]),
+                    progress=lambda stage, percent, detail: self._set_progress(
+                        draft, stage, percent, detail
+                    ),
                 )
                 draft.kind = result["kind"]
                 draft.title = result["title"]
@@ -271,6 +302,12 @@ class SupplementService:
                 draft.sources = result["sources"]
                 draft.image_prompt = result["image_prompt"]
                 draft.trace = {**snapshot, **result["trace"]}
+                await self._set_progress(
+                    draft,
+                    "image",
+                    72,
+                    "Текст готов — создаём уникальную обложку через OpenAI",
+                )
                 draft.image_url, draft.image_source = await self._generate_image(
                     draft,
                     channel,
@@ -283,6 +320,9 @@ class SupplementService:
                 if isinstance(exc, SupplementError)
                 else "Не удалось создать обязательную обложку материала"
             )
+            draft.progress_stage = "failed"
+            draft.progress_detail = "Подготовка остановлена из-за ошибки"
+            draft.progress_updated_at = datetime.now(UTC)
             await self._session.commit()
             logger.warning(
                 "Подготовка дополнительного материала не завершена",
@@ -292,7 +332,12 @@ class SupplementService:
             return
         draft.status = "review_pending"
         draft.error = None
-        await self._session.commit()
+        await self._set_progress(
+            draft,
+            "ready_for_delivery",
+            88,
+            "Текст и обложка готовы — готовим карточку для MAX",
+        )
 
     async def deliver(self, draft_id: int) -> None:
         """Отправляет карточку редактору, фиксируя неопределённые результаты.
@@ -320,7 +365,12 @@ class SupplementService:
             await self._session.commit()
             return
         draft.status = "delivering"
-        await self._session.commit()
+        await self._set_progress(
+            draft,
+            "delivering",
+            94,
+            "Отправляем текст, обложку и кнопки одобрения в MAX",
+        )
         label = "Короткий факт" if draft.kind == "fact" else "Научная новость"
         fallback = str(draft.trace.get("fallback_reason") or "")
         text = (
@@ -359,6 +409,10 @@ class SupplementService:
             draft.review_mid = result["mid"]
             draft.status = "awaiting"
             draft.error = None
+            draft.progress_stage = "awaiting_approval"
+            draft.progress_percent = 100
+            draft.progress_detail = "Материал доставлен и ждёт вашего решения в MAX"
+            draft.progress_updated_at = datetime.now(UTC)
         except DeliveryUncertain as exc:
             draft.status, draft.error = "delivery_unknown", str(exc)
         except SupplementError as exc:
@@ -596,6 +650,10 @@ class SupplementService:
         draft.image_source = None
         draft.trace = {**draft.trace, "regenerate_image_only": True}
         draft.status, draft.error = "queued", None
+        draft.progress_stage = "queued"
+        draft.progress_percent = 5
+        draft.progress_detail = "Задание ожидает запуска"
+        draft.progress_updated_at = datetime.now(UTC)
         draft.decided_by, draft.decided_at = None, None
         await self._session.commit()
 
@@ -637,6 +695,11 @@ class SupplementService:
         draft.status = (
             "queued" if draft.status == "generation_failed" else "review_pending"
         )
+        if draft.status == "queued":
+            draft.progress_stage = "queued"
+            draft.progress_percent = 5
+            draft.progress_detail = "Задание ожидает запуска"
+            draft.progress_updated_at = datetime.now(UTC)
         draft.revision += 1
         draft.review_mid, draft.error = None, None
         draft.decided_at, draft.decided_by = None, None

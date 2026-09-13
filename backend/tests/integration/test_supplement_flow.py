@@ -397,3 +397,74 @@ async def test_generate_when_cover_fails_should_not_deliver_text(
     assert draft.status == "generation_failed"
     assert "облож" in str(draft.error).lower()
     transport.send.assert_not_awaited()
+
+
+async def test_generate_when_pipeline_advances_should_persist_named_progress(
+    session: AsyncSession, transport: AsyncMock, mocker: MockerFixture
+) -> None:
+    """Каждый длительный этап должен сохраняться для наблюдения из GUI."""
+    draft = await _draft(session, "queued")
+    observed: list[tuple[str, int, str]] = []
+
+    async def generate_result(*args: object, **kwargs: object) -> dict[str, object]:
+        progress = kwargs["progress"]
+        await progress("searching", 30, "Ищем надёжные источники")  # type: ignore[operator]
+        observed.append(
+            (
+                draft.progress_stage,
+                draft.progress_percent,
+                draft.progress_detail,
+            )
+        )
+        await progress("writing", 50, "Пишем понятный текст")  # type: ignore[operator]
+        observed.append(
+            (
+                draft.progress_stage,
+                draft.progress_percent,
+                draft.progress_detail,
+            )
+        )
+        return {
+            "kind": "fact",
+            "title": "Как утконос ищет добычу",
+            "text": "Утконос находит добычу, улавливая клювом электрические сигналы.",
+            "sources": [{"url": "https://example.org/platypus"}],
+            "image_prompt": "Утконос под водой ищет небольшую добычу",
+            "trace": {"selection_reason": "Понятный факт"},
+        }
+
+    generator = mocker.patch("app.services.supplement_service.SupplementGenerator")
+    generator.return_value.generate = AsyncMock(side_effect=generate_result)
+    images = AsyncMock()
+    images.resolve_article_image.return_value = (
+        "local://covers/platypus.png",
+        "generated",
+    )
+
+    await SupplementService(session, image_service=images).generate(draft.id)
+
+    assert observed == [
+        ("searching", 30, "Ищем надёжные источники"),
+        ("writing", 50, "Пишем понятный текст"),
+    ]
+    assert draft.progress_stage == "ready_for_delivery"
+    assert draft.progress_percent == 88
+    assert draft.progress_updated_at is not None
+
+
+async def test_retry_when_generation_failed_should_reset_progress(
+    session: AsyncSession, transport: AsyncMock
+) -> None:
+    """Повтор подготовки должен начинать индикатор с очереди."""
+    draft = await _draft(session, "generation_failed")
+    draft.progress_stage = "failed"
+    draft.progress_percent = 50
+    draft.progress_detail = "Подготовка остановлена"
+    await session.commit()
+
+    await SupplementService(session).retry(draft.id)
+
+    assert draft.status == "queued"
+    assert draft.progress_stage == "queued"
+    assert draft.progress_percent == 5
+    assert draft.progress_detail == "Задание ожидает запуска"
