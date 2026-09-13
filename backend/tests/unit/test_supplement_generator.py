@@ -174,3 +174,96 @@ async def test_generate_when_text_is_complex_should_rewrite_plainly() -> None:
     assert result["image_prompt"] == "Тонкий материал между полюсами магнита"
     assert ai.chat_completion.await_count == 3
     search.search.assert_awaited_once()
+
+
+async def test_generate_when_model_wraps_json_in_markdown_should_accept_response() -> (
+    None
+):
+    """JSON в Markdown-блоке не должен останавливать подготовку материала."""
+    ai = AsyncMock()
+    ai.chat_completion.side_effect = [
+        '```json\n{"queries": ["кварц физика"]}\n```',
+        "```json\n"
+        + json.dumps(
+            {
+                "title": "Кварц",
+                "text": (
+                    "Кварц создаёт электрический заряд при сжатии, поэтому его "
+                    "используют в точных датчиках давления."
+                ),
+                "source_urls": ["https://example.org/quartz"],
+                "reason": "Понятный бытовой пример",
+                "image_prompt": "Кристалл кварца рядом с датчиком давления",
+            },
+            ensure_ascii=False,
+        )
+        + "\n```",
+    ]
+    search = AsyncMock()
+    search.search.return_value = [
+        TavilySearchResult(
+            "Quartz",
+            "https://example.org/quartz",
+            "Quartz produces an electric charge under mechanical stress.",
+        )
+    ]
+
+    result = await SupplementGenerator(ai, search).generate(
+        "fact", "Наука простыми словами", [], {}, datetime.now(UTC)
+    )
+
+    assert result["title"] == "Кварц"
+    assert ai.chat_completion.await_count == 2
+
+
+async def test_generate_when_writing_json_is_invalid_should_retry_once() -> None:
+    """Повреждённый ответ модели должен быть повторно запрошен один раз."""
+    ai = AsyncMock()
+    ai.chat_completion.side_effect = [
+        json.dumps({"queries": ["кварц физика"]}),
+        '{"title": "Кварц", "text":',
+        json.dumps(
+            {
+                "title": "Кварц",
+                "text": (
+                    "Кварц создаёт электрический заряд при сжатии, поэтому его "
+                    "используют в точных датчиках давления."
+                ),
+                "source_urls": ["https://example.org/quartz"],
+                "reason": "Понятный бытовой пример",
+                "image_prompt": "Кристалл кварца рядом с датчиком давления",
+            }
+        ),
+    ]
+    search = AsyncMock()
+    search.search.return_value = [
+        TavilySearchResult(
+            "Quartz",
+            "https://example.org/quartz",
+            "Quartz produces an electric charge under mechanical stress.",
+        )
+    ]
+
+    result = await SupplementGenerator(ai, search).generate(
+        "fact", "Наука простыми словами", [], {}, datetime.now(UTC)
+    )
+
+    assert result["title"] == "Кварц"
+    assert result["trace"]["writing_json_retry"] is True
+    assert "валидный JSON-объект" in ai.chat_completion.await_args_list[2].args[1]
+    assert ai.chat_completion.await_count == 3
+
+
+async def test_generate_when_json_is_invalid_twice_should_fail_safely() -> None:
+    """Два повреждённых ответа не должны приводить к поиску или публикации."""
+    ai = AsyncMock()
+    ai.chat_completion.side_effect = ["не json", '{"queries": [']
+    search = AsyncMock()
+
+    with pytest.raises(SupplementError, match="дважды вернула некорректный JSON"):
+        await SupplementGenerator(ai, search).generate(
+            "fact", "Наука простыми словами", [], {}, datetime.now(UTC)
+        )
+
+    assert ai.chat_completion.await_count == 2
+    search.search.assert_not_awaited()
