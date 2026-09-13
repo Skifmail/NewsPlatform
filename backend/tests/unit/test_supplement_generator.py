@@ -216,6 +216,42 @@ async def test_generate_when_model_wraps_json_in_markdown_should_accept_response
     assert ai.chat_completion.await_count == 2
 
 
+async def test_generate_when_reasoning_precedes_json_should_accept_response() -> None:
+    """Служебное рассуждение модели не должно скрывать готовый JSON-объект."""
+    ai = AsyncMock()
+    ai.chat_completion.side_effect = [
+        '<think>Подбираю тему</think>\n{"queries": ["кварц физика"]}',
+        json.dumps(
+            {
+                "title": "Кварц",
+                "text": (
+                    "Кварц создаёт электрический заряд при сжатии, поэтому его "
+                    "используют в точных датчиках давления."
+                ),
+                "source_urls": ["https://example.org/quartz"],
+                "reason": "Понятный бытовой пример",
+                "image_prompt": "Кристалл кварца рядом с датчиком давления",
+            },
+            ensure_ascii=False,
+        ),
+    ]
+    search = AsyncMock()
+    search.search.return_value = [
+        TavilySearchResult(
+            "Quartz",
+            "https://example.org/quartz",
+            "Quartz produces an electric charge under mechanical stress.",
+        )
+    ]
+
+    result = await SupplementGenerator(ai, search).generate(
+        "fact", "Наука простыми словами", [], {}, datetime.now(UTC)
+    )
+
+    assert result["title"] == "Кварц"
+    assert ai.chat_completion.await_count == 2
+
+
 async def test_generate_when_writing_json_is_invalid_should_retry_once() -> None:
     """Повреждённый ответ модели должен быть повторно запрошен один раз."""
     ai = AsyncMock()

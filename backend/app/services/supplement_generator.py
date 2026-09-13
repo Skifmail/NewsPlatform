@@ -48,7 +48,13 @@ def _json_object(raw: str) -> dict[str, Any]:
     try:
         result = json.loads(candidate)
     except json.JSONDecodeError as exc:
-        raise SupplementError("Модель вернула некорректный JSON") from exc
+        object_start = candidate.find("{")
+        if object_start <= 0:
+            raise SupplementError("Модель вернула некорректный JSON") from exc
+        try:
+            result, _ = json.JSONDecoder().raw_decode(candidate[object_start:])
+        except json.JSONDecodeError as embedded_exc:
+            raise SupplementError("Модель вернула некорректный JSON") from embedded_exc
     if not isinstance(result, dict):
         raise SupplementError("Модель вернула не объект")
     return result
