@@ -66,6 +66,13 @@ async def _draft(session: AsyncSession, state: str = "awaiting") -> SupplementDr
         revision=1,
         target_chat_id="-10",
         sources=[{"url": "https://nasa.gov/a"}],
+        trace={
+            "rules": "Наука простыми словами",
+            "fact_rules": "Один короткий факт",
+            "news_rules": "Два коротких предложения",
+            "configured_platform_id": "-10",
+            "channel_name": "ПАРАГРАФ",
+        },
         image_url="local://covers/fact.png",
         image_source="generated",
         image_prompt="Металл и дерево на нейтральном фоне",
