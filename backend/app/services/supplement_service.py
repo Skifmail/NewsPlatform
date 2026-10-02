@@ -46,16 +46,15 @@ def _utc(value: datetime) -> datetime:
 
 
 def publication_text(draft: SupplementDraft) -> str:
-    """Собирает точный текст для просмотра и публикации.
+    """Возвращает текст, который увидит читатель.
 
     Args:
-        draft: Черновик с проверенными источниками.
+        draft: Черновик. Источники остаются в карточке редактора и не входят в текст.
 
     Returns:
-        Обычный текст со ссылками без скрытых добавок публикатора.
+        Обычный текст без списка ссылок и служебных подписей.
     """
-    links = "\n".join(str(source["url"]) for source in draft.sources)
-    return f"{draft.text}\n\nИсточники:\n{links}"
+    return draft.text
 
 
 class SupplementService:

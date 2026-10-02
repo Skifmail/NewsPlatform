@@ -1,15 +1,19 @@
 """Проверки правил дополнительных публикаций до реализации."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
 from app.domain.supplements import (
+    FACT_RULES,
+    NEWS_RULES,
     SupplementError,
     due_kind,
     validate_decision,
     validate_text,
 )
+from app.services.supplement_service import publication_text
 
 
 @pytest.mark.parametrize(
@@ -85,6 +89,23 @@ def test_validate_decision_when_unauthorized_or_stale_should_raise(
     """Защищает от чужого аккаунта, старой версии и повторного нажатия."""
     with pytest.raises(SupplementError):
         validate_decision(state, user, 7, version, 2, message, "mid")
+
+
+def test_rules_ask_for_a_feeling_instead_of_a_disclaimer() -> None:
+    """Финал не должен оставлять читателя с вопросом «и что?»."""
+    assert "и что?" in NEWS_RULES
+    assert "и что?" in FACT_RULES
+    assert "ограничения" not in NEWS_RULES
+    assert "это только модель" in NEWS_RULES
+
+
+def test_publication_text_keeps_the_story_without_sources() -> None:
+    """Ссылки остаются у редактора и не дописываются к тексту для читателя."""
+    draft = SimpleNamespace(
+        text="Тринадцать атомов повторили рождение частиц.",
+        sources=[{"url": "https://example.org/paper", "title": "Статья"}],
+    )
+    assert publication_text(draft) == draft.text
 
 
 def test_validate_decision_when_matching_review_should_allow() -> None:

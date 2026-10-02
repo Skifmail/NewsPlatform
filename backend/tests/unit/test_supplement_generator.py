@@ -117,6 +117,8 @@ async def test_generate_when_fresh_news_should_preserve_sources_and_prompts() ->
     )
     assert result["kind"] == "news"
     assert result["sources"][0]["published_date"] == "2026-09-11T12:00:00Z"
+    assert "и что?" in result["trace"]["writing_prompt"]
+    assert "это только модель" in result["trace"]["writing_prompt"]
     assert result["trace"]["writing_prompt"]
     assert result["trace"]["selection_reason"] == "Понятная инженерия"
     assert result["image_prompt"] == "Небольшой кварцевый датчик в лаборатории"
