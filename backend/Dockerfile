@@ -16,8 +16,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /tmp/gifski.tar.xz /tmp/linux /tmp/mac /tmp/win /tmp/LICENSE /tmp/README.md \
     && rm -rf /var/lib/apt/lists/*
 
+# PyPI mirror is configurable for servers with slow access to pypi.org.
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ENV PIP_DEFAULT_TIMEOUT=60 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --retries 10 --timeout 60 \
+      --index-url "$PIP_INDEX_URL" -r requirements.txt
 
 COPY . .
 RUN chmod +x docker-entrypoint.sh
